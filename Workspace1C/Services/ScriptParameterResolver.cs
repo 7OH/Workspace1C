@@ -15,8 +15,11 @@ namespace Workspace1C.Services;
 /// <c>%connection.filePath%</c>, <c>%connection.password%</c> и т.д.), пароль — также
 /// плоский ключ <c>%password%</c>/<c>{Пароль}</c>, и текущая дата — <c>%date%</c>/<c>{Дата}</c>
 /// (по умолчанию <c>yyyy-MM-dd</c>) либо <c>%date:Формат%</c>/<c>{Дата:Формат}</c>
-/// (формат .NET, например <c>%date:yyyyMMdd_HHmm%</c>). Неизвестный ключ по умолчанию
-/// остаётся в строке как есть; при <c>leaveUnknown=false</c> заменяется пустой строкой.
+/// (формат .NET, например <c>%date:yyyyMMdd_HHmm%</c>). Произвольные поля базы —
+/// <c>%Additional_N%</c>/<c>{Additional_N}</c> (issue #6): значение N-й строки таблицы
+/// «Произвольные поля» вкладки «Идентификатор» (ключи <c>additional_1..N</c>).
+/// Неизвестный ключ по умолчанию остаётся в строке как есть; при
+/// <c>leaveUnknown=false</c> заменяется пустой строкой.
 /// </para>
 /// <para>
 /// Карта значений собирается из явных ключей плюс динамического прохода рефлексией
@@ -136,6 +139,17 @@ public static class ScriptParameterResolver
         map["пароль"] = conn.Password ?? "";
         map["вебurl"] = conn.WebUrl ?? "";
         map["порт"] = conn.Port.ToString();
+
+        // Произвольные поля базы (issue #6): ключи additional_1..N по номеру строки
+        // таблицы «Произвольные поля» (вкладка «Идентификатор»). Токен %Additional_N%
+        // регистронезависим (словарь OrdinalIgnoreCase); номер за пределами списка
+        // остаётся в строке как есть (leaveUnknown) — корректность на откуп пользователя.
+        var additional = infobase.AdditionalFields;
+        if (additional is { Count: > 0 })
+        {
+            for (var i = 0; i < additional.Count; i++)
+                map["additional_" + (i + 1)] = additional[i] ?? "";
+        }
         return map;
     }
 

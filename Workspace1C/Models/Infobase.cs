@@ -608,6 +608,25 @@ public class Infobase : INotifyPropertyChanged
         OnPropertyChanged(nameof(Tags));
     }
 
+    /// <summary>
+    /// Произвольные поля базы (issue #6): значения для подстановок
+    /// <c>%Additional_N%</c> в сценариях запуска скриптов и пользовательских
+    /// действиях. Номер строки (1-based) соответствует индексу в токене.
+    /// Никогда не равен null: при десериализации (в том числе, когда в JSON
+    /// свойство задано как null) значение подменяется пустым списком.
+    /// </summary>
+    private List<string> _additionalFields = new();
+
+    public List<string> AdditionalFields
+    {
+        get => _additionalFields;
+        set
+        {
+            _additionalFields = value ?? new List<string>();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>Дерево метаданных конфигурации.</summary>
     public MetadataNode? MetadataRoot { get; set; }
 

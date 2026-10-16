@@ -210,6 +210,40 @@ public sealed class UtilitiesMenuResolverTests
         Assert.Null(UtilitiesMenuResolver.EnsureNewItemsGroup(null));
     }
 
+    [Fact]
+    public void EnsureNewItemsGroup_ExistingEmptyGroup_BecomesHidden()
+    {
+        // Все пункты каталога размещены в компоновке — новых нет. Группа «Новинки
+        // программы» в рабочем меню скрывается, даже если в файле она помечена
+        // видимой: видимость определяется наличием пунктов, а не галочкой (issue #4).
+        var layout = UtilitiesMenuLayouts.Default();
+        var group = new UtilitiesMenuNode
+        {
+            Kind = "group",
+            GroupId = UtilitiesMenuCatalog.GroupNewItems,
+            Visible = true,
+            Children = new System.Collections.Generic.List<UtilitiesMenuNode>()
+        };
+        layout.Root.Add(group);
+
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.NotNull(result);
+        Assert.False(result.Root[^1].Visible);
+        Assert.Empty(result.Root[^1].Children);
+    }
+
+    [Fact]
+    public void EnsureNewItemsGroup_NoNewItems_NoGroup_ReturnsSameLayout()
+    {
+        // Новых пунктов нет и группы нет — компоновка не меняется (issue #4).
+        var layout = UtilitiesMenuLayouts.Default();
+
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.Same(layout, result);
+    }
+
     /// <summary>Хранилище-заглушка для тестов (без файла на диске).</summary>
     private sealed class MemoryLayoutStore : IUtilitiesMenuLayoutStore
     {

@@ -253,4 +253,13 @@ public sealed class ScriptScenarioEditViewModelTests
         Assert.False(vm.NotifyOnStart);
         Assert.False(vm.KeepOpen);
     }
+
+    [Fact]
+    public void AvailableTokens_ContainsAdditionalPlaceholderExample()
+    {
+        // Пример подстановки произвольного поля базы (issue #6): %Additional_1% —
+        // значение первой строки таблицы «Произвольные поля» вкладки «Идентификатор».
+        Assert.Contains(ScriptScenarioEditViewModel.AvailableTokens,
+            t => t.Token == "%Additional_1%");
+    }
 }

@@ -47,7 +47,10 @@ public class ScriptScenarioEditViewModel : ViewModelBase
         new ScriptTokenHint("%connection.password%", "Script.TokenConnectionPassword"),
         new ScriptTokenHint("%password%", "Script.TokenPassword"),
         new ScriptTokenHint("%date%", "Script.TokenDate"),
-        new ScriptTokenHint("%date:yyyyMMdd_HHmm%", "Script.TokenDateCustom")
+        new ScriptTokenHint("%date:yyyyMMdd_HHmm%", "Script.TokenDateCustom"),
+        // Произвольные поля базы (issue #6): пример подстановки; номер может быть
+        // любым (1..N по строкам таблицы «Произвольные поля» вкладки «Идентификатор»).
+        new ScriptTokenHint("%Additional_1%", "Script.TokenAdditional")
     };
 
     public ScriptScenarioEditViewModel(ScriptScenario? scenario)

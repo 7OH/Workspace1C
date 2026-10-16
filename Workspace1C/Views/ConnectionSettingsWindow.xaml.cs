@@ -98,6 +98,9 @@ namespace Workspace1C
                 Result.IsFavorite = infobase.IsFavorite;
                 Result.IsPinned = infobase.IsPinned;
                 Result.Tags = new List<string>(infobase.Tags);
+                // Произвольные поля базы (issue #6): копируем, чтобы не сбрасывались
+                // при редактировании (как теги).
+                Result.AdditionalFields = new List<string>(infobase.AdditionalFields ?? new List<string>());
                 Result.LastLaunchDate = infobase.LastLaunchDate;
                 Result.MetadataRoot = infobase.MetadataRoot;
             }
@@ -807,6 +810,54 @@ namespace Workspace1C
             {
                 _isSyncingConfiguratorPassword = false;
             }
+        }
+
+        // ===================== Произвольные поля базы (issue #6) =====================
+
+        /// <summary>«Добавить»: модальное окно ввода значения (ESC закрывает, фокус в поле).</summary>
+        private void OnAddAdditionalField_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new NameInputWindow(
+                LocalizationManager.T("Connection.AdditionalFieldEditTitle"),
+                LocalizationManager.T("Connection.AdditionalFieldEditLabel"),
+                LocalizationManager.T("Common.Ok"));
+            dialog.Owner = this;
+            if (dialog.ShowDialog() == true)
+                _viewModel.AddAdditionalField(dialog.Result);
+        }
+
+        /// <summary>«Изменить»: модальное окно с текущим значением выбранной строки.</summary>
+        private void OnEditAdditionalField_Click(object sender, RoutedEventArgs e)
+        {
+            var row = _viewModel.SelectedAdditionalField;
+            if (row is null)
+            {
+                _dialogs.ShowInfo(
+                    LocalizationManager.T("Connection.AdditionalFieldsSelectFirst"),
+                    LocalizationManager.T("Connection.AdditionalFieldsTitle"));
+                return;
+            }
+            var dialog = new NameInputWindow(
+                LocalizationManager.T("Connection.AdditionalFieldEditTitle"),
+                LocalizationManager.T("Connection.AdditionalFieldEditLabel"),
+                LocalizationManager.T("Common.Ok"),
+                row.Value);
+            dialog.Owner = this;
+            if (dialog.ShowDialog() == true)
+                _viewModel.ReplaceAdditionalField(row, dialog.Result);
+        }
+
+        /// <summary>«Удалить»: удаляет выбранную строку таблицы.</summary>
+        private void OnRemoveAdditionalField_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.RemoveAdditionalField(_viewModel.SelectedAdditionalField);
+        }
+
+        /// <summary>«Сценарии…»: открывает список сценариев запуска скриптов (issue #6).</summary>
+        private void OnOpenScenarios_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new ScriptScenariosWindow { Owner = this };
+            win.ShowDialog();
         }
     }
 }

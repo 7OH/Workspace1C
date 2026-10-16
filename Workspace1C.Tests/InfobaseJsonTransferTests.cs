@@ -53,6 +53,7 @@ public sealed class InfobaseJsonTransferTests
             IsPrivate = true,
             Description = "Рабочая база",
             Tags = { "бухгалтерия", "prod" },
+            AdditionalFields = { "доп-поле-1", "доп-поле-2" },
             PlatformVersion = "8.3.27.1644",
             Architecture = "64",
             ConfigurationName = "Бухгалтерия предприятия",
@@ -117,6 +118,7 @@ public sealed class InfobaseJsonTransferTests
         Assert.True(ib.IsPrivate);
         Assert.Equal("Рабочая база", ib.Description);
         Assert.Equal(new[] { "бухгалтерия", "prod" }, ib.Tags);
+        Assert.Equal(new[] { "доп-поле-1", "доп-поле-2" }, ib.AdditionalFields);
         Assert.Equal("8.3.27.1644", ib.PlatformVersion);
         Assert.Equal("64", ib.Architecture);
         Assert.Equal("Бухгалтерия предприятия", ib.ConfigurationName);

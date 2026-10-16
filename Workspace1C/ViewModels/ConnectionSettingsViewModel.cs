@@ -56,6 +56,8 @@ public class ConnectionSettingsViewModel : ViewModelBase
     private string _postLaunchCommand = string.Empty;
     private string _tagInput = string.Empty;
     private IReadOnlyList<string> _availableTags = Array.Empty<string>();
+    /// <summary>Выбранная строка таблицы «Произвольные поля» (issue #6).</summary>
+    private AdditionalFieldRow? _selectedAdditionalField;
 
     // Поля связи ИБ ↔ типовая конфигурация (группа «Привязка» вкладки «Платформа», issue #346).
     private string _updateConfigCode = string.Empty;
@@ -148,6 +150,21 @@ public class ConnectionSettingsViewModel : ViewModelBase
     /// <summary>Теги базы (редактируются в окне свойств, issue #283).</summary>
     public ObservableCollection<string> Tags { get; } = new();
 
+    /// <summary>
+    /// Произвольные поля базы (issue #6): строки таблицы «Произвольные поля» вкладки
+    /// «Идентификатор». Номер строки (<see cref="AdditionalFieldRow.Number"/>) — просто
+    /// порядковый номер (1-based), не редактируется; значение используется в подстановках
+    /// <c>%Additional_N%</c> сценариев запуска скриптов.
+    /// </summary>
+    public ObservableCollection<AdditionalFieldRow> AdditionalFields { get; } = new();
+
+    /// <summary>Выбранная строка таблицы «Произвольные поля» (для кнопок «Изменить»/«Удалить»).</summary>
+    public AdditionalFieldRow? SelectedAdditionalField
+    {
+        get => _selectedAdditionalField;
+        set => SetProperty(ref _selectedAdditionalField, value);
+    }
+
     /// <summary>Существующие теги всех баз для автодополнения при добавлении (issue #283).</summary>
     public IReadOnlyList<string> AvailableTags
     {
@@ -219,6 +236,62 @@ public class ConnectionSettingsViewModel : ViewModelBase
         var item = Tags.FirstOrDefault(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
         if (item is not null)
             Tags.Remove(item);
+    }
+
+    // ===================== Произвольные поля базы (issue #6) =====================
+
+    /// <summary>Добавляет строку произвольного поля (номер — следующий по порядку).</summary>
+    public void AddAdditionalField(string? value)
+    {
+        AdditionalFields.Add(new AdditionalFieldRow
+        {
+            Number = AdditionalFields.Count + 1,
+            Value = value ?? string.Empty
+        });
+        MarkChanged();
+    }
+
+    /// <summary>Заменяет значение строки произвольного поля (номер строки не меняется).</summary>
+    public void ReplaceAdditionalField(AdditionalFieldRow? row, string? value)
+    {
+        if (row is null)
+            return;
+        var index = AdditionalFields.IndexOf(row);
+        if (index < 0)
+            return;
+        // Замена объекта строки обновляет ячейку в UI (ObservableCollection Reset).
+        AdditionalFields[index] = new AdditionalFieldRow { Number = row.Number, Value = value ?? string.Empty };
+        MarkChanged();
+    }
+
+    /// <summary>Удаляет строку произвольного поля и перенумеровывает оставшиеся.</summary>
+    public void RemoveAdditionalField(AdditionalFieldRow? row)
+    {
+        if (row is null || !AdditionalFields.Remove(row))
+            return;
+        if (ReferenceEquals(SelectedAdditionalField, row))
+            SelectedAdditionalField = null;
+        RenumberAdditionalFields();
+        MarkChanged();
+    }
+
+    /// <summary>Перенумеровывает строки таблицы «Произвольные поля» по порядку (1-based).</summary>
+    private void RenumberAdditionalFields()
+    {
+        for (var i = 0; i < AdditionalFields.Count; i++)
+        {
+            var current = AdditionalFields[i];
+            AdditionalFields[i] = new AdditionalFieldRow { Number = i + 1, Value = current.Value };
+        }
+    }
+
+    /// <summary>Помечает наличие несохранённых изменений (для мутаций коллекций).</summary>
+    private void MarkChanged()
+    {
+        if (_isLoading)
+            return;
+        _hasChanges = true;
+        OnPropertyChanged(nameof(HasChanges));
     }
 
     /// <summary>
@@ -1378,6 +1451,12 @@ public class ConnectionSettingsViewModel : ViewModelBase
             foreach (var t in infobase.Tags ?? new List<string>())
                 Tags.Add(t);
 
+            // Произвольные поля базы (issue #6): загружаем строки таблицы для редактирования.
+            AdditionalFields.Clear();
+            var additional = infobase.AdditionalFields ?? new List<string>();
+            for (var i = 0; i < additional.Count; i++)
+                AdditionalFields.Add(new AdditionalFieldRow { Number = i + 1, Value = additional[i] ?? string.Empty });
+
             // Сводка привязки строится при _isLoading = true, чтобы повторный вызов
             // RefreshLinkState() из окна не помечал изменения при открытии (issue #346).
             RefreshLinkState();
@@ -1487,6 +1566,9 @@ public class ConnectionSettingsViewModel : ViewModelBase
         // Теги базы (issue #283): переносим отредактированные теги.
         infobase.Tags = Tags.ToList();
 
+        // Произвольные поля базы (issue #6): переносим строки таблицы.
+        infobase.AdditionalFields = AdditionalFields.Select(r => r.Value).ToList();
+
         // Приватная база (0.3.9.85): флаг скрытия до разблокировки профиля паролем.
         infobase.IsPrivate = IsPrivate;
 
@@ -1561,4 +1643,18 @@ public class ConnectionSettingsViewModel : ViewModelBase
         var trimmed = (command ?? string.Empty).Trim();
         return trimmed.Length == 0 ? null : trimmed;
     }
+}
+
+/// <summary>
+/// Строка таблицы «Произвольные поля» вкладки «Идентификатор» окна свойств базы (issue #6):
+/// порядковый номер (1-based, не редактируется) и значение поля. Значение используется
+/// в подстановках <c>%Additional_N%</c> сценариев запуска скриптов.
+/// </summary>
+public sealed class AdditionalFieldRow
+{
+    /// <summary>Порядковый номер строки (1-based).</summary>
+    public int Number { get; set; }
+
+    /// <summary>Значение произвольного поля.</summary>
+    public string Value { get; set; } = string.Empty;
 }

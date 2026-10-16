@@ -914,4 +914,46 @@ public sealed class ScriptParameterResolverTests
         Assert.Equal("", ScriptParameterResolver.BuildActionCommandLine(null!, MakeInfobase(), FixedNow));
         Assert.Equal("", ScriptParameterResolver.BuildActionShellCommandLine(null!, MakeInfobase(), FixedNow, true));
     }
+
+    // ------------------- Произвольные поля базы (issue #6) -------------------
+
+    [Fact]
+    public void BuildValueMap_AdditionalFields_AddsAdditionalKeys()
+    {
+        var ib = MakeInfobase();
+        ib.AdditionalFields = new System.Collections.Generic.List<string> { "значение-1", "значение-2" };
+
+        var map = Map(ib);
+
+        Assert.Equal("значение-1", map["additional_1"]);
+        Assert.Equal("значение-2", map["additional_2"]);
+        Assert.False(map.ContainsKey("additional_3"));
+    }
+
+    [Fact]
+    public void Resolve_AdditionalToken_SubstitutesRowValue()
+    {
+        var ib = MakeInfobase();
+        ib.AdditionalFields = new System.Collections.Generic.List<string> { "первая строка", "вторая строка" };
+        var map = Map(ib);
+
+        // Оба синтаксиса (%…% и {…}) и любой регистр токена.
+        var result = ScriptParameterResolver.Resolve("%Additional_1%|{additional_2}", map, FixedNow);
+
+        Assert.Equal("первая строка|вторая строка", result);
+    }
+
+    [Fact]
+    public void Resolve_AdditionalTokenOutOfRange_LeavesToken()
+    {
+        var ib = MakeInfobase();
+        ib.AdditionalFields = new System.Collections.Generic.List<string> { "только одна" };
+        var map = Map(ib);
+
+        // Номер за пределами списка остаётся как есть (leaveUnknown) — корректность
+        // номера на откуп пользователя (issue #6).
+        var result = ScriptParameterResolver.Resolve("%Additional_5%", map, FixedNow);
+
+        Assert.Equal("%Additional_5%", result);
+    }
 }

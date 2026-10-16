@@ -51,9 +51,13 @@ public static class UtilitiesMenuResolver
     /// в каталоге есть пункты с признаком «новинка», отсутствующие в компоновке, они
     /// добавляются в группу <see cref="UtilitiesMenuCatalog.GroupNewItems"/>. Группа
     /// создаётся в конце корня, если её нет в компоновке; если она уже есть — используется
-    /// её текущее местоположение (пользователь может менять только его). Видимость группы
-    /// всегда принудительно включается: скрытие в редакторе не влияет на отображение
-    /// при работе.
+    /// её текущее местоположение (пользователь может менять только его).
+    /// <para>
+    /// Видимость группы в рабочем меню определяется НАЛИЧИЕМ пунктов, а не галочкой
+    /// в редакторе структуры: при наличии неразмещённых новинок группа принудительно
+    /// видима (скрытие в редакторе не влияет на отображение), при их отсутствии —
+    /// скрывается, даже если в файле компоновки она помечена видимой.
+    /// </para>
     /// </summary>
     public static UtilitiesMenuLayout? EnsureNewItemsGroup(UtilitiesMenuLayout? layout)
     {
@@ -61,7 +65,14 @@ public static class UtilitiesMenuResolver
             return null;
         var newItems = CollectNewItems(layout);
         if (newItems.Count == 0)
+        {
+            // Новых пунктов нет — группа «Новинки программы» в рабочем меню не показывается
+            // (issue #4): видимость определяется наличием пунктов, а не галочкой в редакторе.
+            var emptyGroup = FindGroup(layout.Root, UtilitiesMenuCatalog.GroupNewItems);
+            if (emptyGroup is not null)
+                emptyGroup.Visible = false;
             return layout;
+        }
 
         var existing = FindGroup(layout.Root, UtilitiesMenuCatalog.GroupNewItems);
         if (existing is not null)

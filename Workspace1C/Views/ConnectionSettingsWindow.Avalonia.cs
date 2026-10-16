@@ -5,6 +5,7 @@ using System.IO;
 using Avalonia.Controls.Primitives;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -103,6 +104,9 @@ namespace Workspace1C
                 Result.IsFavorite = infobase.IsFavorite;
                 Result.IsPinned = infobase.IsPinned;
                 Result.Tags = new List<string>(infobase.Tags);
+                // Произвольные поля базы (issue #6): копируем, чтобы не сбрасывались
+                // при редактировании (как теги).
+                Result.AdditionalFields = new List<string>(infobase.AdditionalFields ?? new List<string>());
                 Result.LastLaunchDate = infobase.LastLaunchDate;
                 Result.MetadataRoot = infobase.MetadataRoot;
             }
@@ -1211,6 +1215,72 @@ namespace Workspace1C
             var copy = SecondaryButton("IconCopy", "Connection.CopyId", OnCopyId_Click, "Connection.CopyIdTooltip");
             copy.Padding = new Thickness(10, 5);
 
+            // Произвольные поля базы (issue #6): таблица «№ | Значение поля» с кнопками
+            // Добавить/Изменить/Удалить и открытием списка сценариев.
+            var additionalTitle = new TextBlock
+            {
+                Text = LocalizationManager.T("Connection.AdditionalFieldsTitle"),
+                FontSize = 12,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 16, 0, 4)
+            };
+            var additionalHint = Hint("Connection.AdditionalFieldsDescription", margin: new Thickness(0, 0, 0, 8), fontSize: 11);
+
+            var additionalList = new ListBox
+            {
+                MinHeight = 150,
+                MaxHeight = 160,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            additionalList.Bind(ListBox.ItemsSourceProperty, new Binding(nameof(ConnectionSettingsViewModel.AdditionalFields)));
+            additionalList.Bind(ListBox.SelectedItemProperty, new Binding(nameof(ConnectionSettingsViewModel.SelectedAdditionalField)));
+            additionalList.ItemTemplate = new FuncDataTemplate<AdditionalFieldRow>((row, _) =>
+            {
+                var grid = new Grid
+                {
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition(new GridLength(48)),
+                        new ColumnDefinition(GridLength.Star)
+                    }
+                };
+                var number = new TextBlock
+                {
+                    Text = row.Number.ToString(),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 0, 0, 0)
+                };
+                Themes.ThemeBrushes.Bind(number, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+                Grid.SetColumn(number, 0);
+                grid.Children.Add(number);
+                var value = new TextBlock
+                {
+                    Text = row.Value,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(8, 0, 0, 0)
+                };
+                Grid.SetColumn(value, 1);
+                grid.Children.Add(value);
+                return grid;
+            });
+
+            var add = SecondaryButton("IconPlus", "Connection.AdditionalFieldsAdd", OnAddAdditionalField_Click,
+                "Connection.AdditionalFieldsAddTooltip", iconBrush: new SolidColorBrush(Color.Parse("#22C55E")));
+            add.Padding = new Thickness(10, 5);
+            add.Margin = new Thickness(0, 0, 8, 0);
+            var edit = SecondaryButton("IconEdit", "Connection.AdditionalFieldsEdit", OnEditAdditionalField_Click,
+                "Connection.AdditionalFieldsEditTooltip");
+            edit.Padding = new Thickness(10, 5);
+            edit.Margin = new Thickness(0, 0, 8, 0);
+            var remove = SecondaryButton("IconDelete", "Connection.AdditionalFieldsDelete", OnRemoveAdditionalField_Click,
+                "Connection.AdditionalFieldsDeleteTooltip", iconBrush: new SolidColorBrush(Color.Parse("#EF4444")));
+            remove.Padding = new Thickness(10, 5);
+            remove.Margin = new Thickness(0, 0, 8, 0);
+            var scenarios = SecondaryButton("IconScript", "Connection.AdditionalFieldsScenarios", OnOpenScenarios_Click,
+                "Connection.AdditionalFieldsScenariosTooltip");
+            scenarios.Padding = new Thickness(10, 5);
+
             return new StackPanel
             {
                 Margin = new Thickness(8, 12, 8, 8),
@@ -1225,6 +1295,14 @@ namespace Workspace1C
                         Orientation = Orientation.Horizontal,
                         Margin = new Thickness(0, 8, 0, 0),
                         Children = { generate, copy }
+                    },
+                    additionalTitle,
+                    additionalHint,
+                    additionalList,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Children = { add, edit, remove, scenarios }
                     }
                 }
             };
@@ -1557,6 +1635,54 @@ namespace Workspace1C
             {
                 _isSyncingConfiguratorPassword = false;
             }
+        }
+
+        // ===================== Произвольные поля базы (issue #6) =====================
+
+        /// <summary>«Добавить»: модальное окно ввода значения (ESC закрывает, фокус в поле).</summary>
+        private void OnAddAdditionalField_Click()
+        {
+            var dialog = new NameInputWindow(
+                LocalizationManager.T("Connection.AdditionalFieldEditTitle"),
+                LocalizationManager.T("Connection.AdditionalFieldEditLabel"),
+                LocalizationManager.T("Common.Ok"));
+            dialog.ShowDialogSync(this);
+            if (dialog.Result is not null)
+                _viewModel.AddAdditionalField(dialog.Result);
+        }
+
+        /// <summary>«Изменить»: модальное окно с текущим значением выбранной строки.</summary>
+        private void OnEditAdditionalField_Click()
+        {
+            var row = _viewModel.SelectedAdditionalField;
+            if (row is null)
+            {
+                _dialogs.ShowInfo(
+                    LocalizationManager.T("Connection.AdditionalFieldsSelectFirst"),
+                    LocalizationManager.T("Connection.AdditionalFieldsTitle"));
+                return;
+            }
+            var dialog = new NameInputWindow(
+                LocalizationManager.T("Connection.AdditionalFieldEditTitle"),
+                LocalizationManager.T("Connection.AdditionalFieldEditLabel"),
+                LocalizationManager.T("Common.Ok"),
+                row.Value);
+            dialog.ShowDialogSync(this);
+            if (dialog.Result is not null)
+                _viewModel.ReplaceAdditionalField(row, dialog.Result);
+        }
+
+        /// <summary>«Удалить»: удаляет выбранную строку таблицы.</summary>
+        private void OnRemoveAdditionalField_Click()
+        {
+            _viewModel.RemoveAdditionalField(_viewModel.SelectedAdditionalField);
+        }
+
+        /// <summary>«Сценарии…»: открывает список сценариев запуска скриптов (issue #6).</summary>
+        private void OnOpenScenarios_Click()
+        {
+            var win = new ScriptScenariosWindow();
+            win.ShowSync(this);
         }
     }
 }

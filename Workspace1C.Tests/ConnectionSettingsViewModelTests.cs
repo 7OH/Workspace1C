@@ -416,4 +416,59 @@ public sealed class ConnectionSettingsViewModelTests
         Assert.Contains(" /ConfigurationRepositoryF \"tcp://dev:555/base\"", arg);
         Assert.DoesNotContain("tcp://tcp://", arg);
     }
+
+    // ======================= Произвольные поля базы (issue #6) =======================
+
+    [Fact]
+    public void LoadFrom_AdditionalFields_FillsRowsWithNumbers()
+    {
+        var vm = new ConnectionSettingsViewModel();
+        var ib = new Infobase
+        {
+            AdditionalFields = new System.Collections.Generic.List<string> { "поле-1", "поле-2" }
+        };
+
+        vm.LoadFrom(ib);
+
+        Assert.Equal(2, vm.AdditionalFields.Count);
+        Assert.Equal(1, vm.AdditionalFields[0].Number);
+        Assert.Equal("поле-1", vm.AdditionalFields[0].Value);
+        Assert.Equal(2, vm.AdditionalFields[1].Number);
+        Assert.Equal("поле-2", vm.AdditionalFields[1].Value);
+    }
+
+    [Fact]
+    public void ApplyTo_AdditionalFields_WritesValues()
+    {
+        var vm = new ConnectionSettingsViewModel();
+        vm.AddAdditionalField("значение-1");
+        vm.AddAdditionalField("значение-2");
+        var ib = new Infobase { Connection = new ConnectionSettings() };
+
+        vm.ApplyTo(ib);
+
+        Assert.Equal(new[] { "значение-1", "значение-2" }, ib.AdditionalFields);
+    }
+
+    [Fact]
+    public void AddReplaceRemove_AdditionalFields_ManagesRowsAndNumbers()
+    {
+        var vm = new ConnectionSettingsViewModel();
+        vm.AddAdditionalField("первая");
+        vm.AddAdditionalField("вторая");
+        vm.AddAdditionalField("третья");
+
+        // Замена значения не меняет номер строки.
+        vm.ReplaceAdditionalField(vm.AdditionalFields[1], "вторая-изменённая");
+        Assert.Equal("вторая-изменённая", vm.AdditionalFields[1].Value);
+        Assert.Equal(2, vm.AdditionalFields[1].Number);
+
+        // Удаление середины перенумеровывает оставшиеся строки.
+        vm.RemoveAdditionalField(vm.AdditionalFields[1]);
+        Assert.Equal(2, vm.AdditionalFields.Count);
+        Assert.Equal(1, vm.AdditionalFields[0].Number);
+        Assert.Equal("первая", vm.AdditionalFields[0].Value);
+        Assert.Equal(2, vm.AdditionalFields[1].Number);
+        Assert.Equal("третья", vm.AdditionalFields[1].Value);
+    }
 }
