@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -845,6 +846,34 @@ namespace Workspace1C
             dialog.Owner = this;
             if (dialog.ShowDialog() == true)
                 _viewModel.ReplaceAdditionalField(row, dialog.Result);
+        }
+
+        /// <summary>
+        /// Двойной клик по строке = правка (issue #6): заголовок и пустая область
+        /// таблицы игнорируются (DataGridRow среди предков источника события не найден),
+        /// невыбранная строка сначала выделяется, затем открывается окно правки.
+        /// </summary>
+        private void OnAdditionalFieldsGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (FindDataGridRow(e.OriginalSource as DependencyObject) is not { } row ||
+                row.Item is not AdditionalFieldRow item)
+                return;
+
+            // Требование: сначала выбрать строку, затем открыть правку.
+            if (!ReferenceEquals(AdditionalFieldsGrid.SelectedItem, item))
+                AdditionalFieldsGrid.SelectedItem = item;
+
+            e.Handled = true;
+            OnEditAdditionalField_Click(this, new RoutedEventArgs());
+        }
+
+        /// <summary>Ищет DataGridRow среди визуальных предков источника события (null для заголовка/пустоты).</summary>
+        private static DataGridRow? FindDataGridRow(DependencyObject? source)
+        {
+            for (var node = source; node is not null; node = VisualTreeHelper.GetParent(node))
+                if (node is DataGridRow row)
+                    return row;
+            return null;
         }
 
         /// <summary>«Удалить»: удаляет выбранную строку таблицы.</summary>

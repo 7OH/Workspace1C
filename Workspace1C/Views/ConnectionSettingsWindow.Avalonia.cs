@@ -1304,6 +1304,14 @@ namespace Workspace1C
                 };
                 Grid.SetColumn(value, 1);
                 grid.Children.Add(value);
+
+                // Двойной клик по строке = правка (issue #6): заголовок таблицы и пустая
+                // область списка не подписаны на событие, поэтому окно правки не открывается.
+                grid.DoubleTapped += (_, _) =>
+                {
+                    additionalList.SelectedItem = row; // сначала выбираем строку
+                    OnEditAdditionalField_Click();     // затем открываем правку
+                };
                 return grid;
             });
 

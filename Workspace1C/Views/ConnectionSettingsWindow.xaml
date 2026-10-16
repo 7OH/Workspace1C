@@ -1332,7 +1332,8 @@
                               CanUserAddRows="False" CanUserDeleteRows="False"
                               MinHeight="100" MaxHeight="160" RowHeight="30" AlternationCount="2"
                               ColumnHeaderStyle="{StaticResource AdditionalFieldsColumnHeader}"
-                              SelectedItem="{Binding SelectedAdditionalField}" Margin="0,0,0,8">
+                              SelectedItem="{Binding SelectedAdditionalField}" Margin="0,0,0,8"
+                              MouseDoubleClick="OnAdditionalFieldsGrid_MouseDoubleClick">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="48" Header="{loc:Loc Connection.AdditionalFieldsNumber}"
                                                 Binding="{Binding Number}"/>
