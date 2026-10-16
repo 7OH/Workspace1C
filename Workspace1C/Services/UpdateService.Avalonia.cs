@@ -24,7 +24,7 @@ namespace Workspace1C.Services
     /// сценарием-помощником, который дожидается завершения основного процесса, заменяет
     /// целевой исполняемый файл и при необходимости перезапускает приложение (issue #161).
     /// </summary>
-    public sealed class UpdateService
+    public sealed class UpdateService : IAppUpdateService
     {
         /// <summary>Сколько ждать ответа на запрос прав администратора (PolicyKit).</summary>
         private static readonly TimeSpan PrivilegedUpdateTimeout = TimeSpan.FromMinutes(3);

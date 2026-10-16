@@ -197,9 +197,11 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         active.Styled(ControlThemes.CacheCleanCheckBox);
         active.IsCheckedChanged += (_, _) =>
         {
-            // Изменение активности сразу сохраняется (issue #372, п. 6).
+            // Изменение активности сразу сохраняется (issue #372, п. 6); планировщик
+            // пересчитывает расписание, чтобы учесть включение/выключение (issue #7).
             vm.SetActive(active.IsChecked == true);
             _store.Save(vm.Task);
+            _scheduler.Refresh();
         };
 
         var row = new DockPanel { Margin = new Avalonia.Thickness(3) };
@@ -230,6 +232,8 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         if (edit.ShowDialogSync(this) && edit.Result is { } task)
         {
             _store.Save(task);
+            // Новая запись должна сразу попасть в расписание (issue #7).
+            _scheduler.Refresh();
             Reload();
         }
     }
@@ -242,6 +246,8 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         if (edit.ShowDialogSync(this) && edit.Result is { } updated)
         {
             _store.Save(updated);
+            // Изменённое расписание (время/дни/повтор) учитываем без перезапуска (issue #7).
+            _scheduler.Refresh();
             Reload();
         }
     }
@@ -262,6 +268,7 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         if (edit.ShowDialogSync(this) && edit.Result is { } savedCopy)
         {
             _store.Save(savedCopy);
+            _scheduler.Refresh();
             Reload();
         }
     }
@@ -273,6 +280,8 @@ public sealed class ScheduledTasksWindow : ModalWindowBase
         if (_dialogs.Confirm(string.Format(T("Schedule.DeleteConfirm"), item.Name), T("Schedule.DeleteTitle")))
         {
             _store.Delete(item.Id);
+            // Удалённое задание убираем из расписания (issue #7).
+            _scheduler.Refresh();
             Reload();
         }
     }

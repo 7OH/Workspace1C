@@ -26,6 +26,49 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         </Style>
+
+        <!-- Раскраска шапки таблицы «Произвольные поля» (issue #6): акцентный фон и тёмный
+             жирный текст (как у акцентных кнопок). Штатный заголовок в теме окрашен
+             CardBackgroundBrush — тем же цветом, что и строки, поэтому визуально сливается.
+             Шаблон заменяем целиком, чтобы hover не перекрашивал шапку в ItemHoverBrush
+             (иначе тёмный текст стал бы нечитаемым в обеих темах). -->
+        <Style x:Key="AdditionalFieldsColumnHeader" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ButtonTextBrush}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridColumnHeader">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Border BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                                  TextElement.FontWeight="{TemplateBinding FontWeight}"
+                                                  TextElement.FontSize="{TemplateBinding FontSize}"/>
+                            </Border>
+                            <Thumb x:Name="PART_RightHeaderGripper"
+                                   HorizontalAlignment="Right" Width="2"
+                                   Cursor="SizeWE"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}">
             <!-- Размеры и отступы выровнены с ModernComboBox (см. строку ниже):
                  высоту, внутренний отступ и кегль берём из темы (10,6 / 36 / 13),
@@ -1288,6 +1331,7 @@
                               AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
                               CanUserAddRows="False" CanUserDeleteRows="False"
                               MinHeight="100" MaxHeight="160" RowHeight="30" AlternationCount="2"
+                              ColumnHeaderStyle="{StaticResource AdditionalFieldsColumnHeader}"
                               SelectedItem="{Binding SelectedAdditionalField}" Margin="0,0,0,8">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="48" Header="{loc:Loc Connection.AdditionalFieldsNumber}"

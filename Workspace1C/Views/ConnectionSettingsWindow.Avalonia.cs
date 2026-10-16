@@ -1226,6 +1226,48 @@ namespace Workspace1C
             };
             var additionalHint = Hint("Connection.AdditionalFieldsDescription", margin: new Thickness(0, 0, 0, 8), fontSize: 11);
 
+            // Шапка таблицы «№ | Значение поля» (issue #6): у ListBox штатной шапки нет,
+            // поэтому рисуем свою строку над списком — контрастный акцентный фон и тёмный
+            // жирный текст (как у акцентных кнопок). Ширины колонок совпадают с шаблоном
+            // строк списка (48 и *), чтобы шапка выравнивалась с данными.
+            var additionalHeader = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(new GridLength(48)),
+                    new ColumnDefinition(GridLength.Star)
+                }
+            };
+            var headerNumber = new TextBlock
+            {
+                Text = LocalizationManager.T("Connection.AdditionalFieldsNumber"),
+                FontSize = 12,
+                FontWeight = FontWeight.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 3, 0, 3)
+            };
+            Themes.ThemeBrushes.Bind(headerNumber, TextBlock.ForegroundProperty, "ButtonTextBrush");
+            Grid.SetColumn(headerNumber, 0);
+            additionalHeader.Children.Add(headerNumber);
+            var headerValue = new TextBlock
+            {
+                Text = LocalizationManager.T("Connection.AdditionalFieldsValue"),
+                FontSize = 12,
+                FontWeight = FontWeight.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 3, 0, 3)
+            };
+            Themes.ThemeBrushes.Bind(headerValue, TextBlock.ForegroundProperty, "ButtonTextBrush");
+            Grid.SetColumn(headerValue, 1);
+            additionalHeader.Children.Add(headerValue);
+            var additionalHeaderBorder = new Border
+            {
+                Child = additionalHeader,
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
+            Themes.ThemeBrushes.Bind(additionalHeaderBorder, Border.BackgroundProperty, "AccentBrush");
+            Themes.ThemeBrushes.Bind(additionalHeaderBorder, Border.BorderBrushProperty, "AccentHoverBrush");
+
             var additionalList = new ListBox
             {
                 MinHeight = 150,
@@ -1298,6 +1340,7 @@ namespace Workspace1C
                     },
                     additionalTitle,
                     additionalHint,
+                    additionalHeaderBorder,
                     additionalList,
                     new StackPanel
                     {

@@ -151,6 +151,14 @@ public class ConnectionSettingsViewModel : ViewModelBase
     public ObservableCollection<string> Tags { get; } = new();
 
     /// <summary>
+    /// Минимальное число строк таблицы «Произвольные поля» при открытии окна (issue #6):
+    /// таблица дополняется пустыми строками до этого количества, чтобы сразу выглядела
+    /// таблицей и предлагала свободные строки для ввода. Хвостовые пустые строки при
+    /// сохранении отсекаются (см. <see cref="ApplyTo"/>), поэтому файл не раздувается.
+    /// </summary>
+    private const int MinAdditionalFieldRows = 5;
+
+    /// <summary>
     /// Произвольные поля базы (issue #6): строки таблицы «Произвольные поля» вкладки
     /// «Идентификатор». Номер строки (<see cref="AdditionalFieldRow.Number"/>) — просто
     /// порядковый номер (1-based), не редактируется; значение используется в подстановках
@@ -1456,6 +1464,12 @@ public class ConnectionSettingsViewModel : ViewModelBase
             var additional = infobase.AdditionalFields ?? new List<string>();
             for (var i = 0; i < additional.Count; i++)
                 AdditionalFields.Add(new AdditionalFieldRow { Number = i + 1, Value = additional[i] ?? string.Empty });
+            // Дополняем таблицу пустыми строками до минимального количества, чтобы строки
+            // для ввода были видны сразу (пожелание из issue #6). На сохранении хвостовые
+            // пустые строки обрезаются (см. ApplyTo), поэтому формат файла не раздувается
+            // и нумерация следующих заполненных строк не меняется.
+            for (var i = AdditionalFields.Count; i < MinAdditionalFieldRows; i++)
+                AdditionalFields.Add(new AdditionalFieldRow { Number = i + 1, Value = string.Empty });
 
             // Сводка привязки строится при _isLoading = true, чтобы повторный вызов
             // RefreshLinkState() из окна не помечал изменения при открытии (issue #346).
@@ -1566,8 +1580,14 @@ public class ConnectionSettingsViewModel : ViewModelBase
         // Теги базы (issue #283): переносим отредактированные теги.
         infobase.Tags = Tags.ToList();
 
-        // Произвольные поля базы (issue #6): переносим строки таблицы.
-        infobase.AdditionalFields = AdditionalFields.Select(r => r.Value).ToList();
+        // Произвольные поля базы (issue #6): переносим строки таблицы, отсекая ТОЛЬКО
+        // хвостовые пустые строки (они добавляются при открытии для вида) — внутренние
+        // пустые строки сохраняются как есть, чтобы нумерация следующих строк не менялась.
+        var additionalValues = AdditionalFields.Select(r => r.Value).ToList();
+        var lastFilledIndex = additionalValues.FindLastIndex(v => !string.IsNullOrWhiteSpace(v));
+        infobase.AdditionalFields = lastFilledIndex < 0
+            ? new List<string>()
+            : additionalValues.Take(lastFilledIndex + 1).ToList();
 
         // Приватная база (0.3.9.85): флаг скрытия до разблокировки профиля паролем.
         infobase.IsPrivate = IsPrivate;

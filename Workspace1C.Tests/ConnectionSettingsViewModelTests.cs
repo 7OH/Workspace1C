@@ -430,11 +430,31 @@ public sealed class ConnectionSettingsViewModelTests
 
         vm.LoadFrom(ib);
 
-        Assert.Equal(2, vm.AdditionalFields.Count);
+        // Заполненные строки переносятся с номерами по порядку…
+        Assert.Equal(5, vm.AdditionalFields.Count);
         Assert.Equal(1, vm.AdditionalFields[0].Number);
         Assert.Equal("поле-1", vm.AdditionalFields[0].Value);
         Assert.Equal(2, vm.AdditionalFields[1].Number);
         Assert.Equal("поле-2", vm.AdditionalFields[1].Value);
+        // …а таблица дополнена пустыми строками до минимума (пожелание issue #6).
+        Assert.Equal(3, vm.AdditionalFields[2].Number);
+        Assert.Equal(string.Empty, vm.AdditionalFields[2].Value);
+        Assert.Equal(5, vm.AdditionalFields[4].Number);
+        Assert.Equal(string.Empty, vm.AdditionalFields[4].Value);
+    }
+
+    [Fact]
+    public void LoadFrom_NoFields_PadsTableToMinimumRows()
+    {
+        var vm = new ConnectionSettingsViewModel();
+        var ib = new Infobase { Connection = new ConnectionSettings() };
+
+        vm.LoadFrom(ib);
+
+        // У базы без доп. полей таблица всё равно показывает минимум пустых строк.
+        Assert.Equal(5, vm.AdditionalFields.Count);
+        Assert.All(vm.AdditionalFields, r => Assert.Equal(string.Empty, r.Value));
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, vm.AdditionalFields.Select(r => r.Number).ToArray());
     }
 
     [Fact]
@@ -448,6 +468,25 @@ public sealed class ConnectionSettingsViewModelTests
         vm.ApplyTo(ib);
 
         Assert.Equal(new[] { "значение-1", "значение-2" }, ib.AdditionalFields);
+    }
+
+    [Fact]
+    public void ApplyTo_AdditionalFields_TrimsOnlyTrailingEmptyRows()
+    {
+        var vm = new ConnectionSettingsViewModel();
+        vm.AddAdditionalField("первая");
+        vm.AddAdditionalField("   ");
+        vm.AddAdditionalField("");
+        vm.AddAdditionalField("четвёртая");
+        vm.AddAdditionalField(" ");
+        var ib = new Infobase { Connection = new ConnectionSettings() };
+
+        vm.ApplyTo(ib);
+
+        // Хвостовые пустые/пробельные строки (добавляются при открытии для вида)
+        // обрезаются; внутренняя пустая сохраняется как есть, чтобы нумерация
+        // следующих заполненных строк не менялась (issue #6).
+        Assert.Equal(new[] { "первая", "   ", "", "четвёртая" }, ib.AdditionalFields);
     }
 
     [Fact]

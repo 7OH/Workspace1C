@@ -174,7 +174,7 @@
     "Update.Cancel": "Cancel",
     "Update.Failed": "Failed to open the download page.",
     "Update.CheckFailed": "Failed to check for updates.",
-    "Update.UpToDate": "You are using the latest version.",
+    "Update.UpToDate": "The latest version is installed.",
     "Update.Downloading": "Downloading update…",
     "Update.DownloadProgress": "Downloading update…",
     "Update.DownloadProgressFormat": "Downloading update: {0}%",

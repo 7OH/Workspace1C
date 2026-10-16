@@ -322,6 +322,10 @@ public partial class MainViewModel : ViewModelBase
             target.EnterpriseAuth = dialog.Result.EnterpriseAuth;
             target.ConfiguratorAuth = dialog.Result.ConfiguratorAuth;
             target.Repository = dialog.Result.Repository;
+            // Произвольные поля базы (issue #6): переносим явно с копированием списка,
+            // иначе отредактированные строки таблицы «Произвольные поля» терялись при
+            // сохранении и %Additional_N% оставался бы без подстановки в сценариях.
+            target.AdditionalFields = new List<string>(dialog.Result.AdditionalFields ?? new List<string>());
             if (!string.IsNullOrWhiteSpace(dialog.Result.LaunchMode))
                 target.LaunchMode = dialog.Result.LaunchMode;
 

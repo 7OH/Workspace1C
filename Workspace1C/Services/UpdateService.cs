@@ -20,7 +20,7 @@ namespace Workspace1C.Services;
 /// single-file <c>Workspace1C.exe</c> и заменяет текущий исполняемый файл
 /// через временный PowerShell-помощник, после чего перезапускает приложение.
 /// </summary>
-public sealed class UpdateService
+public sealed class UpdateService : IAppUpdateService
 {
     /// <summary>Репозиторий GitHub, откуда берётся последний выпуск.</summary>
     private const string RepoBaseUrl = "https://github.com/sivatorov/Workspace1C";

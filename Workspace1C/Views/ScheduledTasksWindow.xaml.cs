@@ -77,7 +77,13 @@ public partial class ScheduledTasksWindow : Window
         _allItems.Clear();
         _allItems.AddRange(_store.LoadAll().Select(t => new ScheduledTaskItemViewModel(
             t,
-            activity: item => _store.Save(item.Task))));
+            // Переключатель активности меняет расписание — планировщик должен узнать
+            // об изменении сразу (issue #7), иначе задание будет ждать старого момента.
+            activity: item =>
+            {
+                _store.Save(item.Task);
+                _scheduler.Refresh();
+            })));
         ApplyFilter();
     }
 
@@ -146,6 +152,8 @@ public partial class ScheduledTasksWindow : Window
         if (edit.ShowDialog() == true && edit.Result is { } task)
         {
             _store.Save(task);
+            // Новая запись должна сразу попасть в расписание (issue #7).
+            _scheduler.Refresh();
             LoadTasks();
         }
     }
@@ -159,6 +167,8 @@ public partial class ScheduledTasksWindow : Window
         if (edit.ShowDialog() == true && edit.Result is { } updated)
         {
             _store.Save(updated);
+            // Изменённое расписание (время/дни/повтор) учитываем без перезапуска (issue #7).
+            _scheduler.Refresh();
             LoadTasks();
         }
     }
@@ -180,6 +190,7 @@ public partial class ScheduledTasksWindow : Window
         if (edit.ShowDialog() == true && edit.Result is { } savedCopy)
         {
             _store.Save(savedCopy);
+            _scheduler.Refresh();
             LoadTasks();
         }
     }
@@ -191,6 +202,8 @@ public partial class ScheduledTasksWindow : Window
         if (_dialogs.Confirm(string.Format(T("Schedule.DeleteConfirm"), item.Name), T("Schedule.DeleteTitle")))
         {
             _store.Delete(item.Id);
+            // Удалённое задание убираем из расписания (issue #7).
+            _scheduler.Refresh();
             LoadTasks();
         }
     }

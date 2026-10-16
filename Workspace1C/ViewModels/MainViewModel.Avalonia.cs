@@ -1411,6 +1411,10 @@ public partial class MainViewModel : ViewModelBase
         ib.EnterpriseAuth = dialog.Result.EnterpriseAuth;
         ib.ConfiguratorAuth = dialog.Result.ConfiguratorAuth;
         ib.Repository = dialog.Result.Repository;
+        // Произвольные поля базы (issue #6): переносим явно с копированием списка,
+        // иначе отредактированные строки таблицы «Произвольные поля» терялись при
+        // сохранении и %Additional_N% оставался бы без подстановки в сценариях.
+        ib.AdditionalFields = new List<string>(dialog.Result.AdditionalFields ?? new List<string>());
 
         // Правка могла снять или поставить звезду, а у базы без идентификатора
         // сменить и ключ слота: он строится из имени. Версия для Windows этого

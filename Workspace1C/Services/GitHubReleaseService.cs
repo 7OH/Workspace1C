@@ -42,7 +42,7 @@ public class GitHubReleaseService
     /// резервный источник — Atom-лента релизов. При сбое всех источников возвращает
     /// null и не бросает исключения наружу.
     /// </summary>
-    public async Task<ReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
+    public virtual async Task<ReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
     {
         // Основной источник — GitHub Releases API.
         var apiRelease = await GetLatestFromApiAsync(ct).ConfigureAwait(false);

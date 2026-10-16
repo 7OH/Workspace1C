@@ -158,6 +158,9 @@ public static class AppServices
         services.AddSingleton<GitHubReleaseService>();
         // Подсистема автообновления: фоновая проверка и диалог «Доступна новая версия».
         services.AddSingleton<UpdateService>();
+        // Интерфейс автообновления для планировщика заданий (issue #8): тот же единственный
+        // синглтон UpdateService, чтобы флаг AutoUpdateEnabled и события не дублировались.
+        services.AddSingleton<IAppUpdateService>(sp => sp.GetRequiredService<UpdateService>());
 #else
         // Linux (Avalonia): диалоги Avalonia. Регистратор COM-коннектора не подключается —
         // на Linux COM отсутствует (чтение конфигурации выполняется без COM: 1Cv8.1CD / DESIGNER).
@@ -165,6 +168,8 @@ public static class AppServices
         // Проверка обновлений из GitHub Releases + подсистема автообновления (Linux/Avalonia).
         services.AddSingleton<GitHubReleaseService>();
         services.AddSingleton<UpdateService>();
+        // Интерфейс автообновления для планировщика заданий (issue #8): см. комментарий выше.
+        services.AddSingleton<IAppUpdateService>(sp => sp.GetRequiredService<UpdateService>());
 #endif
 
         Services = services.BuildServiceProvider();

@@ -26,7 +26,7 @@ public class SchedulerService : IDisposable
     private readonly IConfigUpdateService _configUpdate;
     private readonly IInfobaseAdminService _admin;
     private readonly GitHubReleaseService _gitHub;
-    private readonly UpdateService _updateService;
+    private readonly IAppUpdateService _updateService;
     private readonly INotificationService _notifications;
     private readonly IPlatformUpdateService _platformUpdate;
     private readonly IPlatformVersionService _platformVersions;
@@ -47,7 +47,7 @@ public class SchedulerService : IDisposable
         IConfigUpdateService configUpdate,
         IInfobaseAdminService admin,
         GitHubReleaseService gitHub,
-        UpdateService updateService,
+        IAppUpdateService updateService,
         INotificationService notifications,
         IPlatformUpdateService platformUpdate,
         IPlatformVersionService platformVersions,
@@ -77,7 +77,7 @@ public class SchedulerService : IDisposable
     public void Start()
     {
         Stop();
-        RebuildNextRuns();
+        Refresh();
         _timer = new Timer(_ => Tick(), null, InitialDelay, TickInterval);
     }
 
@@ -262,6 +262,13 @@ public class SchedulerService : IDisposable
         if (task.Kind is ScheduledTaskKind.PlatformUpdateCheck or ScheduledTaskKind.ConfigurationUpdateCheck)
             return;
 
+        // Тихий результат (issue #8): задание «Обновить приложение» при актуальной версии
+        // завершается успешно, но уведомлять о каждом прогоне по расписанию нельзя — любое
+        // повторное уведомление («задание выполнено успешно») было бы спамом. Запись в
+        // журнал задания при этом сохраняется как обычно.
+        if (result is { SuppressNotification: true })
+            return;
+
         try
         {
             var success = result is { Success: true };
@@ -377,10 +384,15 @@ public class SchedulerService : IDisposable
             return result;
         }
 
+        // Релиз получен, но он не новее установленной версии — программа актуальна (issue #8).
+        // Это НЕ ошибка: задание завершается успешно, в LastRunMessage попадает текст
+        // «версия актуальна», а уведомление подавляется, чтобы не спамить при повторе
+        // проверки по расписанию.
         if (!GitHubReleaseService.IsNewerThan(release, VersionInfo.Display()))
         {
-            result.Success = false;
-            result.ErrorMessage = LocalizationManager.T("Update.UpToDate");
+            result.Success = true;
+            result.ScenarioName = LocalizationManager.T("Update.UpToDate");
+            result.SuppressNotification = true;
             return result;
         }
 
@@ -664,7 +676,17 @@ public class SchedulerService : IDisposable
     private static BackupRunResult Fail(string message) =>
         new() { Success = false, ErrorMessage = message };
 
-    private void RebuildNextRuns()
+    /// <summary>
+    /// Пересобирает кэш ближайших моментов запуска (issue #7): очищает <see cref="_nextRuns"/>
+    /// и наполняет заново из <see cref="IScheduledTaskStore.LoadAll"/> через
+    /// <see cref="ScheduleCalculator.ComputeNextRun"/>. Вызывается из окна «Задания по
+    /// расписанию» после сохранения/удаления задания, чтобы планировщик учёл добавленные,
+    /// изменённые и удалённые задания без перезапуска приложения. У выключенного задания
+    /// ComputeNextRun вернёт null — такой ключ остаётся в кэше, и <see cref="ProcessDueAsync"/>
+    /// пропускает задание, пока оно снова не будет включено. Вызов безопасен в любой момент:
+    /// не влияет на таймер, а только заменяет содержимое кэша.
+    /// </summary>
+    public void Refresh()
     {
         _nextRuns.Clear();
         var now = DateTime.Now;

@@ -174,7 +174,7 @@
     "Update.Cancel": "Отмена",
     "Update.Failed": "Не удалось открыть страницу загрузки.",
     "Update.CheckFailed": "Не удалось проверить наличие обновлений.",
-    "Update.UpToDate": "Вы используете актуальную версию.",
+    "Update.UpToDate": "Установлена актуальная версия.",
     "Update.Downloading": "Загрузка обновления…",
     "Update.DownloadProgress": "Загрузка обновления…",
     "Update.DownloadProgressFormat": "Загрузка обновления: {0}%",

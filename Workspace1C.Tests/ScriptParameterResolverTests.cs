@@ -956,4 +956,18 @@ public sealed class ScriptParameterResolverTests
 
         Assert.Equal("%Additional_5%", result);
     }
+
+    [Fact]
+    public void Resolve_AdditionalEmptyRow_SubstitutesEmptyString()
+    {
+        var ib = MakeInfobase();
+        ib.AdditionalFields = new System.Collections.Generic.List<string> { "первая", "" };
+        var map = Map(ib);
+
+        // Пустая строка таблицы подставляет пустое значение: токен не остаётся в строке
+        // без замены (замечание из issue #6).
+        var result = ScriptParameterResolver.Resolve("%Additional_1%|%Additional_2%", map, FixedNow);
+
+        Assert.Equal("первая|", result);
+    }
 }
