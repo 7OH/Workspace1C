@@ -69,17 +69,30 @@ public interface IRacClient
     Task<IReadOnlyList<RacProcessInfo>> GetProcessesAsync(
         RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default);
 
-    /// <summary>Сеансы кластера (команда «session list --cluster=...»).</summary>
+    /// <summary>
+    /// Сеансы кластера (команда «session list --cluster=...»). При заданном
+    /// <paramref name="infobaseId"/> добавляется параметр «--infobase=...» — данные
+    /// возвращаются только для выбранной информационной базы (issue #3, вкладка «Базы»).
+    /// </summary>
     Task<IReadOnlyList<RacSessionInfo>> GetSessionsAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default);
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>Соединения кластера (команда «connection list --cluster=...»).</summary>
+    /// <summary>
+    /// Соединения кластера (команда «connection list --cluster=...»). При заданном
+    /// <paramref name="infobaseId"/> добавляется параметр «--infobase=...» (issue #3).
+    /// </summary>
     Task<IReadOnlyList<RacConnectionInfo>> GetConnectionsAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default);
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>Блокировки объектов данных кластера (команда «lock list --cluster=...»).</summary>
+    /// <summary>
+    /// Блокировки объектов данных кластера (команда «lock list --cluster=...»). При
+    /// заданном <paramref name="infobaseId"/> добавляется параметр «--infobase=...» (issue #3).
+    /// </summary>
     Task<IReadOnlyList<RacLockInfo>> GetLocksAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default);
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Информационные базы кластера (команда «infobase summary list --cluster=...»).
@@ -130,6 +143,26 @@ public interface IRacClient
     /// </summary>
     Task<bool> DisconnectConnectionAsync(
         RacConnectionParams parameters, Guid clusterId, Guid connectionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Создание информационной базы в кластере (команда «infobase create --cluster=...
+    /// --name=... --dbms=... --db-server=... --db-name=...», issue #3, вкладка «Базы»).
+    /// Поля запроса передаются в rac; пароль СУБД маскируется при журналировании.
+    /// Возвращает true при ExitCode 0; при неудаче — false и текст ошибки
+    /// (включая stderr rac) в <see cref="LastActionError"/>.
+    /// </summary>
+    Task<bool> CreateInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Удаление информационной базы из кластера (команда «infobase drop --cluster=...
+    /// --infobase=...», issue #3, вкладка «Базы»). Возвращает true при ExitCode 0;
+    /// при неудаче — false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.
+    /// </summary>
+    Task<bool> DropInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.3</Version>
-    <AssemblyVersion>1.0.0.3</AssemblyVersion>
-    <FileVersion>1.0.0.3</FileVersion>
-    <InformationalVersion>1.0.0.3</InformationalVersion>
+    <Version>1.0.0.4</Version>
+    <AssemblyVersion>1.0.0.4</AssemblyVersion>
+    <FileVersion>1.0.0.4</FileVersion>
+    <InformationalVersion>1.0.0.4</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -259,6 +259,10 @@
     <!-- Окно «Серверы 1С» (0.3.9.124): WPF code-behind исключается, Avalonia-версия
          (ServerMonitorWindow.Avalonia.cs) подключается глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\ServerMonitorWindow.xaml.cs" />
+    <!-- Диалог создания информационной базы в кластере (issue #3): WPF code-behind
+         исключается, Avalonia-версия (RacInfobaseCreateWindow.Avalonia.cs) подключается
+         глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\RacInfobaseCreateWindow.xaml.cs" />
     <!-- Окно редактирования сервера справочника «Сервера управления» (issue #3):
          WPF code-behind исключается, Avalonia-версия (ServerEditWindow.Avalonia.cs)
          подключается глобом *Window.Avalonia.cs ниже. -->
@@ -476,6 +480,9 @@
          *.Avalonia.cs). -->
     <Compile Include="ViewModels\RacJobRow.cs" />
     <Compile Include="ViewModels\RacJobFilterRow.cs" />
+    <!-- Строка вкладки «Базы» (issue #3): чистая модель — на Linux подключается
+         явно (имя не совпадает с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\RacInfobaseRow.cs" />
     <!-- Вью-модель диалога импорта баз из кластера 1С (0.3.9.173, цикл 0.3.9.172–175):
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ClusterImportViewModel.cs" />

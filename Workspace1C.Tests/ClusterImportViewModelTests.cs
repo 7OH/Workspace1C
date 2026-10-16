@@ -447,15 +447,18 @@ public sealed class ClusterImportViewModelTests
             Task.FromResult<IReadOnlyList<RacProcessInfo>>(Array.Empty<RacProcessInfo>());
 
         public Task<IReadOnlyList<RacSessionInfo>> GetSessionsAsync(
-            RacConnectionParams parameters, System.Guid clusterId, CancellationToken cancellationToken = default) =>
+            RacConnectionParams parameters, System.Guid clusterId, System.Guid? infobaseId = null,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<RacSessionInfo>>(Array.Empty<RacSessionInfo>());
 
         public Task<IReadOnlyList<RacConnectionInfo>> GetConnectionsAsync(
-            RacConnectionParams parameters, System.Guid clusterId, CancellationToken cancellationToken = default) =>
+            RacConnectionParams parameters, System.Guid clusterId, System.Guid? infobaseId = null,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<RacConnectionInfo>>(Array.Empty<RacConnectionInfo>());
 
         public Task<IReadOnlyList<RacLockInfo>> GetLocksAsync(
-            RacConnectionParams parameters, System.Guid clusterId, CancellationToken cancellationToken = default) =>
+            RacConnectionParams parameters, System.Guid clusterId, System.Guid? infobaseId = null,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<RacLockInfo>>(Array.Empty<RacLockInfo>());
 
         // Регламентные задания импорт баз не использует — пустой список.
@@ -475,6 +478,17 @@ public sealed class ClusterImportViewModelTests
 
         public Task<bool> DisconnectConnectionAsync(
             RacConnectionParams parameters, System.Guid clusterId, System.Guid connectionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        // Создание/удаление баз (issue #3) окно импорта не использует — успех.
+        public Task<bool> CreateInfobaseAsync(
+            RacConnectionParams parameters, System.Guid clusterId, RacInfobaseCreateRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<bool> DropInfobaseAsync(
+            RacConnectionParams parameters, System.Guid clusterId, System.Guid infobaseId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
     }

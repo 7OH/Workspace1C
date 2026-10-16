@@ -5,6 +5,7 @@ using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
 using Workspace1C.ViewModels;
+using System.Windows.Controls;
 
 namespace Workspace1C
 {
@@ -47,23 +48,29 @@ namespace Workspace1C
             ConnectionsGrid.ItemsSource = _vm.Connections;
             LocksGrid.ItemsSource = _vm.Locks;
             JobsGrid.ItemsSource = _vm.FilteredJobs;
-
-            // Активация строки справочника → подключение к кластеру (issue #3).
-            ServersList.SelectionChanged += OnServersList_SelectionChanged;
+            InfobasesGrid.ItemsSource = _vm.Infobases;
 
             // Таймер автообновления останавливается при закрытии окна (без утечки).
             Closed += (_, _) => _vm.Dispose();
         }
 
         /// <summary>
-        /// Активация строки справочника «Сервера управления» (issue #3): подключаемся
-        /// к кластеру выбранного сервера (адрес/порт/логин/пароль берутся из записи).
+        /// Двойной клик по строке справочника «Сервера управления» (issue #3): подключение
+        /// к кластеру сервера (адрес/порт/логин/пароль из записи). Простое выделение строки
+        /// подключение НЕ запускает — строку можно спокойно выделять для правки.
         /// </summary>
-        private async void OnServersList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        private async void OnServersList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (ServersList.SelectedItem is ManagementServer server)
                 await _vm.ConnectToServerAsync(server);
         }
+
+        /// <summary>
+        /// «Подключиться» (issue #3): подключение к кластеру выбранного сервера
+        /// справочника (если строка выделена); без выделения — по текущим полям.
+        /// </summary>
+        private void OnConnect_Click(object sender, RoutedEventArgs e) =>
+            _vm.ConnectCommand.Execute(null);
 
         private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -117,6 +124,26 @@ namespace Workspace1C
                 action => Application.Current?.Dispatcher.BeginInvoke(action));
             new NetworkDiagnosticsWindow(vm) { Owner = this }.ShowDialog();
         }
+
+        // ===================== Базы кластера (issue #3) =====================
+
+        /// <summary>
+        /// «Добавить базу»: модальный диалог создания информационной базы (rac
+        /// «infobase create») → создание в выбранном кластере → обновление списков.
+        /// </summary>
+        private async void OnAddInfobase_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new RacInfobaseCreateWindow() { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.Result is not { } request)
+                return;
+            await _vm.CreateInfobaseAsync(request);
+        }
+
+        /// <summary>
+        /// «Удалить базу»: подтверждение (в VM) → rac «infobase drop» → обновление.
+        /// </summary>
+        private void OnDeleteInfobase_Click(object sender, RoutedEventArgs e) =>
+            _vm.DropInfobaseCommand.Execute(null);
 
         // ===================== Справочник «Сервера управления» (issue #3) =====================
 

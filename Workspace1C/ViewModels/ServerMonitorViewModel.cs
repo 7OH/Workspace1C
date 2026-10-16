@@ -45,6 +45,8 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private RacConnectionRow? _selectedConnection;
     private RacJobRow? _selectedJob;
     private Guid? _selectedJobInfobaseId;
+    private Guid? _selectedInfobaseId;
+    private RacInfobaseRow? _selectedInfobase;
 
     private ICommand? _connectCommand;
     private ICommand? _refreshCommand;
@@ -54,6 +56,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private ICommand? _resumeJobCommand;
     private ICommand? _toggleAutoRefreshCommand;
     private ICommand? _saveClusterPropertiesCommand;
+    private ICommand? _dropInfobaseCommand;
 
     /// <summary>Переключатель автообновления (issue #324): включено по умолчанию.</summary>
     private bool _isAutoRefreshEnabled = true;
@@ -253,10 +256,19 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
             // Смена кластера делает фильтр по базе бессмысленным (идентификаторы
             // баз другого кластера) — сбрасываем на «Все базы» и очищаем кэш имён.
+            // Сбрасываем через поля напрямую, чтобы не запускать перезагрузку
+            // данных из сеттера выбора базы (данные нового кластера загрузит ниже).
             if (value != _selectedJobInfobaseId)
             {
                 _selectedJobInfobaseId = null;
                 OnPropertyChanged(nameof(SelectedJobInfobaseId));
+            }
+            if (_selectedInfobaseId is not null || _selectedInfobase is not null)
+            {
+                _selectedInfobase = null;
+                _selectedInfobaseId = null;
+                OnPropertyChanged(nameof(SelectedInfobase));
+                OnPropertyChanged(nameof(SelectedInfobaseId));
             }
 
             if (value is Guid id && HasConnected)
@@ -266,9 +278,19 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     // ===================== Команды =====================
 
-    /// <summary>«Подключиться»: список кластеров, при успехе — данные первого кластера.</summary>
+    /// <summary>
+    /// «Подключиться» (issue #3): к кластеру выбранного сервера справочника
+    /// (адрес/порт/логин/пароль из записи); при отсутствии выбора — обычное
+    /// подключение по текущим полям (дефолт — localhost).
+    /// </summary>
     public ICommand ConnectCommand =>
-        _connectCommand ??= new RelayCommand(async () => await ConnectAsync());
+        _connectCommand ??= new RelayCommand(async () =>
+        {
+            if (SelectedServer is { } server)
+                await ConnectToServerAsync(server);
+            else
+                await ConnectAsync();
+        });
 
     /// <summary>«Обновить»: перечитать данные выбранного кластера (после подключения).</summary>
     public ICommand RefreshCommand =>
@@ -386,6 +408,146 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             ApplyJobFilter();
         }
     }
+
+    // ===================== Базы (issue #3) =====================
+
+    /// <summary>
+    /// Информационные базы выбранного кластера (команда rac «infobase summary list»):
+    /// вкладка «Базы». При выборе базы сеансы/соединения/блокировки загружаются
+    /// в разрезе базы (параметр rac «--infobase=...»).
+    /// </summary>
+    public ObservableCollection<RacInfobaseRow> Infobases { get; } = new();
+
+    /// <summary>Есть ли хотя бы одна база в списке (для подсказки пустого списка).</summary>
+    public bool HasInfobases => Infobases.Count > 0;
+
+    /// <summary>
+    /// Выбранная база на вкладке «Базы»: при изменении сеансы/соединения/блокировки
+    /// перечитываются в разрезе базы (issue #3).
+    /// </summary>
+    public RacInfobaseRow? SelectedInfobase
+    {
+        get => _selectedInfobase;
+        set
+        {
+            if (!SetProperty(ref _selectedInfobase, value))
+                return;
+            ApplySelectedInfobase(value?.InfobaseId);
+        }
+    }
+
+    /// <summary>Идентификатор выбранной базы (null — все базы кластера).</summary>
+    public Guid? SelectedInfobaseId
+    {
+        get => _selectedInfobaseId;
+        private set => SetProperty(ref _selectedInfobaseId, value);
+    }
+
+    /// <summary>
+    /// Применяет выбор базы: обновляет идентификатор и перезагружает данные кластера
+    /// (сеансы/соединения/блокировки с параметром rac «--infobase=...»). Загрузка
+    /// запускается только при изменении выбора и установленном подключении.
+    /// </summary>
+    private void ApplySelectedInfobase(Guid? infobaseId)
+    {
+        var changed = _selectedInfobaseId != infobaseId;
+        _selectedInfobaseId = infobaseId;
+        OnPropertyChanged(nameof(SelectedInfobaseId));
+        if (changed && HasConnected && SelectedClusterId is Guid id)
+            _ = LoadClusterDataAsync(id);
+    }
+
+    /// <summary>Разрешено ли удаление базы (есть выбор и подключение).</summary>
+    public bool CanDropInfobase => SelectedInfobase is not null && HasConnected;
+
+    /// <summary>
+    /// Создание информационной базы в кластере (issue #3): rac «infobase create» по
+    /// полям диалога → перечитывание списков. Ошибка — предупреждение + статус-строка.
+    /// </summary>
+    public async Task CreateInfobaseAsync(RacInfobaseCreateRequest request)
+    {
+        if (request is null || !HasConnected || SelectedClusterId is not Guid clusterId)
+            return;
+
+        try
+        {
+            var ok = await _rac.CreateInfobaseAsync(BuildParams(), clusterId, request).ConfigureAwait(false);
+            if (!ok)
+            {
+                var detail = BuildActionError(_rac.LastActionError);
+                _dialogs.ShowWarning(
+                    LocalizationManager.T("ServerMonitor.Infobase.CreateFailed") + "\n" + detail,
+                    LocalizationManager.T("ServerMonitor.Infobase.CreateTitle"));
+                StatusText = detail;
+                return;
+            }
+
+            StatusText = string.Format(
+                LocalizationManager.T("ServerMonitor.Infobase.Status.CreatedFormat"), request.Name);
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ShowWarning(
+                LocalizationManager.T("ServerMonitor.Infobase.CreateFailed") + "\n" + BuildErrorMessage(ex),
+                LocalizationManager.T("ServerMonitor.Infobase.CreateTitle"));
+            StatusText = BuildErrorMessage(ex);
+        }
+        finally
+        {
+            Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Удаление выбранной базы (issue #3): подтверждение → rac «infobase drop» →
+    /// перечитывание списков. Ошибка — предупреждение + статус-строка. Выбор снимается.
+    /// </summary>
+    public async Task DropSelectedInfobaseAsync()
+    {
+        var row = SelectedInfobase;
+        if (row is null || !HasConnected || SelectedClusterId is not Guid clusterId)
+            return;
+
+        if (!_dialogs.Confirm(
+                string.Format(LocalizationManager.T("ServerMonitor.Infobase.DropConfirmFormat"), row.Name),
+                LocalizationManager.T("ServerMonitor.Infobase.DropTitle")))
+            return;
+
+        try
+        {
+            var ok = await _rac.DropInfobaseAsync(BuildParams(), clusterId, row.InfobaseId).ConfigureAwait(false);
+            if (!ok)
+            {
+                var detail = BuildActionError(_rac.LastActionError);
+                _dialogs.ShowWarning(
+                    LocalizationManager.T("ServerMonitor.Infobase.DropFailed") + "\n" + detail,
+                    LocalizationManager.T("ServerMonitor.Infobase.DropTitle"));
+                StatusText = detail;
+                return;
+            }
+
+            StatusText = string.Format(
+                LocalizationManager.T("ServerMonitor.Infobase.Status.DroppedFormat"), row.Name);
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ShowWarning(
+                LocalizationManager.T("ServerMonitor.Infobase.DropFailed") + "\n" + BuildErrorMessage(ex),
+                LocalizationManager.T("ServerMonitor.Infobase.DropTitle"));
+            StatusText = BuildErrorMessage(ex);
+        }
+        finally
+        {
+            Refresh();
+        }
+    }
+
+    /// <summary>«Удалить базу»: подтверждение → rac «infobase drop» → обновление.</summary>
+    public ICommand DropInfobaseCommand =>
+        _dropInfobaseCommand ??= new RelayCommand(async () => await DropSelectedInfobaseAsync());
+
+    /// <summary>Признак возможности удаления выбранной базы (для кнопки).</summary>
+    public bool CanDropSelectedInfobase => SelectedInfobase is not null && HasConnected;
 
     /// <summary>Разрешено ли «Приостановить» для выбранного задания.</summary>
     public bool CanPauseSelectedJob => SelectedJob?.CanPause ?? false;
@@ -638,15 +800,17 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             var processesTask = LoadTabAsync(
                 LocalizationManager.T("ServerMonitor.Tabs.Processes"),
                 () => _rac.GetProcessesAsync(parameters, clusterId, cancellationToken));
+            // issue #3: при выбранной базе (вкладка «Базы») сеансы/соединения/блокировки
+            // запрашиваются в разрезе базы (параметр rac «--infobase=...»).
             var sessionsTask = LoadTabAsync(
                 LocalizationManager.T("ServerMonitor.Tabs.Sessions"),
-                () => _rac.GetSessionsAsync(parameters, clusterId, cancellationToken));
+                () => _rac.GetSessionsAsync(parameters, clusterId, SelectedInfobaseId, cancellationToken));
             var connectionsTask = LoadTabAsync(
                 LocalizationManager.T("ServerMonitor.Tabs.Connections"),
-                () => _rac.GetConnectionsAsync(parameters, clusterId, cancellationToken));
+                () => _rac.GetConnectionsAsync(parameters, clusterId, SelectedInfobaseId, cancellationToken));
             var locksTask = LoadTabAsync(
                 LocalizationManager.T("ServerMonitor.Tabs.Locks"),
-                () => _rac.GetLocksAsync(parameters, clusterId, cancellationToken));
+                () => _rac.GetLocksAsync(parameters, clusterId, SelectedInfobaseId, cancellationToken));
             var jobsTask = LoadTabAsync(
                 LocalizationManager.T("ServerMonitor.Tabs.Jobs"),
                 () => _rac.GetJobsAsync(parameters, clusterId, cancellationToken));
@@ -1022,7 +1186,25 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             JobInfobaseFilterRows = BuildJobFilterRows(infobases);
             OnPropertyChanged(nameof(JobInfobaseFilterRows));
 
-            // Фильтр сохраняется по Id; если база исчезла из списка — сбрасываем на «Все».
+            // Вкладка «Базы» (issue #3): строки из «infobase summary list». Выбор
+            // восстанавливается по Id; если база исчезла (например, удалена) — выбор
+            // и фильтр сеансов/соединений/блокировок сбрасываются на «Все базы».
+            // Сеттеры не используем: восстановление НЕ должно запускать повторную
+            // загрузку данных (иначе цикл «выбор → загрузка → восстановление»).
+            var infobaseFilter = _selectedInfobaseId;
+            ReplaceRows(Infobases, infobases.Select(ib => new RacInfobaseRow(ib)));
+            OnPropertyChanged(nameof(HasInfobases));
+            if (infobaseFilter is Guid fid2 && !_infobaseNames.ContainsKey(fid2))
+                infobaseFilter = null;
+            _selectedInfobaseId = infobaseFilter;
+            OnPropertyChanged(nameof(SelectedInfobaseId));
+            _selectedInfobase = infobaseFilter is Guid iid
+                ? Infobases.FirstOrDefault(r => r.InfobaseId == iid)
+                : null;
+            OnPropertyChanged(nameof(SelectedInfobase));
+            OnPropertyChanged(nameof(CanDropInfobase));
+
+            // Фильтр заданий сохраняется по Id; если база исчезла из списка — сбрасываем на «Все».
             if (jobFilter is Guid fid && !_infobaseNames.ContainsKey(fid))
                 jobFilter = null;
             SelectedJobInfobaseId = jobFilter;

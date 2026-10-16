@@ -32,6 +32,12 @@
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Padding" Value="8,0"/>
         </Style>
+
+        <!-- Заголовки вкладок ужаты (issue #3): меньше отступов и шрифт чуть меньше. -->
+        <Style TargetType="TabItem">
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontSize" Value="12.5"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -41,6 +47,7 @@
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -48,9 +55,10 @@
         </Grid.RowDefinitions>
 
         <!-- Справочник «Сервера управления» (issue #3): список серверов слева, в списке
-             выводится только Описание; при активации строки — подключение к кластеру.
+             выводится только Описание. Подключение — по кнопке «Подключиться» или
+             двойному клику по строке (НЕ по активации строки — её выделяют для правки).
              Адрес/порт/логин/пароль переехали в справочник и на форме не показываются. -->
-        <DockPanel Grid.Column="0" Grid.Row="0" Grid.RowSpan="5" Margin="0,0,16,0">
+        <DockPanel Grid.Column="0" Grid.Row="0" Grid.RowSpan="6" Margin="0,0,16,0">
             <TextBlock DockPanel.Dock="Top" Text="{loc:Loc ServerMonitor.Servers.Title}"
                        FontWeight="SemiBold" Margin="0,0,0,8"/>
             <!-- Подсказка при пустом списке (issue #3): добавьте сервер и выберите его. -->
@@ -87,8 +95,19 @@
             </StackPanel>
             <ListBox x:Name="ServersList" ItemsSource="{Binding Servers}"
                      SelectedItem="{Binding SelectedServer}"
+                     MouseDoubleClick="OnServersList_MouseDoubleClick"
                      BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                      Background="{DynamicResource CardBackgroundBrush}">
+                <!-- Строки списка серверов крупнее (issue #3): как строки в списке баз —
+                     выше высота и крупнее шрифт (строку удобно выделять для правки). -->
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="MinHeight" Value="40"/>
+                        <Setter Property="FontSize" Value="14"/>
+                        <Setter Property="Padding" Value="8,4"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Description}" VerticalAlignment="Center"
@@ -98,9 +117,40 @@
             </ListBox>
         </DockPanel>
 
-        <!-- Панель кластера: выбор кластера, автообновление, кнопки «Обновить» и
-             «Диагностика сети…» (поля подключения переехали в справочник, issue #3). -->
-        <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+        <!-- Первая строка правой панели (issue #3): кнопки «Подключиться», «Обновить»,
+             «Диагностика сети». Подключение к кластеру выбранного сервера справочника. -->
+        <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button x:Name="ConnectButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="14,6" Margin="0,0,6,0"
+                    Click="OnConnect_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🔗" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.Connect}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button x:Name="RefreshButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="14,6" Margin="0,0,6,0"
+                    Click="OnRefresh_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⟳" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.Refresh}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <!-- Диагностика сети до сервера 1С (функция 12): DNS/ICMP/TCP-проверка адреса:порт
+                 монитора и стандартных портов 1540/1541/1545. Работает до подключения rac. -->
+            <Button x:Name="DiagnosticsButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="14,6"
+                    Click="OnDiagnostics_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🛜" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.NetworkDiagnostics}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!-- Вторая строка правой панели (issue #3): выбор кластера, настройка
+             автообновления и статус подключения. -->
+        <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="{loc:Loc ServerMonitor.Cluster}" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <!-- issue #324: явный ItemTemplate вместо DisplayMemberPath — с шаблоном
                  ModernComboBox закрытый ComboBox в ряде случаев показывал ToString()
@@ -129,36 +179,19 @@
                 <ComboBoxItem Content="30" Tag="30"/>
                 <ComboBoxItem Content="60" Tag="60"/>
             </ComboBox>
-            <Button x:Name="RefreshButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="10,0,6,0"
-                    Click="OnRefresh_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⟳" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ServerMonitor.Refresh}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <!-- Диагностика сети до сервера 1С (функция 12): DNS/ICMP/TCP-проверка адреса:порт
-                 монитора и стандартных портов 1540/1541/1545. Работает до подключения rac. -->
-            <Button x:Name="DiagnosticsButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
-                    Click="OnDiagnostics_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🛜" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ServerMonitor.NetworkDiagnostics}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <TextBlock x:Name="StatusSummary" VerticalAlignment="Center" Margin="10,0,0,0"
+            <TextBlock x:Name="StatusSummary" VerticalAlignment="Center" Margin="14,0,0,0"
                        FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                        Text="{Binding StatusText}"/>
         </StackPanel>
 
         <!-- Вкладки данных кластера -->
-        <TabControl Grid.Column="1" Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}"
+        <TabControl Grid.Column="1" Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <!-- Рабочие процессы -->
             <TabItem Header="{loc:Loc ServerMonitor.Tabs.Processes}">
                 <DataGrid x:Name="ProcessesGrid" AutoGenerateColumns="False" IsReadOnly="True"
                           HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                          CanUserSortColumns="True"
                           ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
                           SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
@@ -211,6 +244,7 @@
                     <DataGrid x:Name="SessionsGrid" AutoGenerateColumns="False" IsReadOnly="True"
                               SelectedItem="{Binding SelectedSession}"
                               HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="True"
                               ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
                           SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
@@ -263,8 +297,7 @@
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
                         <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Session.Blocked}"
-                                            Binding="{Binding BlockedSymbol}" ElementStyle="{StaticResource CenteredCellText}"
-                                            CanUserSort="False"/>
+                                            Binding="{Binding BlockedSymbol}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.Memory}"
                                             Binding="{Binding MemoryText}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.Duration}"
@@ -294,6 +327,7 @@
                     <DataGrid x:Name="ConnectionsGrid" AutoGenerateColumns="False" IsReadOnly="True"
                               SelectedItem="{Binding SelectedConnection}"
                               HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="True"
                               ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
                           SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
@@ -342,6 +376,7 @@
             <TabItem Header="{loc:Loc ServerMonitor.Tabs.Locks}">
                 <DataGrid x:Name="LocksGrid" AutoGenerateColumns="False" IsReadOnly="True"
                           HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                          CanUserSortColumns="True"
                           ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
                           SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
@@ -447,6 +482,7 @@
                     <DataGrid x:Name="JobsGrid" AutoGenerateColumns="False" IsReadOnly="True"
                               SelectedItem="{Binding SelectedJob}"
                               HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="True"
                               ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
                               SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
                               RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
@@ -496,6 +532,85 @@
                                                 Binding="{Binding ResultText}" ElementStyle="{StaticResource CenteredCellText}"/>
                             <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Job.Predefined}"
                                                 Binding="{Binding PredefinedText}" ElementStyle="{StaticResource CenteredCellText}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Базы (issue #3): список информационных баз кластера, добавление/удаление
+                 (rac «infobase create/drop»); при выборе базы сеансы/соединения/блокировки
+                 перечитываются в разрезе базы (фильтр rac по информационной базе). -->
+            <TabItem Header="{loc:Loc ServerMonitor.Tabs.Infobases}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="AddInfobaseButton" Style="{StaticResource ModernButton}"
+                                Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                                Margin="0,0,8,0" Click="OnAddInfobase_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="＋" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Add}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DeleteInfobaseButton" Style="{StaticResource ModernButton}"
+                                Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                                IsEnabled="{Binding CanDropInfobase}" Click="OnDeleteInfobase_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🗑" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Delete}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Подсказка при пустом списке баз. -->
+                    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,6" FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="{loc:Loc ServerMonitor.Infobase.Empty}" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasInfobases}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <DataGrid x:Name="InfobasesGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                              SelectedItem="{Binding SelectedInfobase}"
+                              HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                              CanUserSortColumns="True"
+                              ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
+                              SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                              RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
+                              BorderThickness="0">
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Padding" Value="0"/>
+                            </Style>
+                        </DataGrid.CellStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="1.2*" Header="{loc:Loc ServerMonitor.Columns.Infobase.Name}"
+                                                Binding="{Binding Name}" ElementStyle="{StaticResource CellTextAccent}"/>
+                            <DataGridTextColumn Width="1.5*" Header="{loc:Loc ServerMonitor.Columns.Infobase.Descr}"
+                                                Binding="{Binding Descr}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Infobase.Dbms}"
+                                                Binding="{Binding DbmsText}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="1.1*" Header="{loc:Loc ServerMonitor.Columns.Infobase.DbServer}"
+                                                Binding="{Binding DbServer}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="1*" Header="{loc:Loc ServerMonitor.Columns.Infobase.DbName}"
+                                                Binding="{Binding DbName}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="120" Header="{loc:Loc ServerMonitor.Columns.Infobase.DbUser}"
+                                                Binding="{Binding DbUser}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Infobase.Locale}"
+                                                Binding="{Binding Locale}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="105" Header="{loc:Loc ServerMonitor.Columns.Infobase.SecurityLevel}"
+                                                Binding="{Binding SecurityLevel}" ElementStyle="{StaticResource CenteredCellText}"/>
+                            <DataGridTextColumn Width="95" Header="{loc:Loc ServerMonitor.Columns.Infobase.Licensed}"
+                                                Binding="{Binding LicensedText}" ElementStyle="{StaticResource CenteredCellText}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
@@ -568,13 +683,13 @@
         </TabControl>
 
         <!-- Строка состояния и ошибки (пустой ErrorMessage ничего не показывает) -->
-        <TextBlock Grid.Column="1" Grid.Row="2" Margin="0,10,0,0" FontSize="12"
+        <TextBlock Grid.Column="1" Grid.Row="3" Margin="0,10,0,0" FontSize="12"
                    Foreground="{DynamicResource TextSecondaryBrush}" Text="{Binding StatusText}"/>
-        <TextBlock Grid.Column="1" Grid.Row="3" Margin="0,4,0,0" FontSize="12"
+        <TextBlock Grid.Column="1" Grid.Row="4" Margin="0,4,0,0" FontSize="12"
                    Foreground="#DC2626" Text="{Binding ErrorMessage}"
                    TextWrapping="Wrap"/>
         <!-- Подсказка про автообновление (по образцу ProcessInspectorWindow.Hint). -->
-        <TextBlock Grid.Column="1" Grid.Row="4" Margin="0,8,0,0" FontSize="11"
+        <TextBlock Grid.Column="1" Grid.Row="5" Margin="0,8,0,0" FontSize="11"
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    Text="{Binding AutoRefreshText}"/>
     </Grid>

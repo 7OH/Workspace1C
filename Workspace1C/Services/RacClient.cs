@@ -205,10 +205,10 @@ public sealed class RacClient : IRacClient
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<RacSessionInfo>> GetSessionsAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default)
     {
-        var output = await RunAsync(parameters, cancellationToken, "session", "list",
-                $"--cluster={clusterId}")
+        var output = await RunAsync(parameters, cancellationToken, SessionListArgs(clusterId, infobaseId))
             .ConfigureAwait(false);
         var sessions = RacOutputParser.ToSessions(output);
         EnsureParsedOrThrow(output, sessions.Count, "session list", _logger);
@@ -217,10 +217,10 @@ public sealed class RacClient : IRacClient
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<RacConnectionInfo>> GetConnectionsAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default)
     {
-        var output = await RunAsync(parameters, cancellationToken, "connection", "list",
-                $"--cluster={clusterId}")
+        var output = await RunAsync(parameters, cancellationToken, ConnectionListArgs(clusterId, infobaseId))
             .ConfigureAwait(false);
         var connections = RacOutputParser.ToConnections(output);
         EnsureParsedOrThrow(output, connections.Count, "connection list", _logger);
@@ -229,10 +229,10 @@ public sealed class RacClient : IRacClient
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<RacLockInfo>> GetLocksAsync(
-        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+        RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+        CancellationToken cancellationToken = default)
     {
-        var output = await RunAsync(parameters, cancellationToken, "lock", "list",
-                $"--cluster={clusterId}")
+        var output = await RunAsync(parameters, cancellationToken, LockListArgs(clusterId, infobaseId))
             .ConfigureAwait(false);
         var locks = RacOutputParser.ToLocks(output);
         EnsureParsedOrThrow(output, locks.Count, "lock list", _logger);
@@ -427,6 +427,79 @@ public sealed class RacClient : IRacClient
         => $"{ConnectionKey(parameters)}|{clusterId}";
 
     /// <summary>
+    /// Аргументы команды «session list» (issue #3, вкладка «Базы»): при заданном
+    /// идентификаторе базы добавляется параметр «--infobase=<uuid>» — rac возвращает
+    /// сеансы только выбранной информационной базы. Internal — для юнит-тестов.
+    /// </summary>
+    internal static string[] SessionListArgs(Guid clusterId, Guid? infobaseId = null) =>
+        BuildListArgs("session", "list", clusterId, infobaseId);
+
+    /// <summary>
+    /// Аргументы команды «connection list» (issue #3): фильтр по базе через
+    /// «--infobase=<uuid>». Internal — для юнит-тестов.
+    /// </summary>
+    internal static string[] ConnectionListArgs(Guid clusterId, Guid? infobaseId = null) =>
+        BuildListArgs("connection", "list", clusterId, infobaseId);
+
+    /// <summary>
+    /// Аргументы команды «lock list» (issue #3): фильтр по базе через
+    /// «--infobase=<uuid>». Internal — для юнит-тестов.
+    /// </summary>
+    internal static string[] LockListArgs(Guid clusterId, Guid? infobaseId = null) =>
+        BuildListArgs("lock", "list", clusterId, infobaseId);
+
+    /// <summary>Общий построитель аргументов list-команды кластера с фильтром по базе.</summary>
+    private static string[] BuildListArgs(string command, string subcommand, Guid clusterId, Guid? infobaseId)
+    {
+        var args = new List<string>(4) { command, subcommand, $"--cluster={clusterId}" };
+        if (infobaseId is Guid id && id != Guid.Empty)
+            args.Add($"--infobase={id}");
+        return args.ToArray();
+    }
+
+    /// <summary>
+    /// Аргументы команды «infobase create» (issue #3, вкладка «Базы»):
+    /// <c>infobase create --cluster=<uuid> --name=... --dbms=... --db-server=...
+    /// --db-name=...</c> + необязательные параметры. Пароль СУБД остаётся одним
+    /// токеном (ArgumentList без shell); в журнале он маскируется. Internal —
+    /// для юнит-тестов сборки аргументов без запуска rac.
+    /// </summary>
+    internal static string[] InfobaseCreateArgs(Guid clusterId, RacInfobaseCreateRequest? request)
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Не указано имя информационной базы.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Dbms))
+            throw new ArgumentException("Не указан тип СУБД.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.DbServer))
+            throw new ArgumentException("Не указан сервер СУБД.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.DbName))
+            throw new ArgumentException("Не указано имя базы данных.", nameof(request));
+
+        var args = new List<string>(16) { "infobase", "create", $"--cluster={clusterId}" };
+        args.Add($"--name={request.Name}");
+        if (!string.IsNullOrWhiteSpace(request.Description))
+            args.Add($"--desc={request.Description}");
+        args.Add($"--dbms={request.Dbms}");
+        args.Add($"--db-server={request.DbServer}");
+        args.Add($"--db-name={request.DbName}");
+        if (!string.IsNullOrWhiteSpace(request.DbUser))
+            args.Add($"--db-user={request.DbUser}");
+        if (!string.IsNullOrEmpty(request.DbPassword))
+            args.Add($"--db-pwd={request.DbPassword}");
+        if (!string.IsNullOrWhiteSpace(request.Locale))
+            args.Add($"--locale={request.Locale}");
+        if (request.SecurityLevel is { } level)
+            args.Add($"--security-level={level.ToString(CultureInfo.InvariantCulture)}");
+        if (request.CreateDb)
+            args.Add("--create-db");
+        if (request.ScheduledJobsDeny)
+            args.Add("--scheduled-jobs-deny");
+        return args.ToArray();
+    }
+
+    /// <summary>
     /// Нераспознанный вывод rac (issue #324): rac завершился с кодом 0 и вернул НЕпустой вывод,
     /// но ни табличный разбор, ни формат блоков «ключ : значение» не дали ни одной строки
     /// данных — вероятно, новая версия формата. Бросаем <see cref="RacOutputParseException"/>,
@@ -529,6 +602,19 @@ public sealed class RacClient : IRacClient
         CancellationToken cancellationToken = default) =>
         RunActionAsync(parameters, cancellationToken, "connection", "disconnect",
             $"--cluster={clusterId}", $"--connection={connectionId}");
+
+    /// <inheritdoc />
+    public Task<bool> CreateInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,
+        CancellationToken cancellationToken = default) =>
+        RunActionAsync(parameters, cancellationToken, InfobaseCreateArgs(clusterId, request));
+
+    /// <inheritdoc />
+    public Task<bool> DropInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        CancellationToken cancellationToken = default) =>
+        RunActionAsync(parameters, cancellationToken, "infobase", "drop",
+            $"--cluster={clusterId}", $"--infobase={infobaseId}");
 
     /// <inheritdoc />
     public string LastActionError { get; private set; } = string.Empty;

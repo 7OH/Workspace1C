@@ -981,6 +981,136 @@ public sealed class ServerMonitorViewModelTests
         Assert.Same(server, vm.SelectedServer);
     }
 
+    // ===================== Базы кластера (issue #3) =====================
+
+    [Fact]
+    public async Task LoadClusterDataAsync_FillsInfobasesTab()
+    {
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        Assert.Single(vm.Infobases);
+        Assert.True(vm.HasInfobases);
+        Assert.Equal("Бухгалтерия", vm.Infobases[0].Name);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, vm.Infobases[0].InfobaseId);
+    }
+
+    [Fact]
+    public async Task SelectInfobase_ReloadsSessionsConnectionsLocks_WithFilter()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        // Без выбора базы данные кластера запрашиваются целиком.
+        Assert.Null(client.LastSessionsInfobaseId);
+        Assert.Null(client.LastConnectionsInfobaseId);
+        Assert.Null(client.LastLocksInfobaseId);
+        Assert.Single(vm.Sessions);
+        Assert.Single(vm.Locks);
+
+        // Выбираем базу — сеансы/соединения/блокировки перечитываются в разрезе базы.
+        vm.SelectedInfobase = vm.Infobases.Single();
+        Assert.Equal(FakeRacClient.FirstInfobaseId, vm.SelectedInfobaseId);
+
+        await WaitUntilAsync(() => client.LastSessionsInfobaseId == FakeRacClient.FirstInfobaseId);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, client.LastConnectionsInfobaseId);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, client.LastLocksInfobaseId);
+        Assert.Single(vm.Sessions);
+        Assert.Single(vm.Locks);
+    }
+
+    [Fact]
+    public async Task CreateInfobaseAsync_CallsClient_WithRequest_AndRefreshes()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+
+        var request = new RacInfobaseCreateRequest
+        {
+            Name = "Новая база",
+            Dbms = RacDbms.MssqlServer,
+            DbServer = "sql-01",
+            DbName = "newbase"
+        };
+        await vm.CreateInfobaseAsync(request);
+
+        var call = Assert.Single(client.CreateInfobaseCalls);
+        Assert.Equal(FakeRacClient.FirstClusterId, call.clusterId);
+        Assert.Equal("Новая база", call.request.Name);
+        Assert.Empty(client.LastActionError);
+        Assert.Empty(vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task CreateInfobaseAsync_ClientFails_ShowsWarning()
+    {
+        var client = new FakeRacClient(actionFails: true);
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+
+        await vm.CreateInfobaseAsync(new RacInfobaseCreateRequest
+        {
+            Name = "База",
+            Dbms = RacDbms.File,
+            DbServer = "/srv/bases",
+            DbName = "1Cv8.1CD"
+        });
+
+        Assert.Single(client.CreateInfobaseCalls);
+        Assert.NotEmpty(dialogs.Warnings);
+        Assert.NotEmpty(vm.StatusText);
+    }
+
+    [Fact]
+    public async Task DropSelectedInfobase_Confirm_CallsClient_WithCorrectArguments()
+    {
+        var client = new FakeRacClient();
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.SelectedInfobase = vm.Infobases.Single();
+        await vm.DropSelectedInfobaseAsync();
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(dialogs.Warnings);
+        var call = Assert.Single(client.DropInfobaseCalls);
+        Assert.Equal(FakeRacClient.FirstClusterId, call.clusterId);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, call.infobaseId);
+        Assert.NotEmpty(vm.StatusText);
+    }
+
+    [Fact]
+    public async Task DropSelectedInfobase_Cancelled_DoesNotCallClient()
+    {
+        var client = new FakeRacClient();
+        var dialogs = new RecordingDialogs { ConfirmResult = false };
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.SelectedInfobase = vm.Infobases.Single();
+        await vm.DropSelectedInfobaseAsync();
+
+        Assert.Single(dialogs.Confirms);
+        Assert.Empty(client.DropInfobaseCalls);
+    }
+
+    /// <summary>Ждёт наступления условия (с таймаутом) — для fire-and-forget загрузки кластера.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition() && stopwatch.ElapsedMilliseconds < timeoutMs)
+            await Task.Delay(10);
+        Assert.True(condition(), "Условие не наступило в течение " + timeoutMs + " мс.");
+    }
+
     // ===================== Fakes =====================
 
     /// <summary>Fake-клиент rac для тестов: два кластера, по одной строке данных.</summary>
@@ -1043,6 +1173,21 @@ public sealed class ServerMonitorViewModelTests
 
         /// <summary>Вызовы «job pause/resume/disable/enable»: (clusterId, jobId, action).</summary>
         public List<(System.Guid clusterId, System.Guid jobId, RacJobAction action)> StateCalls { get; } = new();
+
+        /// <summary>infobaseId, переданный в последний вызов «session list» (фильтр по базе, issue #3).</summary>
+        public System.Guid? LastSessionsInfobaseId { get; private set; }
+
+        /// <summary>infobaseId, переданный в последний вызов «connection list» (фильтр по базе, issue #3).</summary>
+        public System.Guid? LastConnectionsInfobaseId { get; private set; }
+
+        /// <summary>infobaseId, переданный в последний вызов «lock list» (фильтр по базе, issue #3).</summary>
+        public System.Guid? LastLocksInfobaseId { get; private set; }
+
+        /// <summary>Вызовы «infobase create»: (clusterId, запрос).</summary>
+        public List<(System.Guid clusterId, RacInfobaseCreateRequest request)> CreateInfobaseCalls { get; } = new();
+
+        /// <summary>Вызовы «infobase drop»: (clusterId, infobaseId).</summary>
+        public List<(System.Guid clusterId, System.Guid infobaseId)> DropInfobaseCalls { get; } = new();
 
         public Task<IReadOnlyList<RacCluster>> GetClustersAsync(
             RacConnectionParams parameters, CancellationToken cancellationToken = default)
@@ -1110,11 +1255,17 @@ public sealed class ServerMonitorViewModelTests
         }
 
         public Task<IReadOnlyList<RacSessionInfo>> GetSessionsAsync(
-            RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+            RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+            CancellationToken cancellationToken = default)
         {
             // issue #324: сбой разбора ОДНОЙ вкладки (сеансы) — остальные заполняются.
             if (_throwParseOnSessions)
                 throw new RacOutputParseException("тест: вывод session list не распознан");
+
+            LastSessionsInfobaseId = infobaseId;
+            // issue #3: фильтр по базе — rac «--infobase=...»; сеансы другой базы не возвращаются.
+            if (infobaseId is Guid filter && filter != FirstInfobaseId)
+                return Task.FromResult<IReadOnlyList<RacSessionInfo>>(Array.Empty<RacSessionInfo>());
 
             return Task.FromResult<IReadOnlyList<RacSessionInfo>>(new[]
             {
@@ -1136,8 +1287,10 @@ public sealed class ServerMonitorViewModelTests
         }
 
         public Task<IReadOnlyList<RacConnectionInfo>> GetConnectionsAsync(
-            RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+            RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+            CancellationToken cancellationToken = default)
         {
+            LastConnectionsInfobaseId = infobaseId;
             return Task.FromResult<IReadOnlyList<RacConnectionInfo>>(new[]
             {
                 new RacConnectionInfo
@@ -1154,8 +1307,14 @@ public sealed class ServerMonitorViewModelTests
         }
 
         public Task<IReadOnlyList<RacLockInfo>> GetLocksAsync(
-            RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default)
+            RacConnectionParams parameters, Guid clusterId, Guid? infobaseId = null,
+            CancellationToken cancellationToken = default)
         {
+            LastLocksInfobaseId = infobaseId;
+            // issue #3: блокировки фильтруются rac по «--infobase=...».
+            if (infobaseId is Guid filter && filter != FirstInfobaseId)
+                return Task.FromResult<IReadOnlyList<RacLockInfo>>(Array.Empty<RacLockInfo>());
+
             return Task.FromResult<IReadOnlyList<RacLockInfo>>(new[]
             {
                 new RacLockInfo
@@ -1164,6 +1323,7 @@ public sealed class ServerMonitorViewModelTests
                     SessionId = System.Guid.NewGuid(),
                     ConnectionId = System.Guid.NewGuid(),
                     TransactionId = System.Guid.NewGuid(),
+                    InfobaseId = FirstInfobaseId,
                     Waiting = true,
                     Blocking = false,
                     Object = "Справочник.Номенклатура"
@@ -1273,6 +1433,40 @@ public sealed class ServerMonitorViewModelTests
             if (_actionFails)
             {
                 LastActionError = "rac: у пользователя нет прав на разрыв соединения";
+                return Task.FromResult(false);
+            }
+            return Task.FromResult(true);
+        }
+
+        // ===================== Базы кластера (issue #3) =====================
+
+        /// <summary>«infobase create»: фиксирует вызов; «неудача» настраивается, как у остальных действий.</summary>
+        public Task<bool> CreateInfobaseAsync(
+            RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CreateInfobaseCalls.Add((clusterId, request));
+            if (_throwOnAction)
+                throw new RacClientException("нет прав администратора");
+            if (_actionFails)
+            {
+                LastActionError = "rac: у пользователя нет прав на изменение списка баз";
+                return Task.FromResult(false);
+            }
+            return Task.FromResult(true);
+        }
+
+        /// <summary>«infobase drop»: фиксирует вызов; «неудача» настраивается, как у остальных действий.</summary>
+        public Task<bool> DropInfobaseAsync(
+            RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+            CancellationToken cancellationToken = default)
+        {
+            DropInfobaseCalls.Add((clusterId, infobaseId));
+            if (_throwOnAction)
+                throw new RacClientException("нет прав администратора");
+            if (_actionFails)
+            {
+                LastActionError = "rac: у пользователя нет прав на изменение списка баз";
                 return Task.FromResult(false);
             }
             return Task.FromResult(true);

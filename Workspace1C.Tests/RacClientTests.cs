@@ -665,4 +665,129 @@ public sealed class RacClientTests
 
         Assert.Contains("--name=Имя с пробелами", args);
     }
+
+    // ---------- Фильтр по базе «--infobase=...» (issue #3, вкладка «Базы») ----------
+
+    [Fact]
+    public void SessionListArgs_WithoutInfobase_HasOnlyCluster()
+    {
+        var clusterId = Guid.NewGuid();
+
+        var args = RacClient.SessionListArgs(clusterId);
+
+        Assert.Equal(new[] { "session", "list", $"--cluster={clusterId}" }, args);
+    }
+
+    [Fact]
+    public void SessionListArgs_WithInfobase_AddsInfobaseToken()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.Parse("cccccccc-1111-2222-3333-444455556666");
+
+        var args = RacClient.SessionListArgs(clusterId, infobaseId);
+
+        Assert.Equal(
+            new[] { "session", "list", $"--cluster={clusterId}", $"--infobase={infobaseId}" },
+            args);
+    }
+
+    [Fact]
+    public void ConnectionListArgs_WithInfobase_AddsInfobaseToken()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+
+        var args = RacClient.ConnectionListArgs(clusterId, infobaseId);
+
+        Assert.Equal(
+            new[] { "connection", "list", $"--cluster={clusterId}", $"--infobase={infobaseId}" },
+            args);
+    }
+
+    [Fact]
+    public void LockListArgs_WithInfobase_AddsInfobaseToken()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+
+        var args = RacClient.LockListArgs(clusterId, infobaseId);
+
+        Assert.Equal(
+            new[] { "lock", "list", $"--cluster={clusterId}", $"--infobase={infobaseId}" },
+            args);
+    }
+
+    // ---------- «infobase create» (issue #3, вкладка «Базы») ----------
+
+    [Fact]
+    public void InfobaseCreateArgs_ServerBase_AllFieldsAreIncluded()
+    {
+        var clusterId = Guid.NewGuid();
+        var request = new RacInfobaseCreateRequest
+        {
+            Name = "Новая база",
+            Description = "Описание базы",
+            Dbms = "MSSQLServer",
+            DbServer = "sql-01",
+            DbName = "newbase",
+            DbUser = "sa",
+            DbPassword = "p@ss",
+            Locale = "ru_RU",
+            SecurityLevel = 1,
+            CreateDb = true,
+            ScheduledJobsDeny = false
+        };
+
+        var args = RacClient.InfobaseCreateArgs(clusterId, request);
+
+        Assert.Equal(new[]
+        {
+            "infobase", "create", $"--cluster={clusterId}",
+            "--name=Новая база",
+            "--desc=Описание базы",
+            "--dbms=MSSQLServer",
+            "--db-server=sql-01",
+            "--db-name=newbase",
+            "--db-user=sa",
+            "--db-pwd=p@ss",
+            "--locale=ru_RU",
+            "--security-level=1",
+            "--create-db"
+        }, args);
+    }
+
+    [Fact]
+    public void InfobaseCreateArgs_OptionalFields_AreOmitted()
+    {
+        var clusterId = Guid.NewGuid();
+
+        var args = RacClient.InfobaseCreateArgs(clusterId, new RacInfobaseCreateRequest
+        {
+            Name = "Минимум",
+            Dbms = "FILE",
+            DbServer = "/srv/bases",
+            DbName = "1Cv8.1CD"
+        });
+
+        Assert.DoesNotContain(args, a => a.StartsWith("--desc="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--db-user="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--db-pwd="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--locale="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--security-level="));
+        Assert.DoesNotContain(args, a => a == "--create-db");
+        Assert.DoesNotContain(args, a => a == "--scheduled-jobs-deny");
+    }
+
+    [Fact]
+    public void InfobaseCreateArgs_EmptyName_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RacClient.InfobaseCreateArgs(Guid.NewGuid(), new RacInfobaseCreateRequest
+            {
+                Dbms = "MSSQLServer",
+                DbServer = "sql-01",
+                DbName = "newbase"
+            }));
+        Assert.Throws<ArgumentNullException>(() => RacClient.InfobaseCreateArgs(Guid.NewGuid(), null));
+    }
 }
