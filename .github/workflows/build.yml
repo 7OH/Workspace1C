@@ -49,7 +49,21 @@ jobs:
         run: ./build.ps1 -Configuration Release
 
       - name: Регрессионные тесты
-        run: dotnet test "Workspace1C.Tests/Workspace1C.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false
+        run: dotnet test "Workspace1C.Tests/Workspace1C.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false --logger "trx;LogFileName=results.trx" --results-directory TestResults
+
+      # Упавшие тесты — в аннотации прогона (видны на странице Actions и через API).
+      - name: Отчёт об упавших тестах
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults -Filter *.trx -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            [xml]$x = Get-Content $_.FullName
+            $x.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' } | Select-Object -First 40 | ForEach-Object {
+              $msg = ($_.Output.ErrorInfo.Message -replace '\r?\n', ' ')
+              if ($msg.Length -gt 600) { $msg = $msg.Substring(0, 600) }
+              Write-Output "::error title=$($_.testName)::$msg"
+            }
+          }
 
   linux:
     name: Linux (Avalonia, net10.0)
@@ -68,4 +82,18 @@ jobs:
         run: ./build.sh Release
 
       - name: Регрессионные тесты
-        run: dotnet test "Workspace1C.Tests/Workspace1C.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false
+        run: dotnet test "Workspace1C.Tests/Workspace1C.Tests.csproj" -c Release -p:RuntimeIdentifier= -p:SelfContained=false -p:PublishSingleFile=false --logger "trx;LogFileName=results.trx" --results-directory TestResults
+
+      # Упавшие тесты — в аннотации прогона (видны на странице Actions и через API).
+      - name: Отчёт об упавших тестах
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults -Filter *.trx -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            [xml]$x = Get-Content $_.FullName
+            $x.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' } | Select-Object -First 40 | ForEach-Object {
+              $msg = ($_.Output.ErrorInfo.Message -replace '\r?\n', ' ')
+              if ($msg.Length -gt 600) { $msg = $msg.Substring(0, 600) }
+              Write-Output "::error title=$($_.testName)::$msg"
+            }
+          }

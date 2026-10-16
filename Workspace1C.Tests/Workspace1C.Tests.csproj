@@ -11,7 +11,7 @@
          где SDK определяет символ WINDOWS из TFM net10.0-windows, хотя основной
          проект собран как Linux. Прокидываем LINUX, чтобы #if !LINUX в тестах
          исключал проверки WINDOWS-only методов (иначе CS0117). -->
-    <DefineConstants Condition="'$(BuildLinux)' == 'true'">$(DefineConstants);LINUX</DefineConstants>
+    <DefineConstants Condition="'$(BuildLinux)' == 'true' or !$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
