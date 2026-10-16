@@ -1,24 +1,32 @@
 # =============================================================================
-# Публикация Linux-версии в GitHub Releases.
+# Публикация релиза Workspace 1C в GitHub Releases.
 #
-# Срабатывает на push тега релиза (например v0.3.6.31 или 0.3.6.31), собирает
-# самодостаточный single-file исполняемый файл Linux (Avalonia, net10.0,
-# linux-x64) с помощью build-linux-single-file.sh и прикрепляет его asset'ом
-# к GitHub Release с этим тегом. Если релиз для тега ещё не создан — создаёт
-# его, если уже существует — только добавляет/перезаписывает asset.
+# Срабатывает на push тега релиза (например v1.0.0.0 или 1.0.0.0):
+#   1) windows — собирает один исполняемый файл Windows (WPF, net10.0-windows,
+#      win-x64) скриптом build-windows-single-file.ps1 → Workspace1C.exe;
+#   2) linux   — собирает один исполняемый файл Linux (Avalonia, net10.0,
+#      linux-x64) скриптом build-linux-single-file.sh → Workspace1C-linux-x64;
+#   3) release — создаёт (или обновляет) GitHub Release по тегу и прикрепляет
+#      оба файла. Текст релиза берётся из rel_notes_<версия>.md, если он есть.
 #
-# Windows-версия собирается/публикуется отдельно и здесь не затрагивается.
+# Имена asset'ов согласованы с автообновлением (Services/GitHubReleaseService.cs):
+# Windows ищет «Workspace1C.exe», Linux — «Workspace1C» или имя с «linux-x64».
 # =============================================================================
-name: Публикация Linux-релиза
+name: Публикация релиза
 
 # В фильтрах тегов GitHub Actions не поддерживает символьные классы ([0-9]),
-# поэтому используем glob-шаблоны: v0.3.6.31, 0.3.6.31, 0.3.6 и т.п.
+# поэтому используем glob-шаблоны: v1.0.0.0, 1.0.0.0, 1.0.0 и т.п.
 on:
   push:
     tags:
       - 'v*'
       - '*.*.*'
       - '*.*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег существующего релиза (например v1.0.0.0)'
+        required: true
 
 # Создание/обновление release и загрузка asset требуют записи в репозиторий.
 permissions:
@@ -26,16 +34,53 @@ permissions:
 
 # Отменяем незавершённый прогон по тому же тегу, чтобы не плодить гонки.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: true
 
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
+  windows:
+    name: Windows (WPF, single-file)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Установка .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Сборка Windows single-file
+        working-directory: Workspace1C
+        shell: pwsh
+        run: ./build-windows-single-file.ps1 -Configuration Release
+
+      - name: Подготовка asset'а
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          Copy-Item "Workspace1C/dist/win-x64/Workspace1C.exe" dist/release/Workspace1C.exe
+          Get-ChildItem dist/release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/release/Workspace1C.exe
+          if-no-files-found: error
+
   linux:
-    name: Linux (Avalonia, single-file) → Release
+    name: Linux (Avalonia, single-file)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Установка .NET SDK
         uses: actions/setup-dotnet@v6
@@ -48,20 +93,57 @@ jobs:
         working-directory: Workspace1C
         run: ./build-linux-single-file.sh Release
 
-      - name: Подготовка asset'а релиза
+      - name: Подготовка asset'а
         run: |
           mkdir -p dist/release
-          cp "Workspace1C/dist/linux-x64/Workspace1C" \
-             dist/release/Workspace1C-linux-x64
+          cp "Workspace1C/dist/linux-x64/Workspace1C" dist/release/Workspace1C-linux-x64
+          chmod +x dist/release/Workspace1C-linux-x64
           ls -lh dist/release
 
-      - name: Прикрепление Linux-артефакта к GitHub Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/release/Workspace1C-linux-x64
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          merge-multiple: true
+
+      - name: Текст релиза
+        id: notes
+        run: |
+          ver="${RELEASE_TAG#v}"
+          if [ -f "rel_notes_${ver}.md" ]; then
+            cp "rel_notes_${ver}.md" dist/notes.md
+          else
+            echo "Workspace 1C ${ver}. Подробности — в CHANGELOG.md." > dist/notes.md
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          ls -lh dist/release
+
+      - name: Публикация релиза
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/release/Workspace1C-linux-x64
-          # Перезаписываем одноимённый asset при повторном прогоне на том же релизе.
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Workspace 1C ${{ steps.notes.outputs.version }}
+          body_path: dist/notes.md
+          files: |
+            dist/release/Workspace1C.exe
+            dist/release/Workspace1C-linux-x64
+          # Перезаписываем одноимённые asset'ы при повторном прогоне.
           overwrite: true
-          # Падаем, если указанный файл не собран/не существует.
+          make_latest: true
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
