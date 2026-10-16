@@ -1,5 +1,6 @@
+using System.Collections.Generic;
 using System.Net.Http;
-using System.Text;
+using System.Text.RegularExpressions;
 using Workspace1C.Models;
 
 namespace Workspace1C.Services;
@@ -10,6 +11,12 @@ namespace Workspace1C.Services;
 /// Текст — простой (без parse_mode), поэтому экранирование MarkdownV2 не требуется.
 /// Тихая деградация: ошибки сети/API → false (диспетчер пишет предупреждение), токен
 /// в журнале маскируется.
+/// <para>
+/// Поле «ID чата» (issue #2) принимает не только число/отрицательное число/<c>@channel</c>,
+/// но и приватную ссылку вида <c>t.me/c/1234567890</c> (с/без <c>https://</c>): число после
+/// <c>/c/</c> дополняется префиксом «-100» (chat_id группы/канала), а число после второго
+/// слэша — <c>message_thread_id</c> (тема/подгруппа). См. <see cref="ParseChatTarget"/>.
+/// </para>
 /// </summary>
 public sealed class TelegramNotificationChannel : INotificationChannel
 {
@@ -18,6 +25,14 @@ public sealed class TelegramNotificationChannel : INotificationChannel
 
     /// <summary>Лимит длины сообщения Telegram (символов).</summary>
     public const int MaxMessageLength = 4096;
+
+    /// <summary>
+    /// Шаблон приватной ссылки Telegram: <c>t.me/c/<id>[/<thread>]</c>
+    /// (с префиксом <c>https://</c>/<c>http://</c> и без, допускается <c>www.</c> и хвост после номера темы).
+    /// </summary>
+    private static readonly Regex PrivateChatLink = new(
+        @"(?:https?://)?(?:www\.)?t\.me/c/(?<chat>\d+)(?:/(?<thread>\d+))?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
@@ -51,6 +66,35 @@ public sealed class TelegramNotificationChannel : INotificationChannel
            && !string.IsNullOrWhiteSpace(s.TelegramBotToken)
            && !string.IsNullOrWhiteSpace(s.TelegramChatId);
 
+    /// <summary>
+    /// Разбор значения поля «ID чата» (issue #2). Поддерживаются:
+    /// <list type="bullet">
+    /// <item>число (в т.ч. отрицательное) — возвращается без изменений;</item>
+    /// <item><c>@channel</c> — возвращается без изменений;</item>
+    /// <item>приватная ссылка <c>t.me/c/1234567890</c> (с/без <c>https://</c>) → chat_id «-1001234567890»;</item>
+    /// <item>ссылка на тему <c>t.me/c/1234567890/1234</c> → chat_id «-1001234567890» и message_thread_id «1234».</item>
+    /// </list>
+    /// </summary>
+    /// <param name="raw">Сырое значение поля «ID чата».</param>
+    /// <returns>Итоговый chat_id и (опционально) message_thread_id темы/подгруппы.</returns>
+    public static (string ChatId, string? MessageThreadId) ParseChatTarget(string? raw)
+    {
+        var value = (raw ?? string.Empty).Trim();
+        if (value.Length == 0)
+            return (string.Empty, null);
+
+        var link = PrivateChatLink.Match(value);
+        if (link.Success)
+        {
+            var chatId = "-100" + link.Groups["chat"].Value;
+            var thread = link.Groups["thread"].Success ? link.Groups["thread"].Value : null;
+            return (chatId, thread);
+        }
+
+        // Прежние форматы (число, отрицательное число, @channel) — без изменений.
+        return (value, null);
+    }
+
     /// <inheritdoc/>
     public async Task<bool> SendAsync(NotificationMessage message, CancellationToken cancellationToken = default)
     {
@@ -83,7 +127,8 @@ public sealed class TelegramNotificationChannel : INotificationChannel
         {
             using var http = _handler is null ? new HttpClient() : new HttpClient(_handler, disposeHandler: false);
             http.Timeout = RequestTimeout;
-            using var request = BuildRequest(token, settings.TelegramChatId, BuildText(message));
+            var (chatId, threadId) = ParseChatTarget(settings.TelegramChatId);
+            using var request = BuildRequest(token, chatId, BuildText(message), threadId);
             using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
                 return (true, string.Empty);
@@ -110,17 +155,23 @@ public sealed class TelegramNotificationChannel : INotificationChannel
         return Truncate(text.Trim(), MaxMessageLength);
     }
 
-    /// <summary>POST-запрос <c>/bot&lt;token&gt;/sendMessage</c> с form-urlencoded телом.</summary>
-    public static HttpRequestMessage BuildRequest(string token, string chatId, string text)
+    /// <summary>
+    /// POST-запрос <c>/bot<token>/sendMessage</c> с form-urlencoded телом.
+    /// Если задан <paramref name="messageThreadId"/>, добавляется параметр
+    /// <c>message_thread_id</c> (отправка в тему/подгруппу, issue #2).
+    /// </summary>
+    public static HttpRequestMessage BuildRequest(string token, string chatId, string text, string? messageThreadId = null)
     {
         var url = $"{ApiBase}/bot{token.Trim()}/sendMessage";
-        var content = new FormUrlEncodedContent(new[]
+        var fields = new List<KeyValuePair<string, string>>
         {
-            new KeyValuePair<string, string>("chat_id", (chatId ?? string.Empty).Trim()),
-            new KeyValuePair<string, string>("text", text ?? string.Empty),
-            new KeyValuePair<string, string>("disable_web_page_preview", "true"),
-        });
-        return new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            new("chat_id", (chatId ?? string.Empty).Trim()),
+            new("text", text ?? string.Empty),
+            new("disable_web_page_preview", "true"),
+        };
+        if (!string.IsNullOrWhiteSpace(messageThreadId))
+            fields.Add(new("message_thread_id", messageThreadId.Trim()));
+        return new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(fields) };
     }
 
     private static string Truncate(string? text, int max)

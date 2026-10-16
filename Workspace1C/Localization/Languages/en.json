@@ -2830,7 +2830,7 @@
     "Notifications.TelegramEnabled": "Send notifications to Telegram",
     "Notifications.TelegramToken": "Bot token",
     "Notifications.TelegramChatId": "Chat ID",
-    "Notifications.TelegramHint": "Create a bot with @BotFather and paste its token. Chat ID: send any message to the bot and open https://api.telegram.org/bot<token>/getUpdates — the chat.id value (negative for groups).",
+    "Notifications.TelegramHint": "Create a bot with @BotFather and paste its token. Chat ID: a number (negative for groups), @channel, or a private link t.me/c/1234567890 — for a topic/subgroup use t.me/c/1234567890/1234 (links are converted automatically). Alternatively, message the bot and open https://api.telegram.org/bot<token>/getUpdates — the chat.id value.",
     "Notifications.EmailHeader": "Email (SMTP)",
     "Notifications.EmailEnabled": "Send notifications by email",
     "Notifications.SmtpHost": "SMTP server",

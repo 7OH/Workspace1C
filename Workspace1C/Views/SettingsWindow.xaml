@@ -11,8 +11,8 @@
         mc:Ignorable="d"
         Title="{loc:Loc Settings.Title}"
         Icon="{StaticResource AppIcon}"
-        Width="880"
-        MinWidth="760"
+        Width="960"
+        MinWidth="820"
         MinHeight="620"
         Height="720"
         WindowStartupLocation="CenterOwner"
@@ -1019,15 +1019,17 @@
                         <StackPanel>
                             <GroupBox Header="{loc:Loc Settings.Theme}" Padding="8" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                        <TextBlock Text="{loc:Loc Settings.ThemeLabel}" VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                        <ComboBox x:Name="SchemeComboBox" Width="240" Height="34" Margin="10,0,0,0"
-                                                  VerticalAlignment="Center"
-                                                  Style="{StaticResource ModernComboBox}"
-                                                  SelectionChanged="OnSchemeCombo_SelectionChanged"/>
-                                        <Button x:Name="ApplySchemeButton" Content="{loc:Loc Common.Apply}" Margin="10,0,0,0"
-                                                Padding="12,5" VerticalAlignment="Center"
+                                    <StackPanel Margin="0,0,0,8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{loc:Loc Settings.ThemeLabel}" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                            <ComboBox x:Name="SchemeComboBox" Width="240" Height="34" Margin="10,0,0,0"
+                                                      VerticalAlignment="Center"
+                                                      Style="{StaticResource ModernComboBox}"
+                                                      SelectionChanged="OnSchemeCombo_SelectionChanged"/>
+                                        </StackPanel>
+                                        <Button x:Name="ApplySchemeButton" Content="{loc:Loc Common.Apply}" Margin="0,8,0,0"
+                                                Padding="12,5" HorizontalAlignment="Left"
                                                 Style="{DynamicResource ModernButton}"
                                                 Click="OnApplyColorScheme_Click"
                                                 ToolTip="{loc:Loc Settings.Theme.ApplyTooltip}"/>

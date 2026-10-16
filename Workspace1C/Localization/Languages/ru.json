@@ -2829,7 +2829,7 @@
     "Notifications.TelegramEnabled": "Отправлять уведомления в Telegram",
     "Notifications.TelegramToken": "Токен бота",
     "Notifications.TelegramChatId": "ID чата",
-    "Notifications.TelegramHint": "Создайте бота у @BotFather и вставьте его токен. ID чата: напишите боту любое сообщение и откройте https://api.telegram.org/bot<токен>/getUpdates — значение chat.id (для группы — отрицательное число).",
+    "Notifications.TelegramHint": "Создайте бота у @BotFather и вставьте его токен. ID чата: число (для группы — отрицательное), @канал или приватная ссылка t.me/c/1234567890 — для темы/подгруппы t.me/c/1234567890/1234 (ссылка преобразуется автоматически). Либо напишите боту и откройте https://api.telegram.org/bot<токен>/getUpdates — значение chat.id.",
     "Notifications.EmailHeader": "Электронная почта (SMTP)",
     "Notifications.EmailEnabled": "Отправлять уведомления по email",
     "Notifications.SmtpHost": "SMTP-сервер",

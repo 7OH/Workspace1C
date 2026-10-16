@@ -97,9 +97,9 @@ namespace Workspace1C
             // Семь вкладок с длинными подписями в одну строку не помещаются
             // ни в какую разумную ширину, поэтому полоса вкладок слева.
             // Размеры и кегль окна из разметки (SettingsWindow.xaml:14-21).
-            Width = 880;
+            Width = 960;
             Height = 720;
-            MinWidth = 760;
+            MinWidth = 820;
             MinHeight = 620;
             FontSize = 13;
 

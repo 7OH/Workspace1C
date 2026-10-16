@@ -19,7 +19,11 @@ public sealed class NotificationChannelSettings
     /// <summary>Токен бота (выдаёт @BotFather), вида <c>123456:ABC-DEF…</c>.</summary>
     public string TelegramBotToken { get; set; } = "";
 
-    /// <summary>Идентификатор чата/группы/канала (число, для групп — отрицательное, или <c>@channel</c>).</summary>
+    /// <summary>
+    /// Идентификатор чата/группы/канала: число (для групп — отрицательное), <c>@channel</c>
+    /// или приватная ссылка <c>t.me/c/1234567890</c> (для темы — <c>t.me/c/1234567890/1234</c>),
+    /// которая разбирается при отправке (к chat_id добавляется <c>-100</c>, см. issue #2).
+    /// </summary>
     public string TelegramChatId { get; set; } = "";
 
     // ---------- Email (SMTP) ----------

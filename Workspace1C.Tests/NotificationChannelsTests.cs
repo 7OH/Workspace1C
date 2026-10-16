@@ -149,6 +149,59 @@ public sealed class NotificationChannelsTests : IDisposable
         Assert.True(TelegramNotificationChannel.IsConfigured(new NotificationChannelSettings { TelegramEnabled = true, TelegramBotToken = "t", TelegramChatId = "1" }));
     }
 
+    // ---------- Разбор ссылок t.me/c и тем (issue #2) ----------
+
+    [Theory]
+    [InlineData("t.me/c/1234567890", "-1001234567890", null)]
+    [InlineData("https://t.me/c/1234567890", "-1001234567890", null)]
+    [InlineData("t.me/c/1234567890/1234", "-1001234567890", "1234")]
+    [InlineData("https://t.me/c/1234567890/1234", "-1001234567890", "1234")]
+    [InlineData("https://t.me/c/1234567890/1234/", "-1001234567890", "1234")]
+    [InlineData("t.me/c/1234567890/1234?thread=1", "-1001234567890", "1234")]
+    [InlineData("42", "42", null)]
+    [InlineData("-100500", "-100500", null)]
+    [InlineData("@channel", "@channel", null)]
+    [InlineData("", "", null)]
+    public void Telegram_ParseChatTarget_ResolvesLinksAndKeepsOldFormats(string input, string chatId, string? thread)
+    {
+        var (resolvedChat, resolvedThread) = TelegramNotificationChannel.ParseChatTarget(input);
+        Assert.Equal(chatId, resolvedChat);
+        Assert.Equal(thread, resolvedThread);
+    }
+
+    [Fact]
+    public async Task Telegram_BuildRequest_WithMessageThreadId_AddsParameter()
+    {
+        using var request = TelegramNotificationChannel.BuildRequest("123:ABC", "-1001234567890", "hello", "1234");
+        var body = await request.Content!.ReadAsStringAsync();
+        Assert.Contains("chat_id=-1001234567890", body);
+        Assert.Contains("message_thread_id=1234", body);
+    }
+
+    [Fact]
+    public async Task Telegram_BuildRequest_WithoutThread_OmitsMessageThreadId()
+    {
+        using var request = TelegramNotificationChannel.BuildRequest("123:ABC", "42", "hello");
+        var body = await request.Content!.ReadAsStringAsync();
+        Assert.Contains("chat_id=42", body);
+        Assert.DoesNotContain("message_thread_id", body);
+    }
+
+    [Fact]
+    public async Task Telegram_SendAsync_PrivateLink_ResolvesChatAndThread()
+    {
+        var store = new NotificationSettingsStore(directoryOverride: _dir);
+        store.Save(new NotificationChannelSettings { TelegramEnabled = true, TelegramBotToken = "123:ABC", TelegramChatId = "t.me/c/1234567890/1234" });
+        var handler = new RecordingHandler(HttpStatusCode.OK);
+        var channel = new TelegramNotificationChannel(store, null, handler);
+
+        Assert.True(await channel.SendAsync(Msg(NotificationEvent.Backup)));
+
+        Assert.Equal(1, handler.Calls);
+        Assert.Contains("chat_id=-1001234567890", handler.LastBody);
+        Assert.Contains("message_thread_id=1234", handler.LastBody);
+    }
+
     [Fact]
     public async Task Telegram_SendAsync_PostsToApi()
     {
@@ -255,12 +308,15 @@ public sealed class NotificationChannelsTests : IDisposable
 
         public int Calls { get; private set; }
         public string LastUri { get; private set; } = "";
+        public string LastBody { get; private set; } = "";
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls++;
             LastUri = request.RequestUri?.ToString() ?? "";
-            return Task.FromResult(new HttpResponseMessage(_status) { Content = new StringContent(_body) });
+            if (request.Content is not null)
+                LastBody = await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(_status) { Content = new StringContent(_body) };
         }
     }
 }
