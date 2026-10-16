@@ -245,6 +245,12 @@ namespace Workspace1C
                 var fullTheme = settings.NormalizeThemeSelection();
                 ThemeManager.SetOverrides(settings.IconSetOverride, settings.WindowButtonStyleOverride);
                 ThemeManager.ApplyFullTheme(fullTheme);
+                // Сохранённый базовый вариант (Theme="Dark") применяем поверх полноценной
+                // темы: тумблер «Светлая/Тёмная» не меняет FullTheme, и без этого выбора
+                // вариант терялся при перезапуске (в т.ч. после автообновления). Вариант
+                // задаётся до ApplyScheme — тот выбирает палитру по CurrentTheme.
+                if (ThemeFeatureMap.ResolveDarkVariant(settings.Theme) is bool darkVariant)
+                    ThemeManager.ApplyTheme(darkVariant);
                 ThemeManager.ApplyScheme(mergedScheme);
 #if DEBUG
                 try

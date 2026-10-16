@@ -375,6 +375,24 @@ public static class ThemeFeatureMap
     }
 
     /// <summary>
+    /// Определяет сохранённый пользователем базовый вариант темы (устаревшее поле
+    /// <see cref="AppSettings.Theme"/> со значениями "Light"/"Dark"): true — тёмный,
+    /// false — светлый, null — вариант не задан (пустое или неизвестное значение),
+    /// тогда применяется вариант, заданный полноценной темой.
+    /// </summary>
+    public static bool? ResolveDarkVariant(string? themeName)
+    {
+        if (string.IsNullOrWhiteSpace(themeName))
+            return null;
+        var trimmed = themeName.Trim();
+        if (string.Equals(trimmed, "Dark", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(trimmed, "Light", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return null;
+    }
+
+    /// <summary>
     /// Возвращает безопасное имя пользовательской схемы: если имя совпадает с именем
     /// встроенной полноценной темы, к нему добавляется <see cref="CustomSchemeSuffix"/>
     /// (issue #376). Иначе имя возвращается без изменений (с обрезкой крайних пробелов).

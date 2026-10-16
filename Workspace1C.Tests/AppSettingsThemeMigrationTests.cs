@@ -149,4 +149,62 @@ public sealed class AppSettingsThemeMigrationTests
         Assert.Equal(id, theme.Id);
         Assert.Equal(name, theme.Name);
     }
+
+    [Theory]
+    [InlineData("Dark", true)]
+    [InlineData("dark", true)]
+    [InlineData("DARK", true)]
+    [InlineData(" Dark ", true)]
+    [InlineData("Light", false)]
+    [InlineData("light", false)]
+    [InlineData("LIGHT", false)]
+    public void ResolveDarkVariant_RecognizesSavedVariant(string theme, bool expectedDark)
+    {
+        // Устаревшее поле Theme ("Light"/"Dark", без учёта регистра) задаёт базовый
+        // вариант поверх полноценной темы — он применяется при старте отдельно.
+        Assert.Equal(expectedDark, ThemeFeatureMap.ResolveDarkVariant(theme));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Синяя")]
+    public void ResolveDarkVariant_EmptyOrUnknown_ReturnsNull(string? theme)
+    {
+        // Вариант не задан (пусто или неизвестное значение): ApplyTheme не вызывается,
+        // и полноценная тема остаётся со своим вариантом.
+        Assert.Null(ThemeFeatureMap.ResolveDarkVariant(theme));
+    }
+
+    [Fact]
+    public void StartupResolution_FullThemeLight_ThemeDark_AppliesDarkVariantAndKeepsFullTheme()
+    {
+        // Регрессия «не сохраняется тёмная тема при перезапуске (в т.ч. после
+        // автообновления)»: тумблер «Светлая/Тёмная» пишет Theme="Dark", не меняя
+        // FullTheme="light". Нормализация не перетирает FullTheme — тёмный вариант
+        // применяется отдельно (ResolveDarkVariant → ApplyTheme(true)).
+        var settings = new AppSettings { Theme = "Dark", FullTheme = "light" };
+
+        var fullTheme = settings.NormalizeThemeSelection();
+        var darkVariant = ThemeFeatureMap.ResolveDarkVariant(settings.Theme);
+
+        Assert.Equal("light", fullTheme);
+        Assert.Equal("light", settings.FullTheme);  // полноценная тема сохранена как была
+        Assert.True(darkVariant == true);           // применяется тёмный вариант
+    }
+
+    [Fact]
+    public void StartupResolution_FullThemeDark_NoSavedVariant_KeepsThemeVariant()
+    {
+        // FullTheme="dark" сам задаёт тёмный вариант, устаревшее поле пусто —
+        // вариант не перещёлкивается обратно в светлый (ApplyTheme не вызывается).
+        var settings = new AppSettings { FullTheme = "dark" };
+
+        var fullTheme = settings.NormalizeThemeSelection();
+        var darkVariant = ThemeFeatureMap.ResolveDarkVariant(settings.Theme);
+
+        Assert.Equal("dark", fullTheme);
+        Assert.Null(darkVariant);
+    }
 }
