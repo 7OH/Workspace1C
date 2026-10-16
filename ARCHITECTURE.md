@@ -1,10 +1,10 @@
-# Архитектура проекта «Управление конфигурациями 1С»
+# Архитектура проекта «Workspace 1C»
 
 ## 1. Целевая платформа и стратегия
 
 **Приоритет — Windows (WPF).** Linux (Avalonia) — вторичная цель.
 
-Проект собирается из одного файла [`Configuration Management.csproj`](Configuration Management/Configuration Management.csproj)
+Проект собирается из одного файла [`Workspace1C.csproj`](Workspace1C/Workspace1C.csproj)
 с условной компиляцией:
 
 | Платформа | TFM | UI-фреймворк | Символ |
@@ -22,7 +22,7 @@
 ## 2. Иерархия папок (целевая)
 
 ```
-Configuration Management/
+Workspace1C/
 ├── Program.cs                  # Точка входа (Windows #else / Linux #if LINUX)
 ├── App.xaml / App.xaml.cs      # Запуск, обработчики фатальных ошибок (Windows)
 ├── App.axaml / App.axaml.cs    # (Linux)
@@ -53,7 +53,7 @@ Configuration Management/
     └── *Window.xaml/.xaml.cs   # Прочие окна и модальные диалоги
 ```
 
-Пространство имён корневое — `Configuration_Management` (см. `RootNamespace`),
+Пространство имён корневое — `Workspace1C` (см. `RootNamespace`),
 логически разбито на `Models`, `Services`, `ViewModels`, `Converters`, `Themes`,
 `Localization`.
 
@@ -71,25 +71,25 @@ Configuration Management/
 
 Функция «Утилиты → Операции → Импорт из кластера 1С…» (цикл 0.3.9.172–0.3.9.175) добавляет
 информационные базы сервера 1С в список приложения. Связка чистых сервисов (без платформенных
-зависимостей): [`IRacClient`](Configuration Management/Services/IRacClient.cs) →
-[`RacOutputParser`](Configuration Management/Services/RacOutputParser.cs) →
-[`RacInfobaseMapper`](Configuration Management/Services/RacInfobaseMapper.cs) →
-[`ClusterImportViewModel`](Configuration Management/ViewModels/ClusterImportViewModel.cs) → окна.
+зависимостей): [`IRacClient`](Workspace1C/Services/IRacClient.cs) →
+[`RacOutputParser`](Workspace1C/Services/RacOutputParser.cs) →
+[`RacInfobaseMapper`](Workspace1C/Services/RacInfobaseMapper.cs) →
+[`ClusterImportViewModel`](Workspace1C/ViewModels/ClusterImportViewModel.cs) → окна.
 
-- [`IRacClient`](Configuration Management/Services/IRacClient.cs) — запуск утилиты `rac`
+- [`IRacClient`](Workspace1C/Services/IRacClient.cs) — запуск утилиты `rac`
   (`ArgumentList` без shell, таймаут, маскирование пароля
-  [`SensitiveDataMasker.MaskRacPassword`](Configuration Management/Services/SensitiveDataMasker.cs));
+  [`SensitiveDataMasker.MaskRacPassword`](Workspace1C/Services/SensitiveDataMasker.cs));
   список баз — команда `infobase summary list --cluster=<uuid>` (плюс `cluster list`/`cluster info`).
-- [`RacOutputParser`](Configuration Management/Services/RacOutputParser.cs) — позиционный парсер
+- [`RacOutputParser`](Workspace1C/Services/RacOutputParser.cs) — позиционный парсер
   табличного вывода в модель `RacInfobaseSummary` (минимальный набор — 2 колонки, лишние справа
   игнорируются, строка заголовка и невалидный GUID пропускаются).
-- [`RacInfobaseMapper`](Configuration Management/Services/RacInfobaseMapper.cs) — чистый маппинг в
+- [`RacInfobaseMapper`](Workspace1C/Services/RacInfobaseMapper.cs) — чистый маппинг в
   `Infobase`/`ConnectionSettings` (тип `ClientServer`): `Srvr` — хост из `cluster info` (`hostName`,
   корректен для удалённого RAS) с fallback на host-часть введённого адреса, порт — порт КЛАСТЕРА
   из `cluster list` (по умолчанию 1541, не порт ragent/RAS), `Ref` — имя ИБ в кластере,
   аутентификация `Prompt`; дедупликация `IsDuplicate` по строке подключения без учёта регистра
   (порт 1541 и его отсутствие — один ключ, одноимённые базы разных кластеров — разные).
-- [`ClusterImportViewModel`](Configuration Management/ViewModels/ClusterImportViewModel.cs) — чистая
+- [`ClusterImportViewModel`](Workspace1C/ViewModels/ClusterImportViewModel.cs) — чистая
   вью-модель диалога: подключение (`GetClustersAsync` с автовыбором первого кластера), загрузка
   баз с кэшем `cluster info` по `clusterId`, чеклист `ClusterImportRow` (пометка дубликатов и
   файловых ИБ кластера), сводка, команды «Выделить все»/«Снять все»/«Импортировать»,
@@ -112,23 +112,23 @@ Configuration Management/
 встроенный монитор серверов: список регламентных заданий кластера с состояниями, расписанием,
 временами и результатом последнего запуска, фильтром по базе-владельцу, действиями
 «Приостановить/Возобновить» (с подтверждением) и окном «Детали задания». Связка чистых
-сервисов та же, что у импорта: [`IRacClient`](Configuration Management/Services/IRacClient.cs) →
-[`RacOutputParser`](Configuration Management/Services/RacOutputParser.cs) →
-[`ServerMonitorViewModel`](Configuration Management/ViewModels/ServerMonitorViewModel.cs) → окна.
+сервисов та же, что у импорта: [`IRacClient`](Workspace1C/Services/IRacClient.cs) →
+[`RacOutputParser`](Workspace1C/Services/RacOutputParser.cs) →
+[`ServerMonitorViewModel`](Workspace1C/ViewModels/ServerMonitorViewModel.cs) → окна.
 
-- [`IRacClient`](Configuration Management/Services/IRacClient.cs) — добавлены
+- [`IRacClient`](Workspace1C/Services/IRacClient.cs) — добавлены
   `GetJobsAsync` (`job list --cluster=<uuid>`) и `SetJobStateAsync`
   (`job pause/resume/disable/enable --cluster= --job=`, `bool` + `LastActionError`
   по образцу `session terminate`). Модель `RacJobInfo` (идентификатор, ИБ-владелец, имя, метод,
   признак предопределённого, cron-расписание, состояние, времена запусков, успех/ошибка и
   результат последнего запуска) и перечисление `RacJobAction` — в `Models/RacModels.cs`.
-- [`RacOutputParser`](Configuration Management/Services/RacOutputParser.cs) — `ToJobs`:
+- [`RacOutputParser`](Workspace1C/Services/RacOutputParser.cs) — `ToJobs`:
   позиционный парсер с минимальным набором 3 колонок (заголовок и невалидный GUID пропускаются),
   у строковых полей снимаются обрамляющие кавычки (`schedule`/`result` могут содержать пробелы).
-- [`RacJobRow`](Configuration Management/ViewModels/RacJobRow.cs) — форматирование строки вкладки:
+- [`RacJobRow`](Workspace1C/ViewModels/RacJobRow.cs) — форматирование строки вкладки:
   локализованное состояние с цветом, времена, обрезанный результат, доступность действий
   (`CanPause`/`CanResume`) и полный текст деталей `DetailsText`.
-- [`ServerMonitorViewModel`](Configuration Management/ViewModels/ServerMonitorViewModel.cs) —
+- [`ServerMonitorViewModel`](Workspace1C/ViewModels/ServerMonitorViewModel.cs) —
   коллекции `Jobs`/`FilteredJobs`, фильтр по базе через кэшированный `GetInfobasesAsync`
   (задания отдают GUID ИБ, имена подставляются из `infobase summary list`; сбой списка баз не
   роняет вкладку), команды `PauseJobCommand`/`ResumeJobCommand` с подтверждением и обработкой
@@ -154,32 +154,32 @@ Configuration Management/
 TCP-проверку портов 1540/1541/1545 с измерением RTT и строит подсказки по типичным
 проблемам (DNS, файрвол, остановленный сервис). Связка чистых сервисов:
 
-- [`NetworkDiagnosticsService`](Configuration Management/Services/NetworkDiagnosticsService.cs)
+- [`NetworkDiagnosticsService`](Workspace1C/Services/NetworkDiagnosticsService.cs)
   (+ `INetworkDiagnosticsService`) — ядро: парсер адреса `host[:port]`/`[IPv6]:port`,
   резолв DNS (`Dns.GetHostAddressesAsync`; для IP-адреса пропускается), ICMP-пинг
   (переносимый: без прав raw-socket на Linux — `PingPerformed=false`, «не проверено»),
   TCP-проверка портов параллельно с таймаутом и RTT (`TcpClient.ConnectAsync` + `Stopwatch`;
   `refused` ≠ `timeout`). Низкоуровневые операции инжектируются делегатами
   (`resolveHost`/`ping`/`tcpProbe`) — юнит-тесты не зависят от реальной сети.
-- [`NetworkDiagnosticsResult`](Configuration Management/Models/NetworkDiagnosticsResult.cs)
+- [`NetworkDiagnosticsResult`](Workspace1C/Models/NetworkDiagnosticsResult.cs)
   — чистая модель результата (хост, DNS, IP-адреса, пинг/RTT, порты `NetworkPortProbe`
-  с состояниями доступен/закрыт/таймаут) и константы портов [`OneCPorts`](Configuration Management/Models/NetworkDiagnosticsResult.cs)
+  с состояниями доступен/закрыт/таймаут) и константы портов [`OneCPorts`](Workspace1C/Models/NetworkDiagnosticsResult.cs)
   (1540 — ragent, 1541 — кластер по умолчанию, 1545 — RAS).
-- [`NetworkDiagnosticsHints`](Configuration Management/Services/NetworkDiagnosticsHints.cs)
+- [`NetworkDiagnosticsHints`](Workspace1C/Services/NetworkDiagnosticsHints.cs)
   — чистая матрица правил «состояния → ключи локализации с аргументами»; тексты
   формируются на этапе VM через `LocalizationManager.T` (порядок: критичное → справка).
-- [`NetworkDiagnosticsTargets`](Configuration Management/Services/NetworkDiagnosticsTarget.cs)
+- [`NetworkDiagnosticsTargets`](Workspace1C/Services/NetworkDiagnosticsTarget.cs)
   — экстракция цели: из клиент-серверной базы (`Server`+`Port` из настроек подключения,
   в т.ч. `host:port`), из веб-базы (хост/порт URL), файловая/битый URL → null; из монитора
   серверов — текущий адрес:порт rac.
-- [`NetworkDiagnosticsViewModel`](Configuration Management/ViewModels/NetworkDiagnosticsViewModel.cs)
-  + [`PortDiagnosticRow`](Configuration Management/ViewModels/PortDiagnosticRow.cs) — карточка
+- [`NetworkDiagnosticsViewModel`](Workspace1C/ViewModels/NetworkDiagnosticsViewModel.cs)
+  + [`PortDiagnosticRow`](Workspace1C/ViewModels/PortDiagnosticRow.cs) — карточка
   хоста, таблица портов, выводы; команды «Проверить» / «Повторить» / «Проверить порты 1С»;
   результат публикуется через `dispatchToUi` (паттерн `ServerMonitorViewModel`).
 - Окна — тонкие обёртки: WPF `Views/NetworkDiagnosticsWindow.xaml` и Avalonia
   `Views/NetworkDiagnosticsWindow.Avalonia.cs`; вход — `NetworkDiagnosticsCommand`
   в `MainViewModel` (обе платформы) и кнопка в `Views/ServerMonitorWindow.*`.
-- [`NetworkAvailabilityPrecheck`](Configuration Management/Services/NetworkAvailabilityPrecheck.cs)
+- [`NetworkAvailabilityPrecheck`](Workspace1C/Services/NetworkAvailabilityPrecheck.cs)
   — быстрая TCP-проверка порта кластера перед COM в [`IsBaseAvailable`](Configuration%20Management/ViewModels/MainViewModel.Tools.cs)
   (флаг настройки `AvailabilityTcpPrecheckEnabled`, по умолчанию выключен): только
   quick-fail «недоступно» при закрытом порте, любая неопределённость → COM решает
@@ -199,10 +199,10 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 предпросмотром, подтверждением, одноуровневым откатом и JSON-бэкапом. Связка чистых слоёв
 (без платформенных зависимостей) и тонких платформенных обёрток:
 
-- [`Services/ConnectionReplaceModels.cs`](Configuration Management/Services/ConnectionReplaceModels.cs) —
+- [`Services/ConnectionReplaceModels.cs`](Workspace1C/Services/ConnectionReplaceModels.cs) —
   типы правила: `ConnectionField` (Server/Port/Ref/FilePath/WebUrl/Any), `ConnectionMatchMode`
   (Exact/Prefix/Substring/Regex) и запись `ConnectionStringReplaceRule` (Find/Replace/Field/Mode/IgnoreCase).
-- [`Services/ConnectionStringEditor.cs`](Configuration Management/Services/ConnectionStringEditor.cs) —
+- [`Services/ConnectionStringEditor.cs`](Workspace1C/Services/ConnectionStringEditor.cs) —
   единый редактор: `Parse`/`Build` — тонкие обёртки над `ConnectionSettings.ParseConnectionString`/
   `ToConnectionString` (единая точка нормализации, без дублирования логики); `TryApply` —
   применение правила к одному полю **на копии** настроек с отдачей «было → станет»; `TryApplyRaw` —
@@ -210,7 +210,7 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   прочие параметры Usr/Pwd/SchJobDn/disstt). Для Exact/Prefix/Substring искомый текст
   экранируется (`Regex.Escape`) — литеральное сопоставление; для Regex — паттерн .NET, невалидный
   выбрасывает `ArgumentException`; замена всегда литеральная.
-- [`Services/ConnectionReplacementPlanner.cs`](Configuration Management/Services/ConnectionReplacementPlanner.cs) —
+- [`Services/ConnectionReplacementPlanner.cs`](Workspace1C/Services/ConnectionReplacementPlanner.cs) —
   планировщик: `SelectCandidates` — отбор кандидатов области (AllBases/BatchSelected/CurrentGroup)
   из **уже видимого** списка (планировщик про приватность не знает), `FilterVisibleInfobases` —
   единая фильтрация приватных база (использует мост в MainViewModel); `Plan` — построение плана
@@ -219,17 +219,17 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   (`ConnectionReplaceUndoEntry.Before`) для отката; `Undo` — восстановление снапшотов.
   План и применение используют одну функцию сопоставления (`TryApply`) — предпросмотр и результат
   не расходятся.
-- [`ViewModels/ConnectionReplaceViewModel.cs`](Configuration Management/ViewModels/ConnectionReplaceViewModel.cs) —
+- [`ViewModels/ConnectionReplaceViewModel.cs`](Workspace1C/ViewModels/ConnectionReplaceViewModel.cs) —
   чистый VM окна (обе платформы, по образцу `ClusterImportViewModel`): поля Найти/Заменить,
   выбор поля/области/режима/регистра, коллекции `DisplayItem<T>` для ComboBox'ов, предпросмотр-
   коллекция `PreviewRows`, сводка, команды `RefreshPreviewCommand`/`ApplyCommand`/`UndoLastCommand`;
   колбэки `onApplied`/`onUndone` передают записи отката в MainViewModel (окна только привязываются).
-- [`Views/ConnectionReplaceWindow.xaml`](Configuration Management/Views/ConnectionReplaceWindow.xaml)
-  (WPF) и [`Views/ConnectionReplaceWindow.Avalonia.cs`](Configuration Management/Views/ConnectionReplaceWindow.Avalonia.cs)
+- [`Views/ConnectionReplaceWindow.xaml`](Workspace1C/Views/ConnectionReplaceWindow.xaml)
+  (WPF) и [`Views/ConnectionReplaceWindow.Avalonia.cs`](Workspace1C/Views/ConnectionReplaceWindow.Avalonia.cs)
   (Linux) — тонкие обёртки над VM: DataGrid/список «База | Поле | Было | Станет» с подсветкой
   изменённых строк (колонка «Станет» — зелёный фон WPF / Foreground Avalonia по `Changed`),
   подтверждение через `IDialogService`/`AvaloniaDialogService`, кнопка «Отменить последнюю замену».
-- [`ViewModels/MainViewModel.ConnectionReplace.cs`](Configuration Management/ViewModels/MainViewModel.ConnectionReplace.cs)
+- [`ViewModels/MainViewModel.ConnectionReplace.cs`](Workspace1C/ViewModels/MainViewModel.ConnectionReplace.cs)
   — общий мост обеих платформ: `GetConnectionReplaceCandidates` (видимые базы: приватные скрытого
   профиля исключаются через `FilterVisibleInfobases` + `IProfileService.CanShowPrivateBases`;
   выделенные — по Id мультивыделения; текущая группа — по полному пути выбранного узла дерева);
@@ -269,20 +269,20 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 пользователя в контекстном меню базы/группы с подстановкой параметров базы. Связка чистых
 слоёв (без платформенных зависимостей) и тонких платформенных обёрток:
 
-- [`Models/CustomAction.cs`](Configuration Management/Models/CustomAction.cs) — модель действия:
+- [`Models/CustomAction.cs`](Workspace1C/Models/CustomAction.cs) — модель действия:
   имя (пункт меню), команда-шаблон с токенами `%…%`/`{…}`, интерпретатор `ScriptShell`
   (Авто/cmd/PowerShell/sh), область `CustomActionScope` (база/группа/обе), признак
   мультивыделения («Для выделенных (N)…»), «выполнять без подтверждения», экранирование
   подставляемых значений (по умолчанию включено), таймаут (по умолчанию 30 000 мс — как
   `ExternalCommandRunner.DefaultPreCommandTimeoutMs`), горячая клавиша и рабочая папка
   (опционально).
-- [`Services/ICustomActionsStore.cs`](Configuration Management/Services/ICustomActionsStore.cs) +
-  [`Services/CustomActionsStore.cs`](Configuration Management/Services/CustomActionsStore.cs) —
+- [`Services/ICustomActionsStore.cs`](Workspace1C/Services/ICustomActionsStore.cs) +
+  [`Services/CustomActionsStore.cs`](Workspace1C/Services/CustomActionsStore.cs) —
   единый читаемый JSON `custom_actions.json` в каталоге данных профиля (атомарная запись
   `.tmp` + `File.Move(overwrite: true)`, кириллица через `UnsafeRelaxedJsonEscaping`, enum
   строками); нормализация при чтении: null-поля → пустые, `TimeoutMs <= 0` → 30 000,
   пустое имя → запись пропускается, сортировка по имени.
-- [`Services/ScriptParameterResolver.cs`](Configuration Management/Services/ScriptParameterResolver.cs) —
+- [`Services/ScriptParameterResolver.cs`](Workspace1C/Services/ScriptParameterResolver.cs) —
   расширение прежнего резолвера сценариев запуска скриптов (issue #308): составной паттерн
   `(%ключ%|{ключ})`, русские и канонические алиасы (`{ИмяБазы}`, `{СтрокаПодключения}`,
   `{Каталог}`/`{ПутьИБ}`, `{Id}`, `{Тип}`, `{Сервер}`, `{ИмяНаСервере}`, `{ИмяГруппы}`,
@@ -291,18 +291,18 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   `escapeValues` (по умолчанию выключен — поведение сценариев сохранено);
   `BuildActionCommandLine`/`BuildActionShellCommandLine` — сборка команды действия
   (для превью, лога и выполнения).
-- [`Services/CustomActionRunner.cs`](Configuration Management/Services/CustomActionRunner.cs) —
+- [`Services/CustomActionRunner.cs`](Workspace1C/Services/CustomActionRunner.cs) —
   чистый оркестратор: команда одной базы через `ExternalCommandRunner.RunAsync` с таймаутом
   действия (трекер времени вокруг вызова — мгновенный код ошибки таймаутом не считается);
   параллельный пакет `Task.WhenAll` (исключения гасятся внутри задач — ошибка одной базы не
   отменяет остальные); `MaskSecrets` — замена точного значения пароля на `***` (в т.ч.
   экранированного `"pass"`/`'pass'`) через `SensitiveDataMasker.MaskValue`.
-- [`Services/CustomActionFilter.cs`](Configuration Management/Services/CustomActionFilter.cs) —
+- [`Services/CustomActionFilter.cs`](Workspace1C/Services/CustomActionFilter.cs) —
   отбор действий по контексту `CustomActionContext` (одиночная база → Base/Both;
   мультивыделение → `SupportsBatch`; группа → Group/Both) с сохранением исходного порядка и
   фильтрация видимых целей (обёртка `ConnectionReplacementPlanner.FilterVisibleInfobases` —
   приватные базы заблокированного профиля исключаются).
-- [`ViewModels/MainViewModel.CustomActions.cs`](Configuration Management/ViewModels/MainViewModel.CustomActions.cs) —
+- [`ViewModels/MainViewModel.CustomActions.cs`](Workspace1C/ViewModels/MainViewModel.CustomActions.cs) —
   общий мост обеих платформ: кэш действий из хранилища, выбор целей области (выбранная база /
   мультивыделение / базы текущей группы), одноуровневое подтверждение
   (`AppSettings.ConfirmCustomActions`, по умолчанию включено; индивидуальный флаг «без
@@ -311,8 +311,8 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   `BuildCustomActionMenuItems` + `CustomActionExecutionPlan.DetermineMenuContext`/`SelectMenuActions` —
   единая логика построения пунктов подменю обеих платформ; `HotkeyCustomActions` — словарь
   «нормализованное сочетание → действие» для горячих клавиш.
-- Пункты меню — тонкие обёртки: WPF [`Views/MainWindow.CustomActions.cs`](Configuration Management/Views/MainWindow.CustomActions.cs)
-  (наполнение при открытии меню), Avalonia [`Views/MainWindow.Avalonia.Tree.cs`](Configuration Management/Views/MainWindow.Avalonia.Tree.cs)
+- Пункты меню — тонкие обёртки: WPF [`Views/MainWindow.CustomActions.cs`](Workspace1C/Views/MainWindow.CustomActions.cs)
+  (наполнение при открытии меню), Avalonia [`Views/MainWindow.Avalonia.Tree.cs`](Workspace1C/Views/MainWindow.Avalonia.Tree.cs)
   (`BuildRowContextMenu` + наполнение в `Opening`); горячие клавиши —
   `MainWindow.Hotkeys.cs`/`MainWindow.Avalonia.Hotkeys.cs` (приоритет: системные хоткеи →
   закладки → действия); окна списка/редактора — `Views/CustomActionsWindow.*`/
@@ -343,9 +343,9 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 (downloads.1c.ru, portal.1c.ru) для проверки обновлений конфигураций и скачивания
 дистрибутивов. Чистый слой без платформенных зависимостей + тонкие окна обеих платформ:
 
-- [`Models/ItsAccount.cs`](Configuration Management/Models/ItsAccount.cs) — модель записи:
+- [`Models/ItsAccount.cs`](Workspace1C/Models/ItsAccount.cs) — модель записи:
   `Id` (GUID, по образцу `ScriptScenario`), `Name`, `Login`, `Password`, `IsPrimary`.
-- [`Services/ItsAccountsStore.cs`](Configuration Management/Services/ItsAccountsStore.cs)
+- [`Services/ItsAccountsStore.cs`](Workspace1C/Services/ItsAccountsStore.cs)
   (`IItsAccountsStore`) — JSON-хранилище **`its_accounts.json`** в каталоге данных профиля,
   по образцу `CustomConfigTypesStore` (атомарная запись `.tmp` + `File.Move(overwrite: true)`,
   кириллица через `UnsafeRelaxedJsonEscaping`). Правила «Основная» нормализуются при каждой
@@ -356,27 +356,27 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   мигрируют в запись «Основная» (идемпотентно; старые настройки не изменяются —
   обратная совместимость). `Resolve(accountId)` выбирает запись по идентификатору либо
   основную (используется сервисами и для типовых конфигураций).
-- [`Services/OneCUpdatesService.cs`](Configuration Management/Services/OneCUpdatesService.cs) —
+- [`Services/OneCUpdatesService.cs`](Workspace1C/Services/OneCUpdatesService.cs) —
   авторизация (Basic Auth, вход portal.1c.ru, клиент многопоточной загрузки) берёт учётные
   данные через `GetCredentials()`: выбранная в настройках запись
   (`AppSettings.ItsAccountId`) или «Основная», fallback — старые поля настроек до миграции.
   Пароль никогда не логируется (`SensitiveDataMasker.MaskValue`).
-- Окна: WPF [`Views/ItsAccountsWindow.xaml`](Configuration Management/Views/ItsAccountsWindow.xaml)
-  (+ `.xaml.cs`), Avalonia [`Views/ItsAccountsWindow.Avalonia.cs`](Configuration Management/Views/ItsAccountsWindow.Avalonia.cs) —
+- Окна: WPF [`Views/ItsAccountsWindow.xaml`](Workspace1C/Views/ItsAccountsWindow.xaml)
+  (+ `.xaml.cs`), Avalonia [`Views/ItsAccountsWindow.Avalonia.cs`](Workspace1C/Views/ItsAccountsWindow.Avalonia.cs) —
   список с кнопками «Добавить»/«Изменить»/«Удалить»/«Задать основным»; модальный редактор
-  [`Views/ItsAccountEditWindow.xaml`](Configuration Management/Views/ItsAccountEditWindow.xaml)
-  (+ `.xaml.cs`)/[`Views/ItsAccountEditWindow.Avalonia.cs`](Configuration Management/Views/ItsAccountEditWindow.Avalonia.cs) —
+  [`Views/ItsAccountEditWindow.xaml`](Workspace1C/Views/ItsAccountEditWindow.xaml)
+  (+ `.xaml.cs`)/[`Views/ItsAccountEditWindow.Avalonia.cs`](Workspace1C/Views/ItsAccountEditWindow.Avalonia.cs) —
   фокус по умолчанию на первом поле. Открывается из «Утилиты → Информация»
   (`MainViewModel.OpenItsAccounts`) и из настроек.
 - Настройки: вместо двух полей логин/пароль — ComboBox выбора записи (первый пункт —
   «Основная») + кнопка «Открыть справочник» (WPF — разметка `SettingsWindow.xaml`,
-  Avalonia — [`Views/SettingsWindow.Avalonia.ItsAccounts.cs`](Configuration Management/Views/SettingsWindow.Avalonia.ItsAccounts.cs)).
+  Avalonia — [`Views/SettingsWindow.Avalonia.ItsAccounts.cs`](Workspace1C/Views/SettingsWindow.Avalonia.ItsAccounts.cs)).
 - Типовые конфигурации (#321/#333): `OneCConfigType.AccountId` — ссылка на учётную запись
   для конкретной конфигурации (пусто = «Основная»); колонка/поле «Учётная запись» в списке
   и редакторе типовых; обратная совместимость — отсутствие поля в старых JSON = пусто.
-- Вспомогательные VM: [`ViewModels/ItsAccountsViewModel.cs`](Configuration Management/ViewModels/ItsAccountsViewModel.cs)
+- Вспомогательные VM: [`ViewModels/ItsAccountsViewModel.cs`](Workspace1C/ViewModels/ItsAccountsViewModel.cs)
   (список окна + `ItsAccountSelectionItem`/`ItsAccountSelectionBuilder` для ComboBox),
-  [`ViewModels/ItsAccountItemViewModel.cs`](Configuration Management/ViewModels/ItsAccountItemViewModel.cs)
+  [`ViewModels/ItsAccountItemViewModel.cs`](Workspace1C/ViewModels/ItsAccountItemViewModel.cs)
   (строка списка с командами).
 
 ### Автообновление платформы 1С
@@ -387,30 +387,30 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 и удаление старых версий. Связка чистых слоёв (без платформенных зависимостей) и тонких
 платформенных обёрток:
 
-- [`Services/PlatformUpdateService.cs`](Configuration Management/Services/PlatformUpdateService.cs)
+- [`Services/PlatformUpdateService.cs`](Workspace1C/Services/PlatformUpdateService.cs)
   (`IPlatformUpdateService`) — получение доступных версий с портала через
-  [`OneCUpdatesService.GetPageTextAsync`](Configuration Management/Services/OneCUpdatesService.cs)
+  [`OneCUpdatesService.GetPageTextAsync`](Workspace1C/Services/OneCUpdatesService.cs)
   (готовая авторизация портала 1С: Basic Auth + гибридный вход на `login.1c.ru` CAS,
   `CookieContainer`, ручное следование редиректам с перевыставлением `Authorization`),
   ленивая подгрузка файлов релиза (`LoadReleaseFilesAsync`), выбор дистрибутива под ОС/разрядность
   (`PickDistribution`); результат `PlatformCatalogResult` со статусами
   Ok/AuthRequired/NotFound/NetworkError/Cancelled — ни один не бросает исключение. Чистый
-  [`PlatformUpdateMatcher`](Configuration Management/Services/PlatformUpdateMatcher.cs) — численное
+  [`PlatformUpdateMatcher`](Workspace1C/Services/PlatformUpdateMatcher.cs) — численное
   сопоставление установленных ↔ доступных (признак `HasUpdate`) и `CountCompatibleBases`/
   `GetCompatibleBaseNames` (совместимость с базами репозитория по `Infobase.PlatformVersion`).
-- [`Services/OneCPlatformCatalogParser.cs`](Configuration Management/Services/OneCPlatformCatalogParser.cs) —
+- [`Services/OneCPlatformCatalogParser.cs`](Workspace1C/Services/OneCPlatformCatalogParser.cs) —
   чистый парсер каталога: все версии со страницы `releases.1c.ru/project/Platform83` (строки
   `#versionsTable` + fallback-поиск по всему HTML, дедупликация, сортировка числовыми сегментами),
   файлы релиза из `version_files?nick=…&ver=…` (JSON/HTML: классификация по расширению —
   zip/deb/rpm/tar.gz — и токенам разрядности, размеры); константа `PlatformNick`.
 - Загрузка дистрибутива: `OneCUpdatesService.DownloadDistributionAsync` — parallel-first через
-  [`ParallelDownloader.TryDownloadAsync`](Configuration Management/Services/ParallelDownloader.cs)
+  [`ParallelDownloader.TryDownloadAsync`](Workspace1C/Services/ParallelDownloader.cs)
   (HTTP Range, до 8 соединений, докачка `.part`, работа всех соединений до конца файла; null —
   если распараллелить нельзя) с fallback на существующий однопоточный авторизованный путь
   `SendWithAuthAsync` + `ReadAsStream`; перед загрузкой проверка свободного места
-  [`DiskFreeSpaceHelper`](Configuration Management/Services/DiskFreeSpaceHelper.cs)
+  [`DiskFreeSpaceHelper`](Workspace1C/Services/DiskFreeSpaceHelper.cs)
   (`IsWarning(free, size+1ГБ)`); временные `.part`/`.etag` очищаются в обоих путях.
-- [`Services/PlatformInstaller.Windows.cs`](Configuration Management/Services/PlatformInstaller.Windows.cs)
+- [`Services/PlatformInstaller.Windows.cs`](Workspace1C/Services/PlatformInstaller.Windows.cs)
   (`#if WINDOWS`) — распаковка zip через `IArchiveService.ExtractArchive`, поиск `setup.exe`
   (корень и подкаталоги архива), сборка аргументов тихой установки
   `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` (+`/DIR=`), проверка Authenticode-подписи
@@ -419,16 +419,16 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   `PlatformVersionService.FindInstalledVersionInfos()` до появления новой версии (poll до 120 с —
   главный критерий успеха, надёжнее кода возврата на UAC-границе); удаление каталога старой
   версии `Remove-Item -Recurse -Force` с `Verb="runas"`.
-- [`Services/PlatformInstaller.Linux.cs`](Configuration Management/Services/PlatformInstaller.Linux.cs)
+- [`Services/PlatformInstaller.Linux.cs`](Workspace1C/Services/PlatformInstaller.Linux.cs)
   (`#if LINUX`) — определение типа пакета (`DetectPackageType`: `.deb` → Dpkg, `.rpm` → Rpm,
   `.tar.gz` → TarGz), генерация команд sudo для пользователя
-  ([`PlatformInstallerCommands.BuildSudoInstallCommand`](Configuration Management/Services/PlatformInstallerCommands.cs):
+  ([`PlatformInstallerCommands.BuildSudoInstallCommand`](Workspace1C/Services/PlatformInstallerCommands.cs):
   `sudo dpkg -i '<путь>'` / `sudo dnf install -y '<путь>'`; `BuildSudoUninstallCommand`:
   `sudo dpkg -r 1c-enterprise83-<версия>` / `sudo rm -rf /opt/1cv8/<версия>`); команда показывается
   в журнале окна и копируется в буфер обмена (Avalonia); после ручной установки список
   обновляется пересканированием ФС — отдельного кэша не вводится.
-- [`ViewModels/PlatformUpdateViewModel.cs`](Configuration Management/ViewModels/PlatformUpdateViewModel.cs)
-  + [`PlatformUpdateRowViewModel.cs`](Configuration Management/ViewModels/PlatformUpdateRowViewModel.cs) —
+- [`ViewModels/PlatformUpdateViewModel.cs`](Workspace1C/ViewModels/PlatformUpdateViewModel.cs)
+  + [`PlatformUpdateRowViewModel.cs`](Workspace1C/ViewModels/PlatformUpdateRowViewModel.cs) —
   чистый VM обеих платформ: единый список строк «установленные ∪ доступные» (колонки
   Версия/Размер/Статус/Совместимые базы), команды «Проверить обновления», «Скачать и установить»,
   «Только скачать», «Выбрать файл установщика…», «Удалить старые версии…», прогресс 0..1 и
@@ -436,19 +436,19 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
   модель тестируется на fake-сервисах.
 - Окна — тонкие обёртки: WPF `Views/PlatformUpdateWindow.xaml` + `.xaml.cs` и Avalonia
   `Views/PlatformUpdateWindow.Avalonia.cs` (по образцу `ActualReleasesWindow`); открытие, пункт
-  меню и хоткей `Ctrl+F9` (`HotkeyPlatformUpdate`, настраивается) — [`MainViewModel.PlatformUpdate.cs`](Configuration Management/ViewModels/MainViewModel.PlatformUpdate.cs)
-  (`#if WINDOWS`) и [`MainViewModel.Avalonia.PlatformUpdate.cs`](Configuration Management/ViewModels/MainViewModel.Avalonia.PlatformUpdate.cs)
+  меню и хоткей `Ctrl+F9` (`HotkeyPlatformUpdate`, настраивается) — [`MainViewModel.PlatformUpdate.cs`](Workspace1C/ViewModels/MainViewModel.PlatformUpdate.cs)
+  (`#if WINDOWS`) и [`MainViewModel.Avalonia.PlatformUpdate.cs`](Workspace1C/ViewModels/MainViewModel.Avalonia.PlatformUpdate.cs)
   (`#if LINUX`).
-- Предупреждения перед установкой — чистый [`PlatformInstallPreflight`](Configuration Management/Services/PlatformInstallPreflight.cs):
-  занятые процессы 1С ([`IRunningInfobasesService`](Configuration Management/Services/IRunningInfobasesService.cs)),
+- Предупреждения перед установкой — чистый [`PlatformInstallPreflight`](Workspace1C/Services/PlatformInstallPreflight.cs):
+  занятые процессы 1С ([`IRunningInfobasesService`](Workspace1C/Services/IRunningInfobasesService.cs)),
   права администратора (`PlatformInstaller.IsAdministrator`), свободное место на целевом диске
   (размер + 1 ГБ, `DiskFreeSpaceHelper`), подпись файла; замечания выводятся в журнал и требуют
   подтверждения «Продолжить?» (инжектируемый диалог, отмена останавливает операцию).
 - Уведомление о результате — `INotificationService.Show(title, summary, kind, evt: Update)`
-  ([`NotificationEvent.Update`](Configuration Management/Services/NotificationModels.cs)): Success/
+  ([`NotificationEvent.Update`](Workspace1C/Services/NotificationModels.cs)): Success/
   Warning (частичный успех — например подпись не проверена)/Error; тексты `Notify.PlatformUpdate*`;
   журналирование этапов операции — `IAppLogger`.
-- Удаление старых версий — чистый [`OldVersionCleaner`](Configuration Management/Services/OldVersionCleaner.cs):
+- Удаление старых версий — чистый [`OldVersionCleaner`](Workspace1C/Services/OldVersionCleaner.cs):
   `SelectCandidates` исключает новейшую установленную, версии, на которые ссылаются базы
   репозитория (точное совпадение или сегментный префикс), и версию запущенного процесса;
   удаление с подтверждением (Windows — каталог с `runas`, Linux — команда sudo).
@@ -460,17 +460,17 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 7OH: «скачать / распаковать / запустить установщик или открыть папку»). Реализовано на уже
 готовой инфраструктуре автообновления платформы:
 
-- [`Services/PlatformDistributionPicker.cs`](Configuration Management/Services/PlatformDistributionPicker.cs)
+- [`Services/PlatformDistributionPicker.cs`](Workspace1C/Services/PlatformDistributionPicker.cs)
   — чистый выбор файла дистрибутива по «версия + разрядность (x86/x64) + тип» для Windows
   (полный/тонкий клиент, zip) и Linux (deb/rpm/tar.gz); список доступных типов; без сети и UI.
-- [`ViewModels/PlatformDownloadViewModel.cs`](Configuration Management/ViewModels/PlatformDownloadViewModel.cs)
+- [`ViewModels/PlatformDownloadViewModel.cs`](Workspace1C/ViewModels/PlatformDownloadViewModel.cs)
   — чистый VM обеих платформ: каталог версий, ленивая подгрузка файлов, выбор файла,
   учётная запись ИТС, скачивание с прогрессом в `TargetDirectory`, итоговое сообщение и
   команды «Открыть папку»/«Запустить установщик» (инжектируемые делегаты — без UI).
 - Окна — тонкие обёртки: WPF `Views/PlatformDownloadWindow.xaml` + `.xaml.cs` и Avalonia
   `Views/PlatformDownloadWindow.Avalonia.cs`; открытие и пункт меню — команды
-  `ShowPlatformDownloadCommand` в [`MainViewModel.PlatformUpdate.cs`](Configuration Management/ViewModels/MainViewModel.PlatformUpdate.cs)
-  (`#if WINDOWS`) и [`MainViewModel.Avalonia.PlatformUpdate.cs`](Configuration Management/ViewModels/MainViewModel.Avalonia.PlatformUpdate.cs)
+  `ShowPlatformDownloadCommand` в [`MainViewModel.PlatformUpdate.cs`](Workspace1C/ViewModels/MainViewModel.PlatformUpdate.cs)
+  (`#if WINDOWS`) и [`MainViewModel.Avalonia.PlatformUpdate.cs`](Workspace1C/ViewModels/MainViewModel.Avalonia.PlatformUpdate.cs)
   (`#if LINUX`).
 - Авторизация — через учётную запись ИТС из справочника (#333): выбранная в настройках
   (`AppSettings.ItsAccountId`) или «Основная»; загрузка — `IOneCUpdatesService.DownloadDistributionAsync`
@@ -518,9 +518,9 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 Это снижает риск конфликтов при параллельной разработке и облегчает поиск по коду.
 
 ### Реорганизация view-папки
-Все окна (view) перенесены из корня проекта в подпапку [`Views/`](Configuration Management/Views):
+Все окна (view) перенесены из корня проекта в подпапку [`Views/`](Workspace1C/Views):
 `*.xaml`, WPF-код за разметкой (`*.xaml.cs`) и Avalonia-аналоги (`*.Avalonia.cs`),
-а также базовый класс [`ModalWindowBase.cs`](Configuration Management/Views/ModalWindowBase.cs).
+а также базовый класс [`ModalWindowBase.cs`](Workspace1C/Views/ModalWindowBase.cs).
 Пространства имён и `x:Class` не менялись, поэтому DI и XAML-привязки не пострадали.
 Глобы в `.csproj` (секция Linux) согласованно обновлены (`Views\...`), сборка Windows проверена: **0 ошибок**.
 
@@ -529,14 +529,14 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 
 | Файл | Было | Стало |
 |------|------|-------|
-| [`MainWindow.xaml.cs`](Configuration Management/Views/MainWindow.xaml.cs) | 3058 строк | каркас (~435) + 9 partial-файлов: `.Tray`, `.Hotkeys`, `.Tree`, `.Columns`, `.Tags`, `.Language`, `.Scroll`, `.DragDrop`, `.Events` |
-| [`SettingsWindow.xaml.cs`](Configuration Management/Views/SettingsWindow.xaml.cs) | 1971 строка | каркас + 8 partial-файлов: `.Profile`, `.Language`, `.Schemes`, `.Display`, `.Fonts`, `.Hotkeys`, `.Sync`, `.Platforms` |
+| [`MainWindow.xaml.cs`](Workspace1C/Views/MainWindow.xaml.cs) | 3058 строк | каркас (~435) + 9 partial-файлов: `.Tray`, `.Hotkeys`, `.Tree`, `.Columns`, `.Tags`, `.Language`, `.Scroll`, `.DragDrop`, `.Events` |
+| [`SettingsWindow.xaml.cs`](Workspace1C/Views/SettingsWindow.xaml.cs) | 1971 строка | каркас + 8 partial-файлов: `.Profile`, `.Language`, `.Schemes`, `.Display`, `.Fonts`, `.Hotkeys`, `.Sync`, `.Platforms` |
 
 Содержимое методов сохранено без изменений (только перемещение между файлами),
 поэтому поведение не изменилось. Сборка Windows (WPF) проверена: **0 ошибок**.
 
 ### Выделение логики из интерфейса
-Создана модель представления [`ViewModels/SettingsViewModel.cs`](Configuration Management/ViewModels/SettingsViewModel.cs)
+Создана модель представления [`ViewModels/SettingsViewModel.cs`](Workspace1C/ViewModels/SettingsViewModel.cs)
 (WINDOWS-only, зарегистрирована в DI), которая инкапсулирует состояние и бизнес-операции
 вкладки «Цветовое оформление»: разрешение/валидацию/локализацию имён тем, рабочие копии
 правок, персист изменённых тем и CRUD пользовательских схем, а также чистое преобразование
@@ -544,18 +544,18 @@ TCP-проверку портов 1540/1541/1545 с измерением RTT и 
 оставляя в view только работу с WPF-контролами и диалогами. Сборка Windows: **0 ошибок**.
 
 VM углублена и для других вкладок настроек (без изменения XAML-привязок, поведение прежнее):
-- **Синхронизация ibases.v8i** ([`SettingsWindow.Sync.cs`](Configuration Management/Views/SettingsWindow.Sync.cs)):
+- **Синхронизация ibases.v8i** ([`SettingsWindow.Sync.cs`](Workspace1C/Views/SettingsWindow.Sync.cs)):
   рабочее состояние (`Sync` — вложенный класс `IbasesSyncSettings`: режим/путь/момент синхронизации)
   и его чистые преобразования — разрешение отображаемого пути (`ResolveDisplayPath`), построение
   локализованного статус-текста (`BuildStatusText`) и разбор интервала (`ParseInterval`, дефолт 30).
   В code-behind остаётся только чтение/запись значений контролов и диалог выбора файла.
-- **Шрифт интерфейса** ([`SettingsWindow.Fonts.cs`](Configuration Management/Views/SettingsWindow.Fonts.cs)):
+- **Шрифт интерфейса** ([`SettingsWindow.Fonts.cs`](Workspace1C/Views/SettingsWindow.Fonts.cs)):
   рабочие копии настроек шрифтов областей (`ElementFonts`) с загрузкой (`LoadElementFontWorkingCopies`)
   и гарантированным созданием области (`EnsureElementFont`). Code-behind читает значения из контролов
   в модель и применяет их, но само хранение/подготовку рабочих копий ведёт VM.
 
-Также создана модель представления [`ViewModels/ProfilesViewModel.cs`](Configuration Management/ViewModels/ProfilesViewModel.cs)
-(WINDOWS-only, зарегистрирована в DI), выносящая из [`Views/ProfilesWindow.xaml.cs`](Configuration Management/Views/ProfilesWindow.xaml.cs)
+Также создана модель представления [`ViewModels/ProfilesViewModel.cs`](Workspace1C/ViewModels/ProfilesViewModel.cs)
+(WINDOWS-only, зарегистрирована в DI), выносящая из [`Views/ProfilesWindow.xaml.cs`](Workspace1C/Views/ProfilesWindow.xaml.cs)
 всю бизнес-логику окна учётных записей: валидацию имени, построение списка профилей, выбор
 текущей записи, CRUD через `IProfileService` (создание/переименование/смена пароля/удаление
 с подтверждением через `IDialogService`) и локализацию подписи текущего профиля.
@@ -566,16 +566,16 @@ DependencyProperty и не поддерживает двустороннюю п�
 Сборка Windows: **0 ошибок**.
 
 ### Разбиение на блоки (Windows-приоритет)
-- Из [`Services/ComReadHost.cs`](Configuration Management/Services/ComReadHost.cs) (~1335 строк,
+- Из [`Services/ComReadHost.cs`](Workspace1C/Services/ComReadHost.cs) (~1335 строк,
   крупнейший Windows-монолит) выделены контрактные типы протокола — перечисление
-  [`ComFailureKind`](Configuration Management/Services/ComReadHost.Types.cs) и результат
-  [`ComReadResult`](Configuration Management/Services/ComReadHost.Types.cs) — в отдельный
-  файл-блок [`ComReadHost.Types.cs`](Configuration Management/Services/ComReadHost.Types.cs).
+  [`ComFailureKind`](Workspace1C/Services/ComReadHost.Types.cs) и результат
+  [`ComReadResult`](Workspace1C/Services/ComReadHost.Types.cs) — в отдельный
+  файл-блок [`ComReadHost.Types.cs`](Workspace1C/Services/ComReadHost.Types.cs).
   Тело самого хоста осталось на месте: это критичный и сильно связный код (жизненный цикл
   агента, протокол и диагностика переплетены, методы родителя вызывают методы агента),
   поэтому ручной разнос методов по partial-файлам здесь не выполнялся — это рекомендованный
   следующий шаг ниже.
-- Консолидирован DI-контейнер [`AppServices.cs`](Configuration Management/AppServices.cs):
+- Консолидирован DI-контейнер [`AppServices.cs`](Workspace1C/AppServices.cs):
   общие регистрации сервисов вынесены за пределы `#if WINDOWS`/`#else`, внутри веток остались
   только платформозависимые. Это убирает дублирование и делает Windows-приоритет явным:
   Windows дополнительно регистрирует `IDialogService` (WPF), регистратор COM-коннектора
@@ -583,7 +583,7 @@ DependencyProperty и не поддерживает двустороннюю п�
   `IDialogService` (Avalonia). Сборка Windows: **0 ошибок**.
 
 ### Разбиение `OneCLauncher` на частичные классы
-Windows-сервис [`Services/OneCLauncher.cs`](Configuration Management/Services/OneCLauncher.cs)
+Windows-сервис [`Services/OneCLauncher.cs`](Workspace1C/Services/OneCLauncher.cs)
 (~1274 строк) разбит на частичный класс `public static partial class OneCLauncher`
 по функциональным секциям. Содержимое методов сохранено дословно (только перемещение),
 поведение и публичный API не изменились:

@@ -1,0 +1,42 @@
+#if !LINUX
+using Workspace1C.Services;
+using Xunit;
+
+namespace Workspace1C.Tests;
+
+/// <summary>
+/// Аргументы пакетных операций конфигуратора (issue #365): ветка
+/// /DumpConfigToFiles отсутствовала в Windows-RunDesignerBatch — «Обозреватель
+/// метаданных» всегда получал «Операция отклонена: пустой или недопустимый путь».
+/// Файл обёрнут в #if !LINUX: OneCLauncher.DumpConfigToFilesArgument живёт в
+/// WINDOWS-only OneCLauncher.DesignerBatch.cs (System.Management), для Linux он
+/// не собирается (иначе CS0117 при dotnet build -p:BuildLinux=true).
+/// </summary>
+public class DesignerBatchArgumentsTests
+{
+    [Fact]
+    public void DumpConfigToFiles_ReturnsKeyWithQuotedPath()
+    {
+        Assert.Equal(
+            "/DumpConfigToFiles\"C:\\temp\\cm_dump\\dump\"",
+            OneCLauncher.DumpConfigToFilesArgument(@"C:\temp\cm_dump\dump"));
+    }
+
+    [Fact]
+    public void DumpConfigToFiles_PathWithSpaces_IsAllowed()
+    {
+        Assert.Equal(
+            "/DumpConfigToFiles\"C:\\temp\\dump dir\\cfg\"",
+            OneCLauncher.DumpConfigToFilesArgument(@"C:\temp\dump dir\cfg"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("C:\\bad\"quotes\\dump")]
+    public void DumpConfigToFiles_UnsafeOrEmpty_ReturnsEmpty(string? path)
+    {
+        Assert.Equal("", OneCLauncher.DumpConfigToFilesArgument(path));
+    }
+}
+#endif

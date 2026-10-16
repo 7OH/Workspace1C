@@ -1,0 +1,348 @@
+<Window x:Class="Workspace1C.UpdateCheckWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        Title="{loc:Loc Updates.CheckTitle}"
+        Icon="{StaticResource AppIcon}"
+        Width="760" Height="660"
+        MinHeight="500" MinWidth="680"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,14,0,4"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        </Style>
+
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#16A34A"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="14,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#15803D"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#166534"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="OutlineButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="14,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Ячейка таблицы вариантов цепочки обновлений (issue #352). -->
+        <Style x:Key="ChainCellText" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="8,0,8,0"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" FontSize="15" FontWeight="SemiBold" Text="{loc:Loc Updates.CheckTitle}"/>
+        <TextBlock Grid.Row="1" x:Name="BaseNameText" FontSize="13" Margin="0,6,0,0" FontWeight="SemiBold"
+                   Foreground="{DynamicResource AccentBrush}"/>
+
+        <!-- Карточка сведений о конфигурации -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0">
+            <StackPanel>
+            <Border BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                    CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}" Padding="16">
+                <StackPanel>
+                    <!-- Сводка в один ряд: Текущая версия | Последняя версия | Статус (issue #352). -->
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.8*"/>
+                            <ColumnDefinition Width="0.8*"/>
+                            <ColumnDefinition Width="1.6*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.CurrentVersion}"/>
+                            <TextBlock x:Name="CurrentVersionText" FontSize="15" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <!-- issue #352: признак отозванного релиза — красное предупреждение
+                                 под текущей версией; видимость переключает UpdateChainDisplay. -->
+                            <TextBlock x:Name="CurrentVersionMissingText" FontSize="12" Margin="0,4,0,0"
+                                       TextWrapping="Wrap" FontWeight="SemiBold" Foreground="#DC2626"
+                                       Visibility="Collapsed"
+                                       Text="{loc:Loc Updates.Chain.VersionMissing}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Margin="0,0,16,0">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.LatestVersion}"/>
+                            <TextBlock x:Name="LatestVersionText" FontSize="15" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasNewer}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <!-- issue #352.4: ограничение обновлений той же линией версии
+                                 (3.1.2.345 → можно 3.1.3.456, нельзя 3.2.3.456); при смене
+                                 галочки цепочки пересобираются из кэшированного каталога. -->
+                            <CheckBox x:Name="NoBumpCheckBox" Margin="0,6,0,0" HorizontalAlignment="Left"
+                                      Content="{loc:Loc Updates.NoBump}"
+                                      ToolTip="{loc:Loc Updates.NoBump.Hint}"
+                                      IsChecked="{Binding NoVersionBump, Mode=OneWay}"
+                                      Checked="OnNoVersionBumpChanged" Unchecked="OnNoVersionBumpChanged"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.Status}"/>
+                            <TextBlock x:Name="StatusText" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="{loc:Loc Updates.Url}"/>
+                    <!-- Адрес каталога релизов — кликабельная ссылка (issue #323): клик открывает
+                         браузер через OneCLauncher.OpenUrl; при пустом/невалидном адресе («—»)
+                         ссылка неактивна. Стиль ссылки задаётся в UpdateUrlLinkDisplay. -->
+                    <TextBlock x:Name="UrlText" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextSecondaryBrush}">
+                        <Hyperlink x:Name="UrlLink" RequestNavigate="UrlLink_RequestNavigate">
+                            <Run x:Name="UrlRun" Text="—"/>
+                        </Hyperlink>
+                    </TextBlock>
+
+                    <TextBlock x:Name="ErrorText" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"
+                               Foreground="#EF4444"/>
+
+                    <!-- Панель действий при ошибке авторизации (issue #323/#330/#334): имя
+                         используемой учётной записи ИТС, открыть login.1c.ru в браузере,
+                         справочник учётных данных ИТС. Видимость управляется в коде. -->
+                    <StackPanel x:Name="AuthActionsPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock x:Name="AuthAccountText" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button x:Name="OpenLoginButton" MinWidth="150" Height="32" Margin="0,0,8,0"
+                                    Style="{StaticResource OutlineButtonStyle}" Click="OnOpenLoginClick">
+                                <TextBlock Text="{loc:Loc Updates.OpenLoginPage}" VerticalAlignment="Center"/>
+                            </Button>
+                            <Button x:Name="ItsAccountsButton" MinWidth="150" Height="32"
+                                    Style="{StaticResource OutlineButtonStyle}" Click="OnItsAccountsClick">
+                                <TextBlock Text="{loc:Loc Updates.OpenItsAccounts}" VerticalAlignment="Center"/>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Пояснение пользователю: откуда берётся адрес каталога и где задать логин/пароль (issue #323). -->
+                    <TextBlock x:Name="HelpText" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               Text="{loc:Loc Updates.HelpText}"/>
+
+                    <!-- Прогресс загрузки -->
+                    <StackPanel x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,14,0,0">
+                        <ProgressBar x:Name="DownloadProgressBar" Height="6" Maximum="1" Minimum="0"
+                                     Value="{Binding Progress}"
+                                     Foreground="{DynamicResource AccentBrush}"/>
+                        <TextBlock x:Name="ProgressText" FontSize="12" Margin="0,6,0,0"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+                <!-- Блок цепочки обновлений (issue #352): видим при наличии вариантов. -->
+                <Border x:Name="ChainPanel" Visibility="Collapsed" Margin="0,12,0,0"
+                        BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                        CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}" Padding="16">
+                    <StackPanel>
+                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="{loc:Loc Updates.Chain.Title}"/>
+
+                        <TextBlock x:Name="ChainHintText" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{loc:Loc Updates.Chain.Hint}"/>
+
+                        <TextBlock x:Name="ChainStatusValue" FontSize="12" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding ChainStatusText}"/>
+
+                        <!-- Папка сохранения цепочки (issue #352.2): путь запоминается в
+                             настройках, кнопка «Открыть» показывает папку в проводнике.
+                             Текст и видимость строки обновляет UpdateChainFolderDisplay. -->
+                        <Grid x:Name="ChainFolderPanel" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" FontSize="12" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{loc:Loc Updates.Chain.Folder}"/>
+                            <TextBlock x:Name="ChainFolderText" Grid.Column="1" FontSize="12"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <!-- issue #352.2: кнопки «Выбрать…» и «Открыть» в одной панели;
+                                 выбор папки сохраняет её в настройках без диалога при скачивании. -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- issue #352 (7OH от 2026-10-11): фиксированная высота 28
+                                     обрезала текст кнопок снизу — разрешаем кнопкам расти
+                                     под контент (MinHeight), контент центрируется. -->
+                                <Button x:Name="ChainChooseFolderButton" MinWidth="96" MinHeight="30"
+                                        VerticalContentAlignment="Center" Padding="12,5"
+                                        Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                                        Click="OnChooseChainFolderClick">
+                                    <TextBlock Text="{loc:Loc Updates.Chain.ChooseFolderButton}" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button x:Name="ChainOpenFolderButton" MinWidth="96" MinHeight="30"
+                                        VerticalContentAlignment="Center" Padding="12,5"
+                                        Margin="8,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                                        Click="OnOpenChainFolderClick">
+                                    <TextBlock Text="{loc:Loc Updates.Chain.OpenFolder}" VerticalAlignment="Center"/>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <DataGrid x:Name="ChainGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserSortColumns="False" RowHeaderWidth="0" SelectionMode="Single"
+                                  Margin="0,8,0,0" MinHeight="44" MaxHeight="160"
+                                  BorderThickness="1" BorderBrush="{DynamicResource BorderBrushColor}"
+                                  Background="Transparent" GridLinesVisibility="Horizontal"
+                                  ItemsSource="{Binding ChainVariants}"
+                                  SelectedItem="{Binding SelectedVariant}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Width="48" Header="{loc:Loc Updates.Chain.Column.Number}"
+                                                    Binding="{Binding Number}"
+                                                    ElementStyle="{StaticResource ChainCellText}"/>
+                                <DataGridTextColumn Width="*" Header="{loc:Loc Updates.Chain.Column.Versions}"
+                                                    Binding="{Binding VersionsText}"
+                                                    ElementStyle="{StaticResource ChainCellText}"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!-- Прогресс загрузки цепочки: какой файл скачивается и сколько осталось. -->
+                        <StackPanel x:Name="ChainProgressPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                            <ProgressBar Height="6" Maximum="1" Minimum="0" Value="{Binding ChainProgress}"
+                                         Foreground="{DynamicResource AccentBrush}"/>
+                            <TextBlock x:Name="ChainProgressTextBlock" FontSize="12" Margin="0,6,0,0"
+                                       TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Text="{Binding ChainProgressText}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Нижняя панель: Список конфигураций / Проверить / Скачать цепочку / Скачать / Закрыть -->
+        <Grid Grid.Row="3" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- issue #371: кнопка «Список конфигураций» — открыть список типовых
+                 конфигураций, чтобы проверить ссылки каталогов релизов сразу. -->
+            <Button Grid.Column="0" MinWidth="180" Height="40" HorizontalAlignment="Left"
+                    Style="{StaticResource OutlineButtonStyle}" Click="OnOpenConfigListClick">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="DatabaseSettings" Width="16" Height="16"/>
+                    <TextBlock Text="{loc:Loc Updates.OpenConfigList}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <!-- Ширины кнопок не фиксированы (только минимальные): при любом шрифте и масштабе
+                     DPI кнопка растягивается под текст и не обрезается (issue #323). -->
+                <Button x:Name="CheckButton" MinWidth="180" Height="40" Margin="0,0,10,0"
+                        Style="{StaticResource OutlineButtonStyle}" Click="OnCheckClick">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="Refresh" Width="16" Height="16"/>
+                        <TextBlock Text="{loc:Loc Updates.StartCheck}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DownloadChainButton" MinWidth="180" Height="40" Margin="0,0,10,0"
+                        Style="{StaticResource PrimaryButtonStyle}" Visibility="Collapsed"
+                        Click="OnDownloadChainClick">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="DownloadMultiple" Width="16" Height="16"
+                                                 Foreground="White"/>
+                        <TextBlock Text="{loc:Loc Updates.Chain.Download}" Margin="6,0,0,0"
+                                   VerticalAlignment="Center" Foreground="White"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DownloadButton" MinWidth="160" Height="40" Margin="0,0,10,0"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Command="{Binding DownloadCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="DownloadOutline" Width="16" Height="16" Foreground="White"/>
+                        <TextBlock Text="{loc:Loc Updates.Download}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   Foreground="White"/>
+                    </StackPanel>
+                </Button>
+                <Button MinWidth="130" Height="40" Style="{StaticResource OutlineButtonStyle}" Click="OnClose_Click">
+                    <TextBlock Text="{loc:Loc Updates.Close}" VerticalAlignment="Center"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

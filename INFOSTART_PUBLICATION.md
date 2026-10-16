@@ -1,4 +1,4 @@
-# Управление конфигурациями 1С — описание для публикации на Infostart
+# Workspace 1C — описание для публикации на Infostart
 
 > Готовый текст для статьи/публикации на сайте [Infostart](https://infostart.ru).
 > Актуальная версия: **0.3.6.33** (2026-09-02). Открытый исходный код.
@@ -11,7 +11,7 @@
 
 ## Анонс (заголовок и краткое описание)
 
-**Управление конфигурациями 1С** — бесплатное кроссплатформенное десктоп-приложение
+**Workspace 1C** — бесплатное кроссплатформенное десктоп-приложение
 с открытым исходным кодом, которое заменяет стандартный список баз 1С и даёт удобный
 современный интерфейс для ежедневной работы с информационными базами платформы
 1С:Предприятие 8.3.
@@ -26,7 +26,7 @@
 
 ## Что это такое
 
-**«Управление конфигурациями 1С»** — это десктопная программа на платформе **.NET 10**
+**«Workspace 1C»** — это десктопная программа на платформе **.NET 10**
 (**WPF** на Windows и **Avalonia 11** на Linux), созданная как полноценная замена
 стандартного списка баз 1С. Проект собирается из одной кодовой базы под обе операционные
 системы (`net10.0-windows` для WPF на Windows и `net10.0` для Avalonia на Linux) и
@@ -163,13 +163,13 @@
 ## Установка
 
 ### Windows
-Готовый self-contained **single-file** исполняемый файл `ConfigurationManagement.exe`
+Готовый self-contained **single-file** исполняемый файл `Workspace1C.exe`
 не требует установки .NET Runtime на целевой машине. Запустите его и пользуйтесь.
 
 ### Linux
 Доступны готовые пакеты:
-- **AppImage** — переносимый файл `ConfigurationManagement-x86_64.AppImage`;
-- **`.deb`** — для Ubuntu/Debian/Astra (`configuration-management_<версия>_amd64.deb`, установка через `sudo dpkg -i …`);
+- **AppImage** — переносимый файл `Workspace1C-x86_64.AppImage`;
+- **`.deb`** — для Ubuntu/Debian/Astra (`workspace-1c_<версия>_amd64.deb`, установка через `sudo dpkg -i …`);
 - структура `.rpm` (ALT Linux) и `snap` поддержана на уровне пакета.
 
 Сборка из исходного кода (Linux):
@@ -182,9 +182,9 @@
 
 ## Ссылки
 
-- Репозиторий: <https://github.com/sivatorov/ConfigurationManagement>
+- Репозиторий: <https://github.com/sivatorov/Workspace1C>
 - Публикация на Infostart: <https://infostart.ru/1c/articles/2764888/>
-- Отчёты об ошибках и предложения: <https://github.com/sivatorov/ConfigurationManagement/issues>
+- Отчёты об ошибках и предложения: <https://github.com/sivatorov/Workspace1C/issues>
 
 ---
 
@@ -196,4 +196,4 @@
 
 ---
 
-*Подготовлено по материалам проекта «Управление конфигурациями 1С» (README, CHANGELOG, ARCHITECTURE).*
+*Подготовлено по материалам проекта «Workspace 1C» (README, CHANGELOG, ARCHITECTURE).*

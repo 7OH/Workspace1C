@@ -1,0 +1,348 @@
+<Window x:Class="Workspace1C.ConfigTypesEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        Title="{loc:Loc Updates.ConfigTypesTitle}"
+        Icon="{StaticResource AppIcon}"
+        Width="960" Height="600"
+        MinHeight="460" MinWidth="760"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+
+        <!-- Кнопка-ссылка без рамки с подсветкой при наведении -->
+        <Style x:Key="SelectAllButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6" Padding="8,5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Основная зелёная кнопка -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#16A34A"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="14,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#15803D"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#166534"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Серая кнопка-контур -->
+        <Style x:Key="OutlineButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushColor}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="14,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" FontSize="15" FontWeight="SemiBold" Text="{loc:Loc Updates.ConfigTypesTitle}"/>
+        <!-- Пояснения (issue #321): что это за окно, что нельзя менять предопределённые,
+             где хранятся пользовательские конфигурации. -->
+        <StackPanel Grid.Row="1" Margin="0,6,0,0">
+            <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Text="{loc:Loc Updates.ConfigTypesExplanation}"/>
+            <TextBlock FontSize="12" Margin="0,4,0,0"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Text="{loc:Loc Updates.CustomStorageHint}"/>
+        </StackPanel>
+
+        <!-- Поиск/отбор (issue #321, часть 2): фильтр по наименованию, коду, сегменту
+             адреса, нику и редакциям; очистка кнопкой или Esc в поле поиска. -->
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <!-- Поле поиска с явными цветами (issue #321): штатная тема красила его
+                 системной «серой» кистью, и поле выглядело недоступным для ввода. -->
+            <TextBox x:Name="SearchBox" Padding="10,6" VerticalContentAlignment="Center"
+                     Background="{DynamicResource CardBackgroundBrush}"
+                     Foreground="{DynamicResource TextPrimaryBrush}"
+                     CaretBrush="{DynamicResource TextPrimaryBrush}"
+                     BorderBrush="{DynamicResource BorderBrushColor}"
+                     BorderThickness="1.5"
+                     TextChanged="OnSearchTextChanged"
+                     materialDesign:HintAssist.Hint="{loc:Loc Updates.SearchPlaceholder}"/>
+            <Button Grid.Column="1" Margin="8,0,0,0" Height="32" Style="{StaticResource OutlineButtonStyle}"
+                    Click="OnClearSearchClick" ToolTip="{loc:Loc Updates.ClearSearch}">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Close" Width="14" Height="14"/>
+                    <TextBlock Text="{loc:Loc Updates.ClearSearch}" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Таблица типовых конфигураций -->
+        <Border Grid.Row="3" Margin="0,12,0,0"
+                BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
+            <DataGrid x:Name="ConfigGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                      HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
+                      CanUserSortColumns="False" RowHeaderWidth="0" SelectionMode="Single"
+                      BorderThickness="0" Background="Transparent" GridLinesVisibility="None"
+                      RowHeight="36" AlternationCount="2">
+                <!-- Вертикальное выравнивание содержимого ячеек по центру (issue #265).
+                     Для DataGridTextColumn центрирование задаётся через ElementStyle на самой колонке
+                     (стиль TextBlock), т.к. VerticalContentAlignment на DataGridCell на текст колонки не действует. -->
+                <DataGrid.Resources>
+                    <Style x:Key="CenteredCellText" TargetType="TextBlock">
+                        <Setter Property="VerticalAlignment" Value="Center"/>
+                        <!-- Горизонтальные отступы текста от краёв ячейки (issue #266). -->
+                        <Setter Property="Margin" Value="8,0,8,0"/>
+                    </Style>
+                    <!-- Пояснение «Сегмент адреса (ник)» (issue #321, часть 2): что это и как
+                         используется при построении адреса каталога релизов. -->
+                    <Style x:Key="UrlCodeCellText" TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
+                        <Setter Property="ToolTip" Value="{loc:Loc Updates.ConfigNameHint}"/>
+                    </Style>
+                    <!-- Пояснение колонки учётной записи ИТС (issue #321, часть 2). -->
+                    <Style x:Key="AccountCellText" TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
+                        <Setter Property="ToolTip" Value="{loc:Loc ItsAccounts.AccountColumnHint}"/>
+                    </Style>
+                </DataGrid.Resources>
+                <DataGrid.CellStyle>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Padding" Value="0"/>
+                    </Style>
+                </DataGrid.CellStyle>
+                <!-- Подсветка только нечётных строк (1-я, 3-я, 5-я…): AlternationIndex начинается
+                     с 0, поэтому нечётным позициям строк соответствует индекс 0 (issue #265).
+                     Текущая строка подсвечивается и при наведении, и при клавиатурной навигации
+                     (SelectionMode="Single", текущая = выбранная). -->
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                        <Style.Triggers>
+                            <Trigger Property="ItemsControl.AlternationIndex" Value="0">
+                                <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource ItemSelectedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource ItemSelectedBrush}"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.Columns>
+                    <!-- Наименование + пометка о перекрытии типовой пользовательской копией
+                         (issue #321, часть 2): у строки-переопределения (значок ✎★ в колонке
+                         слева) рядом с именем показывается подпись «заменена пользовательской». -->
+                    <DataGridTemplateColumn Width="3*" Header="{loc:Loc Updates.Name}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="8,0,8,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock x:Name="ReplacedNote" Margin="8,0,0,0" FontSize="11"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Text="{loc:Loc Updates.ReplacedByUser}"
+                                               ToolTip="{loc:Loc Updates.OverrideRowHint}"
+                                               Visibility="Collapsed"/>
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsOverride}" Value="True">
+                                        <Setter TargetName="ReplacedNote" Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Width="2*" Header="{loc:Loc Updates.ConfigName}" Binding="{Binding ConfigName}"
+                                        ElementStyle="{StaticResource UrlCodeCellText}"/>
+                    <DataGridTextColumn Width="2*" Header="{loc:Loc Updates.Nick}" Binding="{Binding Nick}"
+                                        ElementStyle="{StaticResource CenteredCellText}"/>
+                    <DataGridTextColumn Width="2*" Header="{loc:Loc Updates.Editions}" Binding="{Binding EditionsSummary}"
+                                        ElementStyle="{StaticResource CenteredCellText}"/>
+                    <!-- Учётная запись ИТС для конфигурации (issue #333): имя выбранной записи
+                         справочника либо «Основная», если запись не указана. ToolTip поясняет
+                         назначение колонки (issue #321, часть 2). -->
+                    <DataGridTextColumn Width="2*" Header="{loc:Loc ItsAccounts.AccountLabel}"
+                                        Binding="{Binding AccountDisplay}"
+                                        ElementStyle="{StaticResource AccountCellText}"/>
+
+                    <!-- Признак предопределённой; пользовательская копия предопределённой
+                         (правка встроенной строки, issue #321) помечается значком ✎★. -->
+                    <DataGridTemplateColumn Width="44">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="★" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ToolTip="{loc:Loc Updates.Tracked}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsBuiltIn}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsOverride}" Value="True">
+                                                    <Setter Property="Text" Value="✎★"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                    <Setter Property="ToolTip" Value="{loc:Loc Updates.OverrideHint}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Width="44">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <!-- Правка доступна и для предопределённых (issue #321): изменение
+                                     встроенной строки создаёт пользовательскую копию-переопределение,
+                                     а «Восстановить типовые» возвращает предопределённый набор. -->
+                                <Button x:Name="EditButton" Style="{StaticResource SelectAllButtonStyle}"
+                                        Command="{Binding EditCommand}"
+                                        ToolTip="{loc:Loc Updates.Edit}">
+                                    <materialDesign:PackIcon Kind="PencilOutline" Width="16" Height="16"
+                                                             Foreground="{DynamicResource AccentBrush}"/>
+                                </Button>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Width="44">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button x:Name="DeleteButton" Style="{StaticResource SelectAllButtonStyle}"
+                                        Command="{Binding DeleteCommand}"
+                                        ToolTip="{loc:Loc Updates.Delete}">
+                                    <materialDesign:PackIcon Kind="TrashCanOutline" Width="16" Height="16"
+                                                             Foreground="#EF4444"/>
+                                </Button>
+                                <!-- Предопределённые конфигурации не удаляются (issue #321):
+                                     их можно только дополнить правкой или восстановить кнопкой
+                                     «Восстановить типовые». -->
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsBuiltIn}" Value="True">
+                                        <Setter TargetName="DeleteButton" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+
+        <!-- Нижняя панель: Добавить / Закрыть -->
+        <Grid Grid.Row="4" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button Height="36" Style="{StaticResource PrimaryButtonStyle}" Click="OnAddConfigClick">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="Plus" Width="16" Height="16" Foreground="White"/>
+                        <TextBlock Text="{loc:Loc Updates.AddConfig}" Margin="6,0,0,0" VerticalAlignment="Center" Foreground="White"/>
+                    </StackPanel>
+                </Button>
+                <!-- Восстановление предопределённого набора (issue #321): убирает пользовательские
+                     копии встроенных конфигураций, обычные пользовательские записи не трогает. -->
+                <Button Height="36" Margin="10,0,0,0" Style="{StaticResource OutlineButtonStyle}"
+                        Click="OnRestoreDefaultsClick">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="Restore" Width="16" Height="16"/>
+                        <TextBlock Text="{loc:Loc Updates.RestoreDefaults}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Width="120" Height="36" Style="{StaticResource OutlineButtonStyle}" Click="OnClose_Click">
+                    <TextBlock Text="{loc:Loc Updates.Close}" VerticalAlignment="Center"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

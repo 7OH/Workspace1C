@@ -1,0 +1,1787 @@
+#if LINUX
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using Avalonia.Threading;
+using Workspace1C.Localization;
+using Workspace1C.Models;
+using Workspace1C.Services;
+
+namespace Workspace1C.ViewModels;
+
+/// <summary>Main ViewModel (Avalonia/Linux): экспорт/импорт, обнаружение платформ/шаблонов, утилиты (partial).</summary>
+public partial class MainViewModel : ViewModelBase
+{
+    /// <summary>Версии платформы, найденные штатными путями и дополнительными путями
+    /// из настроек. Дополнительные пути в Linux-ветке до сих пор никуда
+    /// не передавались, и настройка была бесполезной.
+    /// </summary>
+    public List<string> FindPlatformVersions(IEnumerable<string>? additionalPaths = null)
+    {
+        try { return _platformService.FindInstalledVersions(additionalPaths ?? _settings.AdditionalPlatformSearchPaths); }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Не удалось получить список версий платформы: {ex.Message}");
+            return new List<string>();
+        }
+    }
+
+    /// <summary>Дополнительные пути поиска платформы из настроек.</summary>
+    public IReadOnlyList<string> AdditionalPlatformSearchPaths => _settings.AdditionalPlatformSearchPaths;
+
+    /// <summary>Режим «Разрядности по умолчанию»: «X64», «X86» или «Priority».</summary>
+    public string DefaultArchitecture => _settings.DefaultArchitecture;
+
+    /// <summary>Предупреждение из окна настроек: диалоги живут в сервисе вьюмодели.</summary>
+    public void ShowWarning(string message) => _dialog.ShowWarning(message);
+
+    /// <summary>Сообщение из окна настроек.</summary>
+    public void ShowInfo(string message) => _dialog.ShowInfo(message);
+
+    /// <summary>Сообщение со своим заголовком окна.</summary>
+    public void ShowInfo(string message, string title) => _dialog.ShowInfo(message, title);
+
+    /// <summary>Сообщение об ошибке из окна настроек.</summary>
+    public void ShowError(string message) => _dialog.ShowError(message);
+
+    /// <summary>Запрос подтверждения из окна настроек.</summary>
+    public bool Confirm(string message) => _dialog.Confirm(message);
+
+    /// <summary>Диалог выбора файла для окна настроек.</summary>
+    public string? PickFile(string title, string filter) => _dialog.OpenFileDialog(title, filter);
+
+    /// <summary>Диалог сохранения файла для окна настроек.</summary>
+    public string? PickSaveFile(string title, string defaultFileName) =>
+        _dialog.SaveFileDialog(title, defaultFileName);
+
+    /// <summary>Диалог выбора каталога для окна настроек.</summary>
+    public string? PickFolder(string title, string? initialDirectory = null)
+        => _dialog.OpenFolderDialog(title, initialDirectory);
+
+    /// <summary>
+    /// Применяет настройки вкладки «Платформы»: дополнительные пути поиска
+    /// и разрядность по умолчанию.
+    /// </summary>
+    public void ApplyPlatformSettings(IEnumerable<string> additionalPaths, string architecture)
+    {
+        _settings.AdditionalPlatformSearchPaths = additionalPaths
+            .Select(p => p.Trim())
+            .Where(p => p.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _settings.DefaultArchitecture = NormalizeDefaultArchitecture(architecture);
+
+        ApplyDefaultArchitecture();
+        ApplyAdditionalSearchPaths();
+        SaveSettingsSilently();
+    }
+
+    /// <summary>
+    /// Отдаёт дополнительные пути поиска самой платформе: вкладка настроек
+    /// передаёт их аргументом, а запуск читает статический список сервиса,
+    /// и без этой передачи платформа из нестандартного каталога была видна
+    /// в списке, но не находилась при запуске.
+    /// </summary>
+    private void ApplyAdditionalSearchPaths() =>
+        PlatformVersionService.SetAdditionalSearchPaths(_settings.AdditionalPlatformSearchPaths);
+
+    /// <summary>
+    /// Убирает из списка файловые базы, у которых нет каталога или файла базы.
+    /// Перед удалением показывается список того, что будет убрано.
+    /// </summary>
+    public void RemoveMissingFileBases()
+    {
+        var states = _allInfobases
+            .Select(ib => (Infobase: ib, State: InfobaseMaintenanceService.GetFileBaseState(ib)))
+            .ToList();
+
+        var missing = states
+            .Where(x => x.State == InfobaseMaintenanceService.FileBaseState.Missing)
+            .Select(x => x.Infobase)
+            .ToList();
+
+        // Базы с недоступного диска в удаление не идут: «проверить не удалось»
+        // это не «нет». О них сказано отдельно.
+        var unknown = states.Count(x => x.State == InfobaseMaintenanceService.FileBaseState.Unknown);
+
+        if (missing.Count == 0)
+        {
+            _dialog.ShowInfo(
+                unknown == 0
+                    ? LocalizationManager.T("Main.MissingNone")
+                    : string.Format(LocalizationManager.T("Main.MissingOnlyUnchecked"), unknown),
+                LocalizationManager.T("Main.CheckFileBasesTitle"));
+            return;
+        }
+
+        var preview = string.Join("\n", missing.Take(15).Select(ib => "• " + ib.Name));
+        if (missing.Count > 15)
+            preview += string.Format(LocalizationManager.T("Main.MissingMore"), missing.Count - 15);
+        if (unknown > 0)
+            preview += "\n\n" + string.Format(LocalizationManager.T("Main.MissingUnchecked"), unknown);
+
+        if (!_dialog.Confirm(
+                string.Format(LocalizationManager.T("Main.MissingConfirm"), missing.Count, preview),
+                LocalizationManager.T("Main.RemoveMissingTitle")))
+            return;
+
+        // Сначала запись, потом замена списка в памяти: при ошибке диска
+        // пользователь остался бы с урезанным списком в окне и полным на диске,
+        // а следующее сохранение записало бы урезанный поверх.
+        var removing = new HashSet<Infobase>(missing, ReferenceEqualityComparer.Instance as IEqualityComparer<Infobase>);
+        var remaining = _allInfobases.Where(ib => !removing.Contains(ib)).ToList();
+        if (!SaveList(remaining))
+        {
+            _dialog.ShowError(LocalizationManager.T("Main.SaveFailedHint"),
+                LocalizationManager.T("Main.RemoveMissingTitle"));
+            return;
+        }
+
+        _allInfobases.Clear();
+        _allInfobases.AddRange(remaining);
+        // Состав списка изменился: слоты избранного пересчитываются, иначе
+        // номер остаётся у удалённой базы, а её слот занят навсегда.
+        SyncFavoriteHotkeys();
+
+        if (SelectedInfobase is { } selected && !_allInfobases.Contains(selected))
+            SelectedInfobase = null;
+
+        RebuildTree();
+        _logger.Info($"Удалено отсутствующих файловых баз: {missing.Count}");
+
+        _dialog.ShowInfo(
+            string.Format(LocalizationManager.T("Main.MissingRemoved"), missing.Count),
+            LocalizationManager.T("Main.RemoveMissingTitle"));
+    }
+
+    /// <summary>Завершает запущенные процессы платформы 1С.</summary>
+    public void KillOneCProcesses()
+    {
+        // Один снимок на вопрос и на действие: между ними процессы приходят
+        // и уходят, и завершать пришлось бы не то, что показано.
+        var snapshot = InfobaseMaintenanceService.SnapshotOneCProcesses();
+        if (snapshot.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.NoProcesses"),
+                LocalizationManager.T("Main.OneCProcessesTitle"));
+            return;
+        }
+
+        // Разбивка и предупреждение идут перед вопросом: ключ подтверждения
+        // общий с версией для Windows и заканчивается словом «Продолжить?»,
+        // поэтому дописывать предупреждение после него нельзя.
+        var breakdown = InfobaseMaintenanceService.DescribeProcesses(snapshot);
+        var details = string.Format(LocalizationManager.T("Main.KillProcessesBreakdown"),
+            string.Join(", ", breakdown.Select(p => $"{p.Name}: {p.Count}")));
+
+        // Про остановку кластера предупреждаем только когда серверные процессы
+        // действительно в списке.
+        if (breakdown.Any(p => ServerProcessNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)))
+            details += " " + LocalizationManager.T("Main.KillProcessesServerNote");
+
+        var question = details + "\n\n"
+            + string.Format(LocalizationManager.T("Main.KillProcessesConfirm"), snapshot.Count);
+
+        if (!_dialog.Confirm(question, LocalizationManager.T("Main.KillProcessesTitle")))
+            return;
+
+        var (killed, failed) = InfobaseMaintenanceService.KillOneCProcesses(snapshot);
+        _logger.Info($"Завершено процессов 1С: {killed}, не удалось: {failed}");
+
+        var message = string.Format(LocalizationManager.T("Main.ProcessesKilled"), killed);
+        if (failed > 0)
+            message += "\n" + string.Format(LocalizationManager.T("Main.ProcessesKillFailed"), failed);
+
+        _dialog.ShowInfo(message, LocalizationManager.T("Main.OneCProcessesTitle"));
+    }
+
+    /// <summary>Очищает список баз и групп целиком. Сами базы на диске не трогает.</summary>
+    public void ClearAllInfobases()
+    {
+        if (_allInfobases.Count == 0 && _groups.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ClearAllAlreadyEmpty"),
+                LocalizationManager.T("Main.ClearAllTitle"));
+            return;
+        }
+
+        if (!_dialog.Confirm(
+                string.Format(LocalizationManager.T("Main.ClearAllConfirm"), _allInfobases.Count, _groups.Count),
+                LocalizationManager.T("Main.ClearAllTitle")))
+            return;
+
+        // Пустые списки пишутся на диск до того, как очищается память:
+        // иначе при отказе записи в окне пусто, а на диске прежнее, и первое
+        // же следующее сохранение затирает уцелевшее. Файла два, поэтому при
+        // отказе на втором первый возвращается обратно: иначе на диске
+        // оставался бы пустой список баз при живых группах.
+        var previousInfobases = _allInfobases.ToList();
+        if (!SaveList(new List<Infobase>()))
+        {
+            _dialog.ShowError(LocalizationManager.T("Main.SaveFailedHint"),
+                LocalizationManager.T("Main.ClearAllTitle"));
+            return;
+        }
+
+        if (!SaveGroupList(new List<Group>()))
+        {
+            // Список баз уже записан пустым, возвращаем прежний. Если и это
+            // не удалось, на диске пусто, а в памяти нет: чтобы состояния
+            // сошлись, память тоже очищается, и об этом сказано отдельно.
+            if (!SaveList(previousInfobases))
+            {
+                _allInfobases.Clear();
+                // Состав списка изменился: слоты избранного пересчитываются, иначе
+                // номер остаётся у удалённой базы, а её слот занят навсегда.
+                SyncFavoriteHotkeys();
+                _groups.Clear();
+                SelectedInfobase = null;
+                RebuildTree();
+                _dialog.ShowError(LocalizationManager.T("Main.ClearAllPartial"),
+                    LocalizationManager.T("Main.ClearAllTitle"));
+                return;
+            }
+
+            _dialog.ShowError(LocalizationManager.T("Main.SaveFailedHint"),
+                LocalizationManager.T("Main.ClearAllTitle"));
+            return;
+        }
+
+        _allInfobases.Clear();
+        // Состав списка изменился: слоты избранного пересчитываются, иначе
+        // номер остаётся у удалённой базы, а её слот занят навсегда.
+        SyncFavoriteHotkeys();
+        _groups.Clear();
+        SelectedInfobase = null;
+
+        // Выгрузка в ibases.v8i намеренно не вызывается, как и в версии
+        // для Windows: экспорт убирает из файла записи, которых нет
+        // в приложении, и очистка списка вынесла бы пусковой список платформы.
+        RebuildTree();
+        _logger.Info("Список баз и групп очищен");
+
+        _dialog.ShowInfo(LocalizationManager.T("Main.ClearAllDone"),
+            LocalizationManager.T("Main.ClearAllTitle"));
+    }
+
+    /// <summary>Добавлять ли метку времени к имени файла выгрузки.</summary>
+    public bool AddTimestampToExportFileName => _settings.AddTimestampToExportFileName;
+
+    /// <summary>Формат метки времени в имени файла выгрузки.</summary>
+    public string ExportTimestampFormat => _settings.ExportTimestampFormat;
+
+    /// <summary>Применяет настройки имени файла выгрузки со вкладки «Базы».</summary>
+    public void ApplyExportFileNameSettings(bool addTimestamp, string timestampFormat)
+    {
+        _settings.AddTimestampToExportFileName = addTimestamp;
+        _settings.ExportTimestampFormat = string.IsNullOrWhiteSpace(timestampFormat)
+            ? "yyyyMMdd_HHmmss"
+            : timestampFormat.Trim();
+        SaveSettingsSilently();
+    }
+
+    /// <summary>Выгружает список баз и групп в JSON-файл.</summary>
+    public void ExportInfobases(bool addTimestamp, string timestampFormat)
+    {
+        if (_allInfobases.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ExportEmpty"),
+                LocalizationManager.T("Main.ExportBasesTitle"));
+            return;
+        }
+
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("Main.ExportBasesDialogTitle"),
+            BuildExportFileName("infobases_export", ".json", addTimestamp, timestampFormat),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(
+                new InfobaseExportData
+                {
+                    Infobases = _allInfobases.ToList(),
+                    Groups = _groups.ToList()
+                },
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    // Кириллицу и прочие не-ASCII символы пишем читаемыми UTF-8,
+                    // а не \uXXXX-последовательностями (issue #170).
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
+            File.WriteAllText(path, json);
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("Main.ExportDone"), _allInfobases.Count, _groups.Count, path),
+                LocalizationManager.T("Main.ExportBasesTitle"));
+            _logger.Info($"Список баз выгружен в {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка выгрузки списка баз", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrExportFailed"), ex.Message),
+                LocalizationManager.T("Main.ExportErrorTitle"));
+        }
+    }
+
+    /// <summary>
+    /// Экспортирует ВСЕ базы, которые пользователь видит сейчас (с учётом фильтра
+    /// приватных баз, режима списка, поиска и тегов — тот же набор, что в дереве),
+    /// в CSV-файл, открываемый в Excel (0.3.9.91).
+    /// </summary>
+    public void ExportBasesCsv()
+    {
+        // Тот же набор, что в ApplyFilter: MatchesFilter учитывает приватность,
+        // режим списка («Избранное»/«Недавние»), поиск и отбор по тегам.
+        var visible = _allInfobases.Where(MatchesFilter).ToList();
+        if (visible.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ExportEmpty"),
+                LocalizationManager.T("ExportCsv.Title"));
+            return;
+        }
+
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("ExportCsv.Title"),
+            $"Bases_{DateTime.Now:yyyy-MM-dd}.csv",
+            LocalizationManager.T("ExportCsv.FileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            CsvExporter.WriteFile(path, BuildCsvRows(visible));
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("ExportCsv.Success"), visible.Count, path),
+                LocalizationManager.T("ExportCsv.Title"));
+            _logger.Info($"Список баз ({visible.Count}) выгружен в CSV: {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка экспорта списка баз в CSV", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("ExportCsv.Error"), ex.Message),
+                LocalizationManager.T("Main.ExportErrorTitle"));
+        }
+    }
+
+    /// <summary>
+    /// Экспортирует видимые базы (тот же набор, что в CSV-экспорте: приватные базы
+    /// заблокированного профиля скрыты, режимы «Избранное»/«Недавние», поиск и теги
+    /// учтены) в самодостаточный HTML-отчёт (0.3.9.131): шапка с датой/временем и
+    /// профилем, сводка по последним известным данным, таблицы по группам с подсветкой
+    /// проблемных баз по критериям Центра обслуживания. Стили встроены — файл открывается
+    /// в любом браузере и пригоден для печати/рассылки.
+    /// </summary>
+    public void ExportBasesHtml()
+    {
+        var visible = _allInfobases.Where(MatchesFilter).ToList();
+        if (visible.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ExportEmpty"),
+                LocalizationManager.T("ExportHtml.Title"));
+            return;
+        }
+
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("ExportHtml.Title"),
+            $"Bases_{DateTime.Now:yyyy-MM-dd}.html",
+            LocalizationManager.T("ExportHtml.FileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            HtmlReportExporter.WriteFile(path, BuildHtmlReportData(visible));
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("ExportHtml.Success"), visible.Count, path),
+                LocalizationManager.T("ExportHtml.Title"));
+            _logger.Info($"HTML-отчёт по базам ({visible.Count}) сформирован: {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка формирования HTML-отчёта по базам", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("ExportHtml.Error"), ex.Message),
+                LocalizationManager.T("Main.ExportErrorTitle"));
+        }
+    }
+
+    /// <summary>
+    /// Экспортирует ВСЁ состояние списка баз в JSON (0.3.9.122): базы со всеми полями
+    /// (строка подключения, имя, группа, теги, закладка 1–9, закрепление, приватность,
+    /// внешняя обработка, скрипты pre/post запуска, раздельные учётные данные,
+    /// параметры запуска, порядок сортировки) и иерархию групп целиком. В отличие
+    /// от CSV-экспорта переносит и избранное, и закрепление. Приватные базы
+    /// включаются только при разблокированном профиле (иначе скрыты, как в CSV).
+    /// </summary>
+    public void ExportBasesJson()
+    {
+        // Приватные базы заблокированного профиля в выгрузку не попадают (как в CSV).
+        var exportable = _allInfobases.Where(IsVisibleForPrivateFilter).ToList();
+        if (exportable.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ExportEmpty"),
+                LocalizationManager.T("ExportJson.Title"));
+            return;
+        }
+
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("ExportJson.Title"),
+            BuildExportFileName("infobases_full_export", ".json",
+                _settings.AddTimestampToExportFileName, _settings.ExportTimestampFormat),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            var snapshot = InfobaseJsonTransfer.BuildSnapshot(exportable, _groups);
+            var json = InfobaseJsonTransfer.Serialize(snapshot);
+            File.WriteAllText(path, json);
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("ExportJson.Success"),
+                    snapshot.Infobases.Count, snapshot.Groups.Count, path),
+                LocalizationManager.T("ExportJson.Title"));
+            _logger.Info($"Список баз ({snapshot.Infobases.Count}) и групп ({snapshot.Groups.Count}) " +
+                         $"выгружен в JSON: {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка экспорта списка баз в JSON", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("ExportJson.Error"), ex.Message),
+                LocalizationManager.T("Main.ExportErrorTitle"));
+        }
+    }
+
+    /// <summary>
+    /// Импорт списка баз из JSON с режимом «добавить» (0.3.9.122): дубликаты по строке
+    /// подключения пропускаются, новые базы/группы/теги добавляются. Перед импортом
+    /// показывается сводка (сколько баз/групп/тегов будет добавлено, сколько пропущено
+    /// дубликатов) с подтверждением.
+    /// </summary>
+    public void ImportBasesJson()
+    {
+        var path = _dialog.OpenFileDialog(
+            LocalizationManager.T("ImportJson.Title"),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        InfobaseListSnapshot? snapshot;
+        try
+        {
+            var json = File.ReadAllText(path);
+            snapshot = InfobaseJsonTransfer.Deserialize(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка чтения файла импорта списка баз (JSON)", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("ImportJson.Error"), ex.Message),
+                LocalizationManager.T("Main.ImportErrorTitle"));
+            return;
+        }
+
+        if (snapshot is null || snapshot.Infobases.Count == 0)
+        {
+            _dialog.ShowWarning(LocalizationManager.T("ImportJson.NoBases"),
+                LocalizationManager.T("ImportJson.Title"));
+            return;
+        }
+
+        // Сводка перед импортом: сколько добавится, сколько пропустится.
+        var plan = InfobaseJsonTransfer.PlanImport(
+            _allInfobases,
+            _groups,
+            _allInfobases.SelectMany(i => i.Tags),
+            snapshot);
+
+        if (plan.BasesToAdd.Count == 0 && plan.GroupsToAdd.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("ImportJson.NothingNew"),
+                LocalizationManager.T("ImportJson.Title"));
+            return;
+        }
+
+        if (!_dialog.Confirm(
+                string.Format(LocalizationManager.T("ImportJson.Confirm"),
+                    plan.BasesToAdd.Count, plan.GroupsToAdd.Count, plan.TagsToAdd.Count,
+                    plan.DuplicatesSkipped),
+                LocalizationManager.T("ImportJson.Title")))
+            return;
+
+        _allInfobases.AddRange(plan.BasesToAdd);
+        SyncFavoriteHotkeys();
+
+        // Группы из файла, которых ещё нет (по имени), добавляются вместе с иерархией
+        // ParentId; конфликтующие Id переименовываются без потери связей.
+        var mergedGroups = InfobaseJsonTransfer.MergeNewGroups(_groups, plan.GroupsToAdd);
+        if (mergedGroups.Count > 0)
+            _groups.AddRange(mergedGroups);
+
+        SelectedInfobase = null;
+        var saved = SaveSilently();
+        saved &= SaveGroupsSilently();
+        RebuildTree();
+
+        if (!saved)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                    LocalizationManager.T("Main.SaveFailedHint")),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        _dialog.ShowInfo(
+            string.Format(LocalizationManager.T("ImportJson.Done"),
+                plan.BasesToAdd.Count, plan.GroupsToAdd.Count, plan.TagsToAdd.Count,
+                plan.DuplicatesSkipped),
+            LocalizationManager.T("ImportJson.Title"));
+        _logger.Info($"Импорт списка баз из JSON: добавлено {plan.BasesToAdd.Count} баз, " +
+                     $"{plan.GroupsToAdd.Count} групп, {plan.TagsToAdd.Count} тегов, " +
+                     $"пропущено дубликатов {plan.DuplicatesSkipped}");
+    }
+
+    /// <summary>Строки CSV-документа: локализованный заголовок + по строке на видимую базу.</summary>
+    private static List<string[]> BuildCsvRows(IEnumerable<Infobase> bases)
+    {
+        var rows = new List<string[]>
+        {
+            new[]
+            {
+                LocalizationManager.T("ExportCsv.ColName"),
+                LocalizationManager.T("ExportCsv.ColGroup"),
+                LocalizationManager.T("ExportCsv.ColType"),
+                LocalizationManager.T("ExportCsv.ColConnection"),
+                LocalizationManager.T("ExportCsv.ColTags"),
+                LocalizationManager.T("ExportCsv.ColFavorite"),
+                LocalizationManager.T("ExportCsv.ColPinned"),
+                LocalizationManager.T("ExportCsv.ColModified"),
+                LocalizationManager.T("ExportCsv.ColSize")
+            }
+        };
+
+        foreach (var ib in bases)
+        {
+            rows.Add(new[]
+            {
+                ib.Name,
+                ib.Group ?? string.Empty,
+                ib.ConnectionTypeDisplay,
+                ib.ConnectionStringDisplay,
+                string.Join(", ", ib.Tags),
+                ib.FavoriteHotkeyNumber >= 1 && ib.FavoriteHotkeyNumber <= 9
+                    ? ib.FavoriteHotkeyNumber.ToString()
+                    : string.Empty,
+                ib.IsPinned ? LocalizationManager.T("ExportCsv.Yes") : LocalizationManager.T("ExportCsv.No"),
+                FormatCsvModified(ib),
+                FormatCsvSize(ib)
+            });
+        }
+        return rows;
+    }
+
+    /// <summary>Дата изменений файла ИБ в формате ГГГГ-ММ-ДД ЧЧ:ММ (локальное время) или пусто.</summary>
+    private static string FormatCsvModified(Infobase ib) =>
+        ib.FileLastWriteTimeUtc.HasValue
+            ? ib.FileLastWriteTimeUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : string.Empty;
+
+    /// <summary>Размер ИБ в удобочитаемом виде, если известен; иначе пусто.</summary>
+    private static string FormatCsvSize(Infobase ib)
+    {
+        if (ib.ManualSizeBytes.HasValue)
+            return Infobase.FormatSize(ib.ManualSizeBytes.Value);
+        return ib.FileSizeBytes.HasValue ? Infobase.FormatSize(ib.FileSizeBytes.Value) : string.Empty;
+    }
+
+    // ======================= Выборочный экспорт/импорт баз =======================
+
+    private System.Windows.Input.ICommand? _exportSelectedInfobasesCommand;
+
+    /// <summary>Команда «Экспорт выбранных баз…»: окно-чеклист + сохранение в JSON.</summary>
+    public System.Windows.Input.ICommand ExportSelectedInfobasesCommand =>
+        _exportSelectedInfobasesCommand ??= new RelayCommand(_ => ExecuteExportSelectedInfobases(),
+            _ => _allInfobases.Count > 0);
+
+    private void ExecuteExportSelectedInfobases()
+    {
+        if (_allInfobases.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.ExportEmpty"),
+                LocalizationManager.T("Main.ExportBasesTitle"));
+            return;
+        }
+
+        var items = _allInfobases
+            .Select(b => new BaseSelectionItem(b.Name, b.GroupDisplay) { Tag = b })
+            .ToList();
+        var selector = new Workspace1C.BaseSelectionWindow(
+            LocalizationManager.T("ExportSelect.Title"),
+            LocalizationManager.T("ExportSelect.ExportHint"),
+            items);
+        if (!selector.ShowDialogSync(OwnerWindow()))
+            return;
+
+        var selected = selector.GetSelected().Select(i => (Infobase)i.Tag!).ToList();
+        if (selected.Count == 0)
+            return;
+
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("Main.ExportBasesDialogTitle"),
+            BuildExportFileName("infobases_selected", ".json", _settings.AddTimestampToExportFileName, _settings.ExportTimestampFormat),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(
+                new InfobaseExportData
+                {
+                    Version = 1,
+                    Infobases = selected,
+                    Groups = _groups.ToList()
+                },
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                });
+            File.WriteAllText(path, json);
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("ExportSelect.ExportDone"), selected.Count, path),
+                LocalizationManager.T("Main.ExportBasesTitle"));
+            _logger.Info($"Выбранные базы ({selected.Count}) выгружены в {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка выгрузки выбранных баз", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrExportFailed"), ex.Message),
+                LocalizationManager.T("Main.ExportErrorTitle"));
+        }
+    }
+
+    private System.Windows.Input.ICommand? _importMergeInfobasesCommand;
+
+    /// <summary>Команда «Импорт баз (добавлением)…»: выбор файла, чеклист, слияние по Id.</summary>
+    public System.Windows.Input.ICommand ImportMergeInfobasesCommand =>
+        _importMergeInfobasesCommand ??= new RelayCommand(_ => ExecuteImportMergeInfobases());
+
+    private void ExecuteImportMergeInfobases()
+    {
+        var path = _dialog.OpenFileDialog(
+            LocalizationManager.T("Main.ImportBasesDialogTitle"),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        List<Infobase> loaded;
+        List<Group> loadedGroups;
+        try
+        {
+            var json = File.ReadAllText(path);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            InfobaseExportData? exportData = null;
+            try { exportData = JsonSerializer.Deserialize<InfobaseExportData>(json, options); }
+            catch (JsonException) { }
+
+            if (exportData is not null && exportData.Infobases.Count > 0)
+            {
+                loaded = exportData.Infobases;
+                loadedGroups = exportData.Groups;
+            }
+            else
+            {
+                loaded = JsonSerializer.Deserialize<List<Infobase>>(json, options) ?? new List<Infobase>();
+                loadedGroups = new List<Group>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка чтения файла импорта", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"), ex.Message),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        if (loaded.Count == 0)
+        {
+            _dialog.ShowWarning(LocalizationManager.T("Main.ImportNoBases"),
+                LocalizationManager.T("Main.LoadBasesTitle"));
+            return;
+        }
+
+        // Уже существующие базы снимаются с флажков: импорт их пропустит.
+        var existingKeys = new HashSet<string>(
+            _allInfobases.Select(InfobaseExportMerge.DuplicateKey), StringComparer.OrdinalIgnoreCase);
+        var items = loaded
+            .Select(b =>
+            {
+                var duplicate = existingKeys.Contains(InfobaseExportMerge.DuplicateKey(b));
+                var subtitle = duplicate
+                    ? LocalizationManager.T("ExportSelect.AlreadyExists")
+                    : b.GroupDisplay;
+                return new BaseSelectionItem(b.Name, subtitle, !duplicate) { Tag = b };
+            })
+            .ToList();
+
+        var selector = new Workspace1C.BaseSelectionWindow(
+            LocalizationManager.T("ExportSelect.ImportTitle"),
+            LocalizationManager.T("ExportSelect.ImportHint"),
+            items);
+        if (!selector.ShowDialogSync(OwnerWindow()))
+            return;
+
+        var chosen = selector.GetSelected().Select(i => (Infobase)i.Tag!).ToList();
+        if (chosen.Count == 0)
+            return;
+
+        var merge = InfobaseExportMerge.SelectNew(_allInfobases, chosen);
+
+        _allInfobases.AddRange(merge.Added);
+        SyncFavoriteHotkeys();
+
+        // Группы из файла, которых ещё нет (по имени), добавляются целиком.
+        var existingGroupNames = new HashSet<string>(
+            _groups.Select(g => (g.Name ?? "").Trim()), StringComparer.OrdinalIgnoreCase);
+        var newGroups = loadedGroups
+            .Where(g => !string.IsNullOrWhiteSpace(g.Name) && existingGroupNames.Add(g.Name.Trim()))
+            .ToList();
+        if (newGroups.Count > 0)
+            _groups.AddRange(newGroups);
+
+        SelectedInfobase = null;
+        var saved = SaveSilently();
+        saved &= SaveGroupsSilently();
+        RebuildTree();
+
+        if (!saved)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                    LocalizationManager.T("Main.SaveFailedHint")),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        _dialog.ShowInfo(
+            string.Format(LocalizationManager.T("ExportSelect.ImportDone"),
+                merge.Added.Count, chosen.Count - merge.Added.Count),
+            LocalizationManager.T("Main.LoadBasesTitle"));
+        _logger.Info($"Импорт добавлением: добавлено {merge.Added.Count}, пропущено {chosen.Count - merge.Added.Count}");
+    }
+
+    /// <summary>
+    /// Загружает список баз и групп из JSON-файла, заменяя текущий.
+    /// Понимает и старый формат, где в файле лежит только список баз.
+    /// </summary>
+    public void ImportInfobases()
+    {
+        var path = _dialog.OpenFileDialog(
+            LocalizationManager.T("Main.ImportBasesDialogTitle"),
+            LocalizationManager.T("Main.JsonFileFilter"));
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            InfobaseExportData? exportData = null;
+            try { exportData = JsonSerializer.Deserialize<InfobaseExportData>(json, options); }
+            catch (JsonException) { }
+
+            List<Infobase> loaded;
+            List<Group> loadedGroups;
+            if (exportData is not null && exportData.Infobases.Count > 0)
+            {
+                loaded = exportData.Infobases;
+                loadedGroups = exportData.Groups;
+            }
+            else
+            {
+                loaded = JsonSerializer.Deserialize<List<Infobase>>(json, options) ?? new List<Infobase>();
+                loadedGroups = new List<Group>();
+            }
+
+            if (loaded.Count == 0)
+            {
+                _dialog.ShowWarning(LocalizationManager.T("Main.ImportNoBases"),
+                    LocalizationManager.T("Main.LoadBasesTitle"));
+                return;
+            }
+
+            if (!_dialog.Confirm(
+                    string.Format(LocalizationManager.T("Main.ImportConfirm"), loaded.Count, loadedGroups.Count),
+                    LocalizationManager.T("Main.LoadBasesTitle")))
+                return;
+
+            _allInfobases.Clear();
+            _allInfobases.AddRange(loaded);
+            // Состав списка изменился: слоты избранного пересчитываются, иначе
+            // номер остаётся у удалённой базы, а её слот занят навсегда.
+            SyncFavoriteHotkeys();
+            _groups.Clear();
+            _groups.AddRange(loadedGroups);
+            SelectedInfobase = null;
+
+            var saved = SaveSilently();
+            saved &= SaveGroupsSilently();
+            RebuildTree();
+
+            if (!saved)
+            {
+                // Список в памяти уже заменён, а на диске осталось прежнее
+                // состояние: сообщать об успехе нельзя.
+                _dialog.ShowError(
+                    string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                        LocalizationManager.T("Main.SaveFailedHint")),
+                    LocalizationManager.T("Main.LoadErrorTitle"));
+                return;
+            }
+
+            _dialog.ShowInfo(
+                string.Format(LocalizationManager.T("Main.ImportDoneMsg"), loaded.Count, loadedGroups.Count),
+                LocalizationManager.T("Main.LoadBasesTitle"));
+            _logger.Info($"Список баз загружен из {path}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка загрузки списка баз", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"), ex.Message),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+        }
+    }
+
+    /// <summary>Имя файла выгрузки с меткой времени, если она включена.</summary>
+    private static string BuildExportFileName(string baseName, string extension, bool addTimestamp, string timestampFormat)
+    {
+        if (!addTimestamp)
+            return $"{baseName}{extension}";
+
+        var format = string.IsNullOrWhiteSpace(timestampFormat) ? "yyyyMMdd_HHmmss" : timestampFormat;
+        try
+        {
+            return $"{baseName}_{DateTime.Now.ToString(format)}{extension}";
+        }
+        catch (FormatException)
+        {
+            // Шаблон мог прийти из файла настроек, правленного руками.
+            return $"{baseName}_{DateTime.Now:yyyyMMdd_HHmmss}{extension}";
+        }
+    }
+
+    /// <summary>
+    /// Процессы, завершение которых бьёт не по клиентскому сеансу: кластер
+    /// серверов, сервер отладки, сервер данных и утилиты, держащие базу.
+    /// </summary>
+    private static readonly string[] ServerProcessNames =
+    {
+        "ragent", "rmngr", "rphost", "ras", "rac", "dbgs", "dbda", "ibsrv", "ibcmd", "crserver"
+    };
+
+    /// <summary>
+    /// Сохраняет список баз и перестраивает дерево после точечного изменения отдельных баз
+    /// (например, определения конфигураций всех баз, issue #236). Аналог
+    /// <see cref="MainViewModel.PersistInfobasesAfterInlineEdit"/> для Windows.
+    /// </summary>
+    public void PersistInfobasesAfterInlineEdit()
+    {
+        SaveSilently();
+        RebuildTree();
+    }
+
+    /// <summary>
+    /// Добавляет найденную на диске базу в список приложения (issue #247, диалог
+    /// «Поиск потерянных и забытых баз 1С»). Только добавляет в коллекцию; сохранение
+    /// и перестроение дерева выполняет вызывающий код через
+    /// <see cref="PersistInfobasesAfterInlineEdit"/> после закрытия диалога, если были
+    /// добавления.
+    /// </summary>
+    public void AddFoundInfobase(Infobase infobase)
+    {
+        _allInfobases.Add(infobase);
+        OnPropertyChanged(nameof(Infobases));
+    }
+
+    /// <summary>Каталоги шаблонов конфигураций, заданные пользователем.</summary>
+    public IReadOnlyList<string> TemplateCatalogPaths => _settings.TemplateCatalogPaths;
+
+    /// <summary>
+    /// Применяет настройки каталогов шаблонов со вкладки «Базы». Поиск шаблонов
+    /// читает статический список сервиса, поэтому без этой передачи заданные
+    /// каталоги оставались только в файле настроек.
+    /// </summary>
+    public void ApplyTemplateCatalogPaths(IEnumerable<string> paths)
+    {
+        _settings.TemplateCatalogPaths = (paths ?? Enumerable.Empty<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        ApplyTemplateCatalogPaths();
+        SaveSettingsSilently();
+    }
+
+    private void ApplyTemplateCatalogPaths() =>
+        OneCTemplateService.SetUserTemplatePaths(_settings.TemplateCatalogPaths);
+
+    /// <summary>
+    /// Каталоги шаблонов, известные самой платформе: из её настроек и
+    /// стандартный tmplts. Кнопка «Из 1С» на вкладке «Базы» заполняет
+    /// список ими.
+    /// </summary>
+    public List<string> DiscoverTemplateCatalogPaths()
+    {
+        var found = new List<string>();
+        try
+        {
+            var configured = OneCTemplateService.GetConfiguredOrDefaultTemplatePath();
+            if (!string.IsNullOrWhiteSpace(configured))
+                found.Add(configured);
+            found.AddRange(OneCTemplateService.GetTemplateRootFolders());
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Не удалось прочитать каталоги шаблонов: {ex.Message}");
+        }
+
+        return found
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Передаёт режим «Разрядности по умолчанию» лаунчеру платформы. Без этого
+    /// настройка в Linux-ветке не действовала: запуск всегда считал её x64.
+    /// Строка "Priority" («Использовать приоритет базы») передаётся как есть —
+    /// разрешение разрядности происходит в лаунчере.
+    /// </summary>
+    private void ApplyDefaultArchitecture() =>
+        OneCLauncher.DefaultArchitectureMode = NormalizeDefaultArchitecture(_settings.DefaultArchitecture);
+
+    /// <summary>Нормализует строку режима «Разрядности по умолчанию» (X86 / X64 / Priority).</summary>
+    private static string NormalizeDefaultArchitecture(string? value)
+    {
+        if (string.Equals(value, "X86", StringComparison.OrdinalIgnoreCase))
+            return "X86";
+        if (string.Equals(value, "Priority", StringComparison.OrdinalIgnoreCase))
+            return "Priority";
+        return "X64";
+    }
+
+    /// <summary>
+    /// Смена версии платформы у базы двойным щелчком по колонке версии.
+    /// Разбирает вариант вида «8.3.27.1234 (64)»: разрядность уходит в своё
+    /// поле, а в версии остаётся чистый номер, как в версии для Windows
+    /// (MainWindow.Events.cs, OpenPlatformVersionPicker).
+    /// </summary>
+    public void PickPlatformVersionFor(Infobase? infobase)
+    {
+        if (infobase is null)
+            return;
+
+        SelectedInfobase = infobase;
+        var dialog = new PlatformVersionPickerWindow(InstalledPlatformVersions(), infobase.PlatformVersion);
+        if (!dialog.ShowDialogSync(OwnerWindow()))
+            return;
+
+        var selected = dialog.Result?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(selected))
+            return;
+
+        PlatformVersionService.ParseVariant(selected, out var cleanVersion, out var arch);
+        var newVersion = string.IsNullOrWhiteSpace(cleanVersion) ? selected : cleanVersion;
+        var versionChanged = !string.Equals(infobase.PlatformVersion, newVersion, StringComparison.Ordinal);
+        // Раньше здесь был ранний return при совпадении версии — из-за этого
+        // нельзя было сменить разрядность (х86 → х64) одной и той же версии (issue #146).
+        if (versionChanged)
+            infobase.PlatformVersion = newVersion;
+        // Разрядность записываем, только если она задана в выбранном варианте ЯВНО суффиксом
+        // «(32)/(64)». ParseVariant по умолчанию возвращает разрядность даже без суффикса,
+        // поэтому выбор папки/частичной версии («8.3», «8.3.27») не должен подставлять x86 —
+        // разрешение разрядности остаётся за лаунчером (issue #251).
+        if ((arch is "32" or "64") && PlatformVersionService.HasExplicitArchitecture(selected))
+            infobase.Architecture = arch;
+        if (versionChanged || arch is "32" or "64")
+        {
+            SaveSilently();
+            RebuildTree();
+        }
+    }
+
+    private List<string> InstalledPlatformVersions()
+    {
+        try { return _platformService.FindInstalledVersions(_settings.AdditionalPlatformSearchPaths); }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Не удалось получить список версий платформы: {ex.Message}");
+            return new List<string>();
+        }
+    }
+
+    private void DeleteInfobase()
+    {
+        // Выбран узел группы: удаляется группа, как в WPF-версии.
+        if (SelectedGroupNode?.Group is Group group)
+        {
+            DeleteGroup(group);
+            return;
+        }
+
+        var ib = SelectedInfobase;
+        if (ib is null)
+            return;
+
+        var dialog = new Workspace1C.DeleteInfobaseWindow(ib);
+        if (!dialog.ShowDialogSync(OwnerWindow()) || !dialog.Confirmed)
+            return;
+
+        if (dialog.DeletePhysically)
+        {
+            var error = InfobaseMaintenanceService.TryDeleteFileBasePhysically(ib);
+            if (error is not null)
+            {
+                _dialog.ShowError(error);
+                // Даже при ошибке на диске из списка удаляем, если пользователь подтвердит.
+                if (!_dialog.Confirm(LocalizationManager.T("Main.ConfirmDeleteFromList")))
+                    return;
+            }
+        }
+
+        _allInfobases.Remove(ib);
+        // Состав списка изменился: слоты избранного пересчитываются, иначе
+        // номер остаётся у удалённой базы, а её слот занят навсегда.
+        SyncFavoriteHotkeys();
+        SaveSilently();
+        RebuildTree();
+        SelectedInfobase = null;
+        ExportToIbasesAfterLocalChange();
+    }
+
+    private void CopyConnectionString()
+    {
+        if (SelectedInfobase is not Infobase ib)
+            return;
+
+        var text = ib.ConnectionStringDisplay;
+        try
+        {
+            var lifetime = Avalonia.Application.Current?.ApplicationLifetime
+                as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime;
+            var clipboard = lifetime?.MainWindow?.Clipboard;
+            if (clipboard is null)
+            {
+                _logger.Warn("Буфер обмена недоступен (нет активного окна).");
+                return;
+            }
+            _ = clipboard.SetTextAsync(text);
+            _logger.Info($"Скопирована строка подключения базы «{ib.Name}»");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Не удалось скопировать строку подключения: {ex.Message}");
+        }
+    }
+
+    private void OpenSettings()
+    {
+        // Построение окна настроек — большая процедура (восемь вкладок, иконки, темы).
+        // На Linux сбой в ней завершал процесс abort-ом (issue #168); ловим и логируем,
+        // чтобы приложение продолжало работать, а ошибка попала в журнал.
+        Workspace1C.SettingsWindow settings;
+        try
+        {
+            settings = new Workspace1C.SettingsWindow(this);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Не удалось открыть окно настроек: {ex.Message}", ex);
+            return;
+        }
+
+        // Владелец берётся только видимый: окно, спрятанное в трей, остаётся
+        // в списке окон приложения, и показ поверх него ничего не показывает.
+        // Настройки открываются из меню трея именно в таком состоянии.
+        if (OwnerWindow() is { } owner)
+            settings.ShowDialog(owner);
+        else
+            settings.Show();
+    }
+
+    /// <summary>
+    /// Проверяет доступность всех баз 1С и помечает недоступные красной иконкой
+    /// типа базы в списке (оригинальная иконка подключения в красном цвете,
+    /// issue #289). Ручная команда верхней панели команд вместо автопроверки при
+    /// запуске: старт не блокируется запросами ко всем базам. Доступность
+    /// определяется по факту: для файловых баз — наличие каталога/файла базы по
+    /// пути, для клиент-серверных — реальная попытка подключения, для веб-баз —
+    /// заполненность адреса.
+    /// <para>
+    /// Сразу после запуска все базы помечаются как «проверяется» (серый значок
+    /// ожидания). Результат каждой базы публикуется в строку состояния по мере
+    /// готовности, а значок обновляется через подписку строки на свойства базы.
+    /// Проверки идут в фоне с ограниченным параллелизмом, чтобы не блокировать UI.
+    /// </para>
+    /// </summary>
+    private void CheckAvailability()
+    {
+        if (_availabilityCheckRunning)
+            return;
+
+        var targets = Infobases.ToList();
+        if (targets.Count == 0)
+        {
+            ShowTemporaryStatusMessage(LocalizationManager.T("Main.ConfigListEmpty"));
+            return;
+        }
+
+        _availabilityCheckRunning = true;
+        IsLoading = true;
+        LoadingMessage = LocalizationManager.T("Main.CheckAvailabilityLabel");
+        foreach (var ib in targets)
+            ib.SetChecking(true);
+        RebuildTree();
+        StatusBarInfo = string.Format(
+            LocalizationManager.T("Main.AvailabilityProgress"), 0, targets.Count);
+
+        _ = RunAvailabilityCheckAsync(targets);
+    }
+
+    /// <summary>Ограничение параллельных проверок доступности баз.</summary>
+    private const int AvailabilityParallelism = 4;
+
+    private bool _availabilityCheckRunning;
+
+    private async Task RunAvailabilityCheckAsync(List<Infobase> targets)
+    {
+        try
+        {
+            var results = new List<(Infobase Base, bool Available)>(targets.Count);
+            var processed = 0;
+
+            await Task.Run(() => Parallel.ForEach(targets,
+                new ParallelOptions { MaxDegreeOfParallelism = AvailabilityParallelism },
+                ib =>
+                {
+                    var available = IsBaseAvailable(ib);
+                    var done = Interlocked.Increment(ref processed);
+                    lock (results)
+                        results.Add((ib, available));
+
+                    // Каждая завершённая база сразу публикуется в UI-потоке: иконка
+                    // строки меняется с серой на фактический статус (по PropertyChanged),
+                    // в строке состояния обновляется прогресс «i из N».
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        ib.SetCheckedAvailability(available);
+                        StatusBarInfo = string.Format(
+                            LocalizationManager.T("Main.AvailabilityProgress"), done, targets.Count);
+                    });
+                }));
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsLoading = false;
+                RebuildTree();
+                var total = results.Count;
+                var unavailable = results.Count(r => !r.Available);
+                ShowTemporaryStatusMessage(string.Format(
+                    LocalizationManager.T("Main.AvailabilityStatus"),
+                    total, total - unavailable, unavailable));
+            });
+        }
+        finally
+        {
+            _availabilityCheckRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Показывает сообщение в нижней строке состояния на 10 секунд, после чего
+    /// возвращает обычный текст. Повторный вызов сбрасывает предыдущий таймер.
+    /// </summary>
+    private void ShowTemporaryStatusMessage(string message)
+    {
+        _statusMessageCts?.Cancel();
+        _statusMessageCts?.Dispose();
+        _statusMessageCts = null;
+
+        StatusBarInfo = message;
+
+        var cts = new System.Threading.CancellationTokenSource();
+        _statusMessageCts = cts;
+        var token = cts.Token;
+        _ = ClearStatusMessageAfterDelayAsync(token);
+    }
+
+    private async Task ClearStatusMessageAfterDelayAsync(System.Threading.CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), token).ConfigureAwait(true);
+            if (!token.IsCancellationRequested)
+                UpdateStatus();
+        }
+        catch (TaskCanceledException)
+        {
+            // новое сообщение заменило предыдущее
+        }
+    }
+
+    /// <summary>
+    /// Доступность отдельной базы. Файловая — есть ли каталог/файл по пути;
+    /// клиент-серверная — удалось ли подключиться; веб-база — заполнен ли адрес.
+    /// Для клиент-серверных баз выполняется реальная попытка подключения через
+    /// COM-коннектор (на Linux недоступна, поэтому такие базы считаются недоступными).
+    /// </summary>
+    private bool IsBaseAvailable(Infobase ib)
+    {
+        try
+        {
+            switch (ib.Connection?.Type)
+            {
+                case ConnectionType.File:
+                    // Наличие каталога или файла базы по пути.
+                    return InfobaseMaintenanceService.FileBaseExists(ib);
+
+                case ConnectionType.ClientServer:
+                {
+                    // Быстрая TCP-проверка порта кластера (функция 12, флаг
+                    // AvailabilityTcpPrecheckEnabled): закрытый порт — мгновенно «недоступно».
+                    // На Linux COM-коннектор отсутствует, поэтому при открытом порте база
+                    // всё равно считается недоступной (как и документировано выше).
+                    if (NetworkAvailabilityPrecheck.IsUnreachableFast(
+                            AvailabilityTcpPrecheckEnabled,
+                            ib.Connection.Server,
+                            ib.Connection.Port > 0 ? ib.Connection.Port : OneCPorts.Cluster,
+                            NetworkDiagnosticsService.TcpPortCheckAsync))
+                        return false;
+                    return false;
+                }
+
+                case ConnectionType.WebServer:
+                    return !string.IsNullOrWhiteSpace(ib.Connection.WebUrl);
+
+                default:
+                    return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // ======================= Этап 6: папки / ярлыки / стартер =======================
+
+    /// <summary>
+    /// Недавно запускавшиеся базы (для меню трея). До семи по дате запуска,
+    /// как в Windows-версии (MainWindow.Tray.cs:216 запрашивает семь).
+    /// </summary>
+    public List<Infobase> RecentInfobases =>
+        // Приватные базы заблокированного профиля в меню трея не показываются (0.3.9.85).
+        _allInfobases
+            .Where(ib => ib.LastLaunchDate.HasValue && IsVisibleForPrivateFilter(ib))
+            .OrderByDescending(ib => ib.LastLaunchDate)
+            .Take(7)
+            .ToList();
+
+    /// <summary>Все информационные базы (для диалога выбора при очистке кеша).</summary>
+    public IReadOnlyList<Infobase> Infobases => _allInfobases;
+
+    /// <summary>Открыть каталог файловой базы в файловом менеджере рабочего стола.</summary>
+    private void OpenInfobaseFolder()
+    {
+        var ib = SelectedInfobase;
+        if (ib is null)
+            return;
+        if (!InfobaseMaintenanceService.OpenInfobaseFolder(ib))
+            _dialog.ShowError(LocalizationManager.T("Main.ErrOpenBaseFolder"));
+    }
+
+    /// <summary>Создать ярлык .desktop на рабочем столе для запуска базы.</summary>
+    private void CreateDesktopShortcut()
+    {
+        var ib = SelectedInfobase;
+        if (ib is null)
+            return;
+        if (InfobaseMaintenanceService.CreateDesktopShortcut(ib))
+            _dialog.ShowInfo(string.Format(LocalizationManager.T("Main.ShortcutCreated"), ib.Name));
+        else
+            _dialog.ShowError(string.Format(LocalizationManager.T("Main.ErrShortcutCreate"), ib.Name));
+    }
+
+    /// <summary>Запустить родной стартер 1С (1cestart).</summary>
+    private void OpenNativeStarter()
+    {
+        if (!InfobaseMaintenanceService.OpenNativeStarter())
+            _dialog.ShowError(LocalizationManager.T("Main.ErrStartStarter"));
+    }
+
+    // ======================= Очистка кеша 1С =======================
+
+    /// <summary>
+    /// Быстрая очистка всего кеша (программного и пользовательского) выбранной базы.
+    /// Перед очисткой запрашивает подтверждение у пользователя.
+    /// </summary>
+    /// <param name="parameter">Информационная база (или null — используется выбранная).</param>
+    private void QuickClearCache(object? parameter)
+    {
+        var ib = parameter as Infobase ?? SelectedInfobase;
+        if (ib is null)
+            return;
+
+        if (!_dialog.Confirm(
+            string.Format(LocalizationManager.T("Main.CacheClearAllConfirm"), ib.Name),
+            LocalizationManager.T("Main.ClearCacheDlgTitle")))
+            return;
+
+        try
+        {
+            // Объём кэша базы до очистки — для отчёта (issue #178).
+            var size = OneCCacheCleaner.GetSize(ib, OneCCacheKind.All);
+            var removed = OneCCacheCleaner.Clear(ib, OneCCacheKind.All);
+            var kindLabel = CacheKindLabel(OneCCacheKind.All);
+            var baseLabel = string.Format(LocalizationManager.T("Main.CacheBaseOne"), ib.Name);
+            var message = removed > 0
+                ? string.Format(LocalizationManager.T("Main.CacheCleaned"), kindLabel, baseLabel, removed, Infobase.FormatSize(size))
+                : string.Format(LocalizationManager.T("Main.CacheNotFound"), kindLabel, baseLabel);
+            _dialog.ShowInfo(message, LocalizationManager.T("Main.ClearCacheDlgTitle"));
+        }
+        catch (Exception ex)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrCacheClear"), ex.Message),
+                LocalizationManager.T("Main.CacheErrorTitle"));
+        }
+    }
+
+    /// <summary>
+    /// Открывает окно выбора типа кеша и информационных баз, после подтверждения выполняет очистку.
+    /// </summary>
+    /// <param name="kind">Тип кеша, выбранный по умолчанию.</param>
+    /// <param name="defaultInfobase">База, отмеченная по умолчанию (например, выделенная в главном окне).</param>
+    private void OpenCacheClean(OneCCacheKind kind, Infobase? defaultInfobase = null)
+    {
+        if (Infobases.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("Main.CacheEmpty"),
+                LocalizationManager.T("Main.ClearCacheDlgTitle"));
+            return;
+        }
+
+        // Список отдаётся копией и окно открывается модально: иначе пока оно
+        // открыто, список баз можно очистить из главного окна, и очистка
+        // остатков посчитает остатками уже весь кеш.
+        var dialog = new CacheCleanWindow(Infobases.ToList(), kind, defaultInfobase ?? SelectedInfobase);
+        if (!dialog.ShowSync(OwnerWindow()))
+            return;
+
+        var infobases = dialog.SelectedInfobases;
+        var selectedKind = dialog.SelectedCacheKind;
+        var cleanOrphans = dialog.CleanOrphans;
+        if (selectedKind == OneCCacheKind.None)
+            return;
+        if (infobases.Count == 0 && !cleanOrphans)
+            return;
+
+        var kindLabel = CacheKindLabel(selectedKind);
+
+        // Описание подтверждения: выбранные базы и/или остатки кеша от удалённых баз.
+        var confirmParts = new List<string>();
+        if (infobases.Count > 0)
+            confirmParts.Add(string.Join(", ", infobases.Select(ib => ib.Name)));
+        if (cleanOrphans)
+            confirmParts.Add(LocalizationManager.T("Main.CacheOrphanNote"));
+
+        if (!_dialog.Confirm(
+            string.Format(LocalizationManager.T("Main.CacheConfirm"), kindLabel, string.Join("\n", confirmParts)),
+            LocalizationManager.T("Main.ClearCacheDlgTitle")))
+            return;
+
+        try
+        {
+            // Объём «остатков» до очистки — для отчёта (issue #178).
+            var orphanSize = cleanOrphans ? OneCCacheCleaner.GetOrphanSize(selectedKind, Infobases) : 0L;
+            // Объём кэша баз до очистки — для отчёта (issue #178).
+            var basesSize = infobases.Count > 0 ? OneCCacheCleaner.GetSize(selectedKind, infobases) : 0L;
+            var removedBases = OneCCacheCleaner.Clear(infobases, selectedKind);
+            var removedOrphans = cleanOrphans ? OneCCacheCleaner.ClearOrphans(selectedKind, Infobases) : 0;
+
+            var resultParts = new List<string>();
+            if (infobases.Count > 0)
+            {
+                var baseLabel = infobases.Count == 1
+                    ? string.Format(LocalizationManager.T("Main.CacheBaseOne"), infobases[0].Name)
+                    : string.Format(LocalizationManager.T("Main.CacheBaseMany"), infobases.Count);
+
+                if (removedBases > 0)
+                    resultParts.Add(string.Format(LocalizationManager.T("Main.CacheCleaned"), kindLabel, baseLabel, removedBases, Infobase.FormatSize(basesSize)));
+                else
+                    resultParts.Add(string.Format(LocalizationManager.T("Main.CacheNotFound"), kindLabel, baseLabel));
+            }
+
+            if (cleanOrphans)
+            {
+                if (removedOrphans > 0)
+                    resultParts.Add(string.Format(LocalizationManager.T("Main.CacheOrphanRemoved"), removedOrphans, Infobase.FormatSize(orphanSize)));
+                else
+                    resultParts.Add(LocalizationManager.T("Main.CacheOrphanNone"));
+            }
+
+            _dialog.ShowInfo(string.Join("\n\n", resultParts), LocalizationManager.T("Main.ClearCacheDlgTitle"));
+        }
+        catch (Exception ex)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrCacheClear"), ex.Message),
+                LocalizationManager.T("Main.CacheErrorTitle"));
+        }
+    }
+
+    /// <summary>Возвращает читаемое описание типа кеша.</summary>
+    private static string CacheKindLabel(OneCCacheKind kind)
+    {
+        return kind switch
+        {
+            OneCCacheKind.Program => LocalizationManager.T("Main.CacheKindProgram"),
+            OneCCacheKind.User => LocalizationManager.T("Main.CacheKindUser"),
+            _ => LocalizationManager.T("Main.CacheKindAll")
+        };
+    }
+
+    private void RaiseCommandCanExecuteChanged()
+    {
+        (LaunchEnterpriseCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (LaunchConfiguratorCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (EditInfobaseCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (DeleteInfobaseCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ToggleFavoriteCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (TogglePinCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (CopyConnectionStringCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (OpenInfobaseFolderCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (QuickClearCacheCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearCacheCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearProgramCacheCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearUserCacheCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearCacheBothCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RepositoryBatchUpdateCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RepositoryBrowserCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    // ======================= Пакетное обновление из хранилищ (0.3.9.88) =======================
+
+    private System.Windows.Input.ICommand? _repositoryBatchUpdateCommand;
+
+    /// <summary>
+    /// Команда «Обновление из хранилищ…»: окно-чеклист баз с заполненным хранилищем
+    /// конфигурации и последовательный прогон через конфигуратор в пакетном режиме.
+    /// Активна, если хотя бы у одной базы заполнен адрес хранилища.
+    /// </summary>
+    public System.Windows.Input.ICommand RepositoryBatchUpdateCommand =>
+        _repositoryBatchUpdateCommand ??= new RelayCommand(_ => ExecuteRepositoryBatchUpdate(),
+            _ => _allInfobases.Any(b => b.Repository.HasServer));
+
+    private void ExecuteRepositoryBatchUpdate()
+    {
+        var withRepo = _allInfobases.Where(b => b.Repository.HasServer).ToList();
+        if (withRepo.Count == 0)
+        {
+            _dialog.ShowInfo(LocalizationManager.T("RepoUpdate.NoBases"),
+                LocalizationManager.T("RepoUpdate.Title"));
+            return;
+        }
+
+        // Безопасность: подтверждение перед запуском конфигуратора по нескольким базам.
+        if (!_dialog.Confirm(
+                string.Format(LocalizationManager.T("RepoUpdate.ConfirmFormat"), withRepo.Count),
+                LocalizationManager.T("RepoUpdate.Title")))
+            return;
+
+        var window = new Workspace1C.RepositoryBatchUpdateWindow(withRepo);
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    // ======================= Обозреватель хранилища конфигурации (0.3.9.128) =======================
+
+    private System.Windows.Input.ICommand? _repositoryBrowserCommand;
+
+    /// <summary>
+    /// Команда «Хранилище конфигурации…»: окно обозревателя хранилища конфигурации
+    /// выбранной базы (подключение, список версий, состав версии). Активна, только если
+    /// у выбранной базы заполнен адрес хранилища (<see cref="CanOpenRepositoryBrowser"/>);
+    /// CanExecute пересчитывается при смене выделения через <see cref="RaiseCommandCanExecuteChanged"/>
+    /// (вызывается из сеттера SelectedInfobase).
+    /// </summary>
+    public System.Windows.Input.ICommand RepositoryBrowserCommand =>
+        _repositoryBrowserCommand ??= new RelayCommand(_ => ExecuteRepositoryBrowser(),
+            _ => CanOpenRepositoryBrowser(SelectedInfobase));
+
+    private void ExecuteRepositoryBrowser()
+    {
+        if (SelectedInfobase is not { Repository.HasServer: true } infobase)
+            return;
+
+        // persistChanges: выгрузка .cf добавляет запись в историю запусков базы — сохраняем список.
+        var window = new Workspace1C.RepositoryBrowserWindow(infobase, () => SaveSilently());
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    /// <summary>
+    /// Доступен ли обозреватель хранилища для выбранной базы: у базы должен быть
+    /// заполнен адрес хранилища конфигурации. Чистый предикат — тестируется отдельно.
+    /// </summary>
+    public static bool CanOpenRepositoryBrowser(Infobase? infobase) =>
+        infobase is { Repository.HasServer: true };
+
+    // ======================= Центр обслуживания (0.3.9.89) =======================
+
+    private System.Windows.Input.ICommand? _maintenanceCenterCommand;
+
+    /// <summary>
+    /// Команда «Центр обслуживания…»: окно-дашборд со сводкой состояния всех баз
+    /// (доступность, последняя копия, размер, кэш, конфигурация, возраст данных,
+    /// проверка обновлений). Работает со всем списком, поэтому активна всегда.
+    /// </summary>
+    public System.Windows.Input.ICommand MaintenanceCenterCommand =>
+        _maintenanceCenterCommand ??= new RelayCommand(_ => ExecuteMaintenanceCenter());
+
+    private void ExecuteMaintenanceCenter()
+    {
+        var window = new Workspace1C.MaintenanceCenterWindow(
+            _allInfobases.ToList(),
+            () => CheckAvailabilityCommand.Execute(null),
+            ib => FindInListCommand.Execute(ib),
+            MaintenanceFreeSpaceWarningGb);
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    // ======================= Инспектор процессов 1С (0.3.9.93) =======================
+
+    private System.Windows.Input.ICommand? _processInspectorCommand;
+
+    /// <summary>
+    /// Команда «Инспектор процессов…»: таблица всех запущенных процессов платформы 1С
+    /// (база/режим/пользователь/время старта/PID/строка подключения) с автообновлением
+    /// и завершением выбранного процесса. Двойной клик по известной базе — переход
+    /// к ней в главном окне. Работает со всем списком, поэтому активна всегда.
+    /// </summary>
+    public System.Windows.Input.ICommand ProcessInspectorCommand =>
+        _processInspectorCommand ??= new RelayCommand(_ => ExecuteProcessInspector());
+
+    private void ExecuteProcessInspector()
+    {
+        var window = new Workspace1C.ProcessInspectorWindow(
+            _allInfobases.ToList(),
+            ib => FindInListCommand.Execute(ib));
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    // ======================= Монитор серверов 1С (0.3.9.124) =======================
+
+    private System.Windows.Input.ICommand? _serverMonitorCommand;
+
+    /// <summary>
+    /// Команда «Серверы 1С…»: встроенный монитор серверов 1С через утилиту rac
+    /// (0.3.9.124, цикл 0.3.9.123–0.3.9.126) — подключение к серверу (адрес/порт/
+    /// логин/пароль), просмотр кластеров, рабочих процессов, сеансов, соединений,
+    /// блокировок и информации о кластере. Пароль администратора кластера не
+    /// сохраняется на диск (решение планирования). Активна всегда — сервер 1С
+    /// не привязан к конкретной базе списка.
+    /// </summary>
+    public System.Windows.Input.ICommand ServerMonitorCommand =>
+        _serverMonitorCommand ??= new RelayCommand(_ => ExecuteServerMonitor());
+
+    private void ExecuteServerMonitor()
+    {
+        var window = new Workspace1C.ServerMonitorWindow();
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    // ================== Диагностика сети до сервера 1С (0.3.9.232, функция 12) ==================
+
+    private System.Windows.Input.ICommand? _networkDiagnosticsCommand;
+
+    /// <summary>
+    /// Команда «Диагностика подключения…»: окно проверки сетевой доступности сервера
+    /// 1С (функция 12, цикл 0.3.9.229–233) — DNS-резолв, ICMP-пинг, TCP-проверка
+    /// портов с задержками и выводы по проблемам. Доступна для клиент-серверной и
+    /// веб-базы (для файловой скрыта); стартовые хост/порт — из настроек подключения.
+    /// </summary>
+    public System.Windows.Input.ICommand NetworkDiagnosticsCommand =>
+        _networkDiagnosticsCommand ??= new RelayCommand(_ => ExecuteNetworkDiagnostics(),
+            _ => NetworkDiagnosticsTargets.FromInfobase(SelectedInfobase) is not null);
+
+    private void ExecuteNetworkDiagnostics()
+    {
+        var target = NetworkDiagnosticsTargets.FromInfobase(SelectedInfobase);
+        if (target is null)
+            return;
+
+        var portsStore = AppServices.GetRequiredService<IServerPortsStore>();
+        var vm = new NetworkDiagnosticsViewModel(
+            AppServices.GetRequiredService<INetworkDiagnosticsService>(),
+            target,
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+            portsStore: portsStore,
+            availableServers: NetworkDiagnosticsServerSources.Merge(
+                AvailableServers(), portsStore, target.Host));
+
+        new Workspace1C.NetworkDiagnosticsWindow(vm)
+            .ShowDialogSync(OwnerWindow());
+    }
+
+    // ======================= Импорт баз из кластера 1С (0.3.9.174) =======================
+
+    private System.Windows.Input.ICommand? _importClusterInfobasesCommand;
+
+    /// <summary>
+    /// Команда «Импорт из кластера 1С…»: импорт информационных баз из кластера сервера
+    /// 1С через утилиту rac (цикл 0.3.9.172–0.3.9.175) — окно с подключением к ragent/RAS,
+    /// чеклистом баз кластера (дубликаты по строке подключения сняты и помечены), сводкой
+    /// «будет добавлено» и созданием недостающих групп по имени кластера при группировке.
+    /// Активна всегда — кластер не привязан к конкретной базе списка (как ServerMonitorCommand).
+    /// </summary>
+    public System.Windows.Input.ICommand ImportClusterInfobasesCommand =>
+        _importClusterInfobasesCommand ??= new RelayCommand(_ => ExecuteImportClusterInfobases());
+
+    private void ExecuteImportClusterInfobases()
+    {
+        var window = new Workspace1C.ClusterImportWindow(
+            AppServices.GetRequiredService<IRacClient>(),
+            AppServices.GetRequiredService<IInfobaseRepository>(),
+            _allInfobases.ToList());
+        if (!window.ShowDialogSync(OwnerWindow()) || window.SelectedBases.Count == 0)
+            return;
+
+        // Страховка от дубликатов: окно уже фильтровало по строкам подключения, но
+        // список мог измениться с момента построения чеклиста — лишнее не добавляем.
+        var added = window.SelectedBases
+            .Where(b => !RacInfobaseMapper.IsDuplicate(_allInfobases, b))
+            .ToList();
+        if (added.Count == 0)
+            return;
+
+        _allInfobases.AddRange(added);
+        SyncFavoriteHotkeys();
+
+        // Недостающие группы по именам из импортируемых баз (имя кластера при
+        // группировке) добавляются как корневые — как при добавляющем импорте JSON.
+        var existingGroupNames = new HashSet<string>(
+            _groups.Select(g => (g.Name ?? "").Trim()), StringComparer.OrdinalIgnoreCase);
+        var groupsToAdd = added
+            .Select(b => (b.Group ?? "").Trim())
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(existingGroupNames.Add)
+            .Select(name => new Group { Name = name })
+            .ToList();
+        if (groupsToAdd.Count > 0)
+            _groups.AddRange(groupsToAdd);
+
+        SelectedInfobase = null;
+        var saved = SaveSilently();
+        saved &= SaveGroupsSilently();
+        RebuildTree();
+
+        if (!saved)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                    LocalizationManager.T("Main.SaveFailedHint")),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        StatusBarInfo = string.Format(LocalizationManager.T("ClusterImport.SuccessFormat"), added.Count);
+        _logger.Info($"Импорт из кластера 1С: добавлено {added.Count} баз, " +
+                     $"пропущено дубликатов {window.SelectedBases.Count - added.Count}");
+    }
+
+    // ======================= Статистика использования баз (0.3.9.95) =======================
+
+    private System.Windows.Input.ICommand? _usageStatisticsCommand;
+
+    /// <summary>
+    /// Команда «Статистика использования…»: аналитика по истории запусков всех баз
+    /// (число запусков, первый/последний запуск, дней с последнего запуска, сводка,
+    /// распределение по дням недели). Работает со всем списком, поэтому активна всегда.
+    /// </summary>
+    public System.Windows.Input.ICommand UsageStatisticsCommand =>
+        _usageStatisticsCommand ??= new RelayCommand(_ => ExecuteUsageStatistics());
+
+    private void ExecuteUsageStatistics()
+    {
+        var window = new Workspace1C.UsageStatisticsWindow(_allInfobases.ToList());
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    /// <summary>Предупреждение в журнал из окна: журнал живёт во вьюмодели.</summary>
+    public void LogWarning(string message) => _logger.Warn(message);
+
+    // ======================= Сравнение конфигураций (0.3.9.99) =======================
+
+    private System.Windows.Input.ICommand? _configDiffCommand;
+
+    /// <summary>
+    /// Команда «Сравнение конфигураций…»: сравнение конфигурации выбранной базы
+    /// с эталонным .cf или двух .cf между собой; результат — отчёт об отличиях
+    /// по типам метаданных с экспортом CSV/TXT (0.3.9.99, функция №9).
+    /// Работает со всем списком, поэтому активна всегда.
+    /// </summary>
+    public System.Windows.Input.ICommand ConfigDiffCommand =>
+        _configDiffCommand ??= new RelayCommand(_ => ExecuteConfigDiff());
+
+    private void ExecuteConfigDiff()
+    {
+        var window = new Workspace1C.ConfigDiffSetupWindow(
+            _allInfobases.ToList(),
+            SelectedInfobase,
+            InstalledPlatformVersions(),
+            _settings.LastFileCreatePlatformVersion ?? string.Empty);
+        window.ShowDialogSync(OwnerWindow());
+    }
+
+    // ======================= Обозреватель метаданных (0.3.9.133) =======================
+
+    private System.Windows.Input.ICommand? _metadataExplorerCommand;
+
+    /// <summary>
+    /// Команда «Обозреватель метаданных…»: окно просмотра дерева метаданных конфигурации
+    /// (подсистемы → типы → объекты) без интерактивного конфигуратора — источник (база
+    /// или файл .cf) выгружается в XML через /DumpConfigToFiles (0.3.9.132–0.3.9.136).
+    /// Источник выбирается в окне, поэтому активна всегда.
+    /// </summary>
+    public System.Windows.Input.ICommand MetadataExplorerCommand =>
+        _metadataExplorerCommand ??= new RelayCommand(_ => ExecuteMetadataExplorer());
+
+    private void ExecuteMetadataExplorer()
+    {
+        var window = new Workspace1C.MetadataExplorerWindow(
+            _allInfobases.ToList(),
+            SelectedInfobase);
+        window.ShowDialogSync(OwnerWindow());
+    }
+}
+#endif

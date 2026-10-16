@@ -1,0 +1,121 @@
+using System.Threading;
+using System.Threading.Tasks;
+using Workspace1C.Models;
+
+namespace Workspace1C.Services;
+
+/// <summary>
+/// Сервис проверки обновлений типовых конфигураций 1С по web-ресурсу обновлений.
+/// Формирует web-адрес по правилу 1С
+/// <c>downloads.1c.ru/ipp/.../Configs/<Конфигурация>/<Ред>/<Подред>/</c>,
+/// проверяет наличие новых релизов и скачивает дистрибутив с прогрессом.
+/// Кроссплатформенный — не зависит от UI-фреймворка.
+/// </summary>
+public interface IOneCUpdatesService
+{
+    /// <summary>
+    /// Формирует адрес каталога релизов по правилу 1С. Если задан <paramref name="urlOverride"/> —
+    /// он разрешается по семантике issue #369: **полная** ссылка (со схемой http/https)
+    /// используется целиком, **только конечная часть** (например «Enterprise13») подменяет
+    /// ник каталога (<c>releases.1c.ru/project/&lt;часть&gt;</c>). Иначе адрес строится из
+    /// ника конфигурации (<c>releases.1c.ru/project/&lt;ник&gt;</c>). Каждый сегмент
+    /// экранируется, итог проверяется на валидность URI.
+    /// </summary>
+    /// <param name="config">Типовая конфигурация (нужен ник каталога релизов).</param>
+    /// <param name="edition">Редакция (может переопределять ссылку: полная ссылка или хвост —
+    /// см. <paramref name="urlOverride"/>). Может быть null.</param>
+    /// <param name="urlOverride">Переопределённая ссылка: полная ссылка либо только конечная
+    /// часть адреса после <c>releases.1c.ru/project/</c> (issue #369). Пустая строка/null — автоформирование.</param>
+    /// <param name="urlSegment">Персональный сегмент (ник) базы. Если задан — используется вместо
+    /// ника типовой конфигурации (issue #322). Пустая строка/null — ник конфигурации.</param>
+    string BuildUpdateUrl(OneCConfigType? config, OneCConfigEdition? edition, string? urlOverride, string? urlSegment = null);
+
+    /// <summary>
+    /// Проверяет наличие обновлений по заданному URL каталога релизов: загружает страницу,
+    /// устойчиво ищет ссылки на архивы дистрибутивов и определяет максимальную версию.
+    /// Ошибки сети/HTTP не бросают исключение — результат возвращается со статусом
+    /// <see cref="ConfigUpdateStatus.Failed"/>.
+    /// </summary>
+    /// <param name="familyHint">«Семейство» версии (текущая версия или редакция, например
+    /// «3.0.14.100»/«3.0», issue #371): максимум выбирается среди версий с тем же первым
+    /// сегментом — посторонние токены («2.2.10» на странице Розницы/УПП) отсекаются.
+    /// Пусто — используется <paramref name="currentVersion"/>.</param>
+    Task<ConfigUpdateCheckResult> CheckForUpdatesAsync(
+        string configName, string currentVersion, string url, CancellationToken ct = default,
+        string? familyHint = null, string? accountId = null);
+
+    /// <summary>
+    /// Скачивает дистрибутив обновления по прямой ссылке в целевой файл с прогрессом.
+    /// Возвращает полный путь сохранённого файла или null при ошибке/отмене.
+    /// </summary>
+    Task<string?> DownloadUpdateAsync(
+        string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default,
+        string? accountId = null);
+
+    /// <summary>
+    /// Скачивает файл дистрибутива технологической платформы по прямой ссылке:
+    /// сначала пытается многопоточная загрузка (HTTP Range, до конца файла), при
+    /// неудаче — существующий однопоточный путь с авторизацией портала. Возвращает
+    /// полный путь сохранённого файла или null при ошибке/отмене.
+    /// </summary>
+    /// <param name="url">Прямая ссылка на файл дистрибутива.</param>
+    /// <param name="targetPath">Полный путь итогового файла (каталог создаётся).</param>
+    /// <param name="progress">Прогресс загрузки 0..1.</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<string?> DownloadDistributionAsync(
+        string url, string targetPath, IProgress<double>? progress = null, CancellationToken ct = default,
+        string? accountId = null);
+
+    /// <summary>
+    /// Получает варианты файлов релиза для одиночного скачивания (issue #352.1):
+    /// по ссылке релиза/<c>additional_file?…</c> строит адрес страницы файлов версии
+    /// (<c>version_files?nick=…&ver=…</c>) и собирает файловые кандидаты с подписями
+    /// «Дистрибутив обновления» (приоритет, .cf) и «Полный дистрибутив», резолвя каждую
+    /// до конечного адреса. Ошибки/отсутствие кандидатов — пустой список (вызывающий
+    /// код переходит на прежний путь <see cref="DownloadUpdateAsync"/>).
+    /// </summary>
+    /// <param name="url">Ссылка релиза или файла (additional_file/version_file).</param>
+    /// <param name="ct">Токен отмены.</param>
+    /// <param name="knownLatestVersion">Известная целевая версия (issue #352.1, регрессия
+    /// «Не повышать»): при адресе без ver страница файлов строится для этой версии без
+    /// запроса каталога; null — прежнее поведение (резолв по каталогу).</param>
+    Task<System.Collections.Generic.IReadOnlyList<UpdateFileChoice>> GetReleaseFileChoicesAsync(
+        string url, CancellationToken ct = default, string? knownLatestVersion = null, string? accountId = null);
+
+    /// <summary>
+    /// Выполняет авторизованный GET (Basic Auth + cookie-сессия портала) по указанному
+    /// адресу и возвращает тело ответа как строку. Ошибки сети/HTTP не бросают исключение:
+    /// при неуспехе возвращается null.
+    /// </summary>
+    /// <param name="url">Адрес страницы каталога или ответа version_files.</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<string?> GetPageTextAsync(string url, CancellationToken ct = default, string? accountId = null);
+
+    /// <summary>
+    /// Выполняет авторизованный GET по указанному адресу и возвращает текст ответа вместе
+    /// со статусом обращения. В отличие от <see cref="GetPageTextAsync"/> позволяет отличить
+    /// «требуется вход» (AuthRequired) от «вход не подтверждён сервером» (AuthFailed —
+    /// HTTP 401 после POST учётных данных либо цепочка редиректов завершилась на странице
+    /// входа, issue #334/#330/#323) и от сетевой ошибки (NetworkError). Ошибки сети/HTTP
+    /// не бросают исключение — итог описывается статусом <see cref="PortalFetchStatus"/>
+    /// и текстом ответа при успехе.
+    /// </summary>
+    /// <param name="url">Адрес страницы каталога или ответа version_files.</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<PortalPageResult> FetchPageAsync(string url, CancellationToken ct = default, string? accountId = null);
+
+    /// <summary>
+    /// Получает полный каталог версий конфигурации со страницы <c>releases.1c.ru/project/<ник></c>
+    /// (issue #352): все строки таблицы #versionsTable, включая колонку «Список версий»
+    /// (<see cref="PlatformRelease.Sources"/>), отсортированные по убыванию. Используется для
+    /// построения цепочки обновлений, когда последняя версия не обновляется напрямую с текущей.
+    /// Ошибки сети/авторизации не бросают исключение — итог описывается статусом
+    /// <see cref="ConfigUpdateCatalogResult.Status"/> и ключом локализации «Updates.*».
+    /// </summary>
+    /// <param name="url">Адрес страницы каталога релизов (project/<ник>).</param>
+    /// <param name="ct">Токен отмены.</param>
+    Task<ConfigUpdateCatalogResult> GetUpdateCatalogAsync(string url, CancellationToken ct = default, string? accountId = null);
+
+    /// <summary>Предопределённый набор типовых конфигураций 1С.</summary>
+    System.Collections.Generic.IReadOnlyList<OneCConfigType> BuiltInConfigTypes { get; }
+}

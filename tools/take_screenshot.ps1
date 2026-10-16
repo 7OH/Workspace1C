@@ -6,5 +6,5 @@ $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen(0, 0, 0, 0, $bmp.Size)
-$bmp.Save('f:\ya\Yandex.Disk\h\Configuration_Management_test\screenshot.png')
+$bmp.Save('f:\ya\Yandex.Disk\h\Workspace1C_test\screenshot.png')
 Write-Host 'SCREENSHOT SAVED'

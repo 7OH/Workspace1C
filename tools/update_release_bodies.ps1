@@ -16,7 +16,7 @@ param(
 )
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$repo = 'sivatorov/ConfigurationManagement'
+$repo = 'sivatorov/Workspace1C'
 
 # ---------- 1. Парсим CHANGELOG.md ----------
 $changelogPath = Join-Path $PSScriptRoot '..\CHANGELOG.md'

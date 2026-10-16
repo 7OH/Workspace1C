@@ -1,14 +1,14 @@
-Package: configuration-management
+Package: workspace-1c
 Version: @VERSION@
 Section: utils
 Priority: optional
 Architecture: amd64
-Maintainer: Configuration Management Team <support@example.com>
-Homepage: https://github.com/sivatorov/ConfigurationManagement
+Maintainer: Workspace 1C Team <support@example.com>
+Homepage: https://github.com/sivatorov/Workspace1C
 Installed-Size: @INSTALLED_SIZE@
 Depends: libc6 (>= 2.31), libstdc++6, libgcc-s1, libicu76 | libicu74 | libicu72 | libicu71 | libicu70 | libicu67, libfontconfig1, libfreetype6, libexpat1, libpng16-16 | libpng16-16t64, zlib1g, libbz2-1.0, libbrotli1, libx11-6, libxext6, libxi6, libxrandr2, libxcursor1, libxfixes3
 Recommends: xdg-utils, libgtk-3-0 | libgtk-3-0t64, libgl1, libice6, libsm6, desktop-file-utils, hicolor-icon-theme
-Description: Управление конфигурациями 1С
+Description: Workspace 1C
  Десктопное приложение для управления информационными базами
  1С:Предприятие 8.3: запуск в режимах «1С:Предприятие» и «Конфигуратор»,
  иерархические группы, избранное, мультифильтр по тегам, очистка кеша,

@@ -4,7 +4,7 @@ $headers = @{ 'User-Agent' = 'cm-tool'; 'Accept' = 'application/vnd.github+json'
 $all = @()
 $page = 1
 do {
-    $url = "https://api.github.com/repos/sivatorov/ConfigurationManagement/releases?per_page=100&page=$page"
+    $url = "https://api.github.com/repos/sivatorov/Workspace1C/releases?per_page=100&page=$page"
     $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20 -Headers $headers
     $items = $r.Content | ConvertFrom-Json
     if ($items.Count -eq 0) { break }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Генератор полных наборов иконок для тем Configuration Management.
+Генератор полных наборов иконок для тем Workspace 1C.
 
 Создаёт словари ресурсов Themes/Icons<Set>.xaml (WPF, Geometry) и
 Themes/Icons<Set>.axaml (Avalonia, StreamGeometry) для наборов:
@@ -229,7 +229,7 @@ def kebab(kind):
 
 def repo_pack_kinds(repo):
     kinds = set()
-    root = os.path.join(repo, "Configuration Management")
+    root = os.path.join(repo, "Workspace1C")
     for dp, dn, fns in os.walk(root):
         if any(p in dp for p in (os.sep + "bin", os.sep + "obj")):
             continue
@@ -249,7 +249,7 @@ def repo_pack_kinds(repo):
 def repo_icon_keys(repo):
     keys = set()
     for fn in ("Icons.xaml", "Icons.axaml"):
-        t = open(os.path.join(repo, "Configuration Management", "Themes", fn), encoding="utf-8-sig").read()
+        t = open(os.path.join(repo, "Workspace1C", "Themes", fn), encoding="utf-8-sig").read()
         keys.update(re.findall(r'<(?:Stream)?Geometry x:Key="(Icon[A-Za-z0-9]+)"', t))
     return sorted(keys)
 
@@ -353,7 +353,7 @@ def main():
     ap.add_argument("--repo", default=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
     args = ap.parse_args()
 
-    themes_dir = os.path.join(args.repo, "Configuration Management", "Themes")
+    themes_dir = os.path.join(args.repo, "Workspace1C", "Themes")
     icon_keys = repo_icon_keys(args.repo)
     kinds = repo_pack_kinds(args.repo)
     missing = []

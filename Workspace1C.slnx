@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Workspace1C/Workspace1C.csproj" />
+  <Project Path="Workspace1C.Tests/Workspace1C.Tests.csproj" />
+</Solution>

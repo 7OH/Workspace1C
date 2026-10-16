@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="Configuration Management/Configuration Management.csproj" />
-  <Project Path="ConfigurationManagement.Tests/ConfigurationManagement.Tests.csproj" />
-</Solution>

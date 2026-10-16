@@ -4,7 +4,7 @@
 #
 # Требования:
 #   - Собранный single-file бинарь linux-x64:
-#       (cd "Configuration Management" && ./build.sh Release publish)
+#       (cd "Workspace1C" && ./build.sh Release publish)
 #   - appimagetool (или linuxdeploy) в PATH, либо переменная APPIMAGETOOL.
 #       https://github.com/AppImage/appimagetool/releases
 #
@@ -14,18 +14,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PROJECT_DIR="$ROOT/Configuration Management"
+PROJECT_DIR="$ROOT/Workspace1C"
 PUBLISH_DIR="$PROJECT_DIR/publish/linux-x64"
-BINARY="$PUBLISH_DIR/ConfigurationManagement"
+BINARY="$PUBLISH_DIR/Workspace1C"
 
-APP_ID="configuration-management"
-BINARY_NAME="ConfigurationManagement"
+APP_ID="workspace-1c"
+BINARY_NAME="Workspace1C"
 
 # appimagetool читает архитектуру из переменной окружения, иначе угадывает
 # её по содержимому AppDir.
 export ARCH="${ARCH:-x86_64}"
 
-CSPROJ="$PROJECT_DIR/Configuration Management.csproj"
+CSPROJ="$PROJECT_DIR/Workspace1C.csproj"
 VERSION="$(sed -e 's/<!--.*-->//g' "$CSPROJ" \
   | sed -n 's/.*<InformationalVersion>\([^<]*\)<.*/\1/p' \
   | head -n1 | tr -d '[:space:]')"
@@ -37,7 +37,7 @@ fi
 PACKAGE_DIR="$ROOT/package/linux"
 APPDIR="$PACKAGE_DIR/AppDir"
 OUTDIR="$PACKAGE_DIR/out"
-OUT_FILE="ConfigurationManagement-$VERSION-$ARCH.AppImage"
+OUT_FILE="Workspace1C-$VERSION-$ARCH.AppImage"
 
 # Инструменты упаковки. По умолчанию appimagetool из PATH; можно переопределить:
 #   APPIMAGETOOL=/путь/к/appimagetool ./appimage.sh
@@ -75,7 +75,7 @@ cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 SELF="$(dirname "$(readlink -f "$0")")"
 export PATH="$SELF/usr/bin:$PATH"
-exec "$SELF/usr/bin/ConfigurationManagement" "$@"
+exec "$SELF/usr/bin/Workspace1C" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 

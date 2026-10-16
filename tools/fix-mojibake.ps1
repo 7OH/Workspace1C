@@ -12,7 +12,7 @@
 # correct comments are left untouched.
 
 param(
-    [string]$Root = "Configuration Management"
+    [string]$Root = "Workspace1C"
 )
 
 $ErrorActionPreference = 'Stop'

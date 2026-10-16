@@ -1,0 +1,308 @@
+using Workspace1C.Localization;
+using Workspace1C.Models;
+using Workspace1C.Services;
+
+namespace Workspace1C.ViewModels;
+
+/// <summary>
+/// Пункт выпадающего списка (тип задания / сценарий / база).
+/// </summary>
+public sealed class ScheduledTaskOption
+{
+    public ScheduledTaskOption(string value, string text)
+    {
+        Value = value;
+        Text = text;
+    }
+
+    public string Value { get; }
+    public string Text { get; }
+
+    /// <summary>Отображение в выпадающих списках без явной привязки.</summary>
+    public override string ToString() => Text;
+}
+
+/// <summary>
+/// Форма редактирования задания по расписанию (issue #286): поля формы и валидация.
+/// Чистый .NET, используется обеими платформами.
+/// </summary>
+public class ScheduledTaskEditViewModel : ViewModelBase
+{
+    private IReadOnlyList<BackupScenario> _scenarios;
+    private readonly IReadOnlyList<Infobase> _infobases;
+
+    // Списки опций кэшируются (issue #372): свойства KindOptions/NotifyOptions/… создавали
+    // НОВЫЕ экземпляры при каждом обращении, из-за чего FindOption(...) возвращал пункт из
+    // другого массива, чем ItemsSource, и SelectedItem не совпадал с элементами списка —
+    // закрытый комбобокс показывал ключ вместо названия.
+    private readonly IReadOnlyList<ScheduledTaskOption> _kindOptions = BuildKindOptions();
+    private readonly IReadOnlyList<ScheduledTaskOption> _notifyOptions = BuildNotifyOptions();
+    private readonly IReadOnlyList<ScheduledTaskOption> _repeatUnitOptions = BuildRepeatUnitOptions();
+    private IReadOnlyList<ScheduledTaskOption> _scenarioOptions;
+    private readonly IReadOnlyList<ScheduledTaskOption> _infobaseOptions;
+
+    public ScheduledTaskEditViewModel(ScheduledTask? task,
+        IReadOnlyList<BackupScenario> scenarios,
+        IReadOnlyList<Infobase> infobases)
+    {
+        _scenarios = scenarios ?? Array.Empty<BackupScenario>();
+        _infobases = infobases ?? Array.Empty<Infobase>();
+        _scenarioOptions = _scenarios
+            .Select(s => new ScheduledTaskOption(s.Id, s.Name))
+            .ToList();
+        _infobaseOptions = _infobases
+            .Select(b => new ScheduledTaskOption(b.Id, b.Name))
+            .ToList();
+
+        Name = task?.Name ?? "";
+        Enabled = task?.Enabled ?? true;
+        Kind = task?.Kind ?? ScheduledTaskKind.Backup;
+        Time = string.IsNullOrWhiteSpace(task?.Time) ? "02:00" : task!.Time.Trim();
+        ConfigFilePath = task?.ConfigFilePath ?? "";
+        SelectedScenarioId = task?.ScenarioId ?? "";
+        SelectedInfobaseId = task?.InfobaseId ?? "";
+        PlatformCheckExpression = task?.PlatformCheckExpression ?? "";
+        PlatformCheckIncludeTestVersions = task?.PlatformCheckIncludeTestVersions ?? false;
+        PlatformNotifyChannel = task?.PlatformNotifyChannel ?? PlatformUpdateNotifyChannel.MainWindow;
+        ConfigCheckConfiguration = task?.ConfigCheckConfiguration ?? "";
+        ConfigCheckNotifyChannel = task?.ConfigCheckNotifyChannel ?? PlatformUpdateNotifyChannel.MainWindow;
+        // issue #366/#367: периодичность повтора и «Уведомлять об отсутствии».
+        RepeatEnabled = task?.RepeatEnabled ?? false;
+        RepeatIntervalValueText = (task?.RepeatIntervalValue ?? 60).ToString();
+        RepeatIntervalUnit = task?.RepeatIntervalUnit ?? ScheduledTaskRepeatUnit.Minutes;
+        PlatformCheckNotifyWhenNoUpdates = task?.PlatformCheckNotifyWhenNoUpdates ?? false;
+        ConfigCheckNotifyWhenNoUpdates = task?.ConfigCheckNotifyWhenNoUpdates ?? false;
+
+        var days = task?.DaysOfWeek ?? new List<DayOfWeek>();
+        IsMonday = days.Contains(DayOfWeek.Monday);
+        IsTuesday = days.Contains(DayOfWeek.Tuesday);
+        IsWednesday = days.Contains(DayOfWeek.Wednesday);
+        IsThursday = days.Contains(DayOfWeek.Thursday);
+        IsFriday = days.Contains(DayOfWeek.Friday);
+        IsSaturday = days.Contains(DayOfWeek.Saturday);
+        IsSunday = days.Contains(DayOfWeek.Sunday);
+    }
+
+    public string Name { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public ScheduledTaskKind Kind { get; set; } = ScheduledTaskKind.Backup;
+    public string Time { get; set; } = "02:00";
+    public string ConfigFilePath { get; set; } = "";
+    public string SelectedScenarioId { get; set; } = "";
+    public string SelectedInfobaseId { get; set; } = "";
+    public string PlatformCheckExpression { get; set; } = "";
+    public bool PlatformCheckIncludeTestVersions { get; set; }
+    public PlatformUpdateNotifyChannel PlatformNotifyChannel { get; set; } = PlatformUpdateNotifyChannel.MainWindow;
+    public string ConfigCheckConfiguration { get; set; } = "";
+    public PlatformUpdateNotifyChannel ConfigCheckNotifyChannel { get; set; } = PlatformUpdateNotifyChannel.MainWindow;
+
+    /// <summary>Включён ли повтор задания с интервалом (issue #366/#367).</summary>
+    public bool RepeatEnabled { get; set; }
+
+    /// <summary>Значение интервала повтора (текст поля; по умолчанию «60»).</summary>
+    public string RepeatIntervalValueText { get; set; } = "60";
+
+    /// <summary>Единица интервала повтора.</summary>
+    public ScheduledTaskRepeatUnit RepeatIntervalUnit { get; set; } = ScheduledTaskRepeatUnit.Minutes;
+
+    /// <summary>Уведомлять ли при отсутствии обновлений платформы (issue #366).</summary>
+    public bool PlatformCheckNotifyWhenNoUpdates { get; set; }
+
+    /// <summary>Уведомлять ли при отсутствии обновлений конфигурации (issue #367).</summary>
+    public bool ConfigCheckNotifyWhenNoUpdates { get; set; }
+
+    public bool IsMonday { get; set; }
+    public bool IsTuesday { get; set; }
+    public bool IsWednesday { get; set; }
+    public bool IsThursday { get; set; }
+    public bool IsFriday { get; set; }
+    public bool IsSaturday { get; set; }
+    public bool IsSunday { get; set; }
+
+    /// <summary>Доступные типы задания для выпадающего списка (кэш — issue #372).</summary>
+    public IReadOnlyList<ScheduledTaskOption> KindOptions => _kindOptions;
+
+    /// <summary>Доступные каналы уведомления проверок платформы/конфигурации (issue #366/#367).</summary>
+    public IReadOnlyList<ScheduledTaskOption> NotifyOptions => _notifyOptions;
+
+    /// <summary>
+    /// Имена конфигураций из списка баз для выбора в форме (issue #367): ComboBox
+    /// позволяет выбрать из списка либо ввести имя вручную.
+    /// </summary>
+    public IReadOnlyList<string> ConfigurationOptions =>
+        ConfigurationUpdateCheckLogic.ConfigurationNames(_infobases);
+
+    /// <summary>Доступные сценарии резервирования (кэш — issue #372).</summary>
+    public IReadOnlyList<ScheduledTaskOption> ScenarioOptions => _scenarioOptions;
+
+    /// <summary>
+    /// Обновляет список доступных сценариев после возврата из окна «Сценарии резервирования»
+    /// (issue #292): вновь созданные/изменённые сценарии появляются в выборе без переоткрытия
+    /// окна задания.
+    /// </summary>
+    public void UpdateScenarios(IReadOnlyList<BackupScenario> scenarios)
+    {
+        _scenarios = scenarios ?? Array.Empty<BackupScenario>();
+        _scenarioOptions = _scenarios
+            .Select(s => new ScheduledTaskOption(s.Id, s.Name))
+            .ToList();
+    }
+
+    /// <summary>Доступные информационные базы (кэш — issue #372).</summary>
+    public IReadOnlyList<ScheduledTaskOption> InfobaseOptions => _infobaseOptions;
+
+    /// <summary>Нужен ли выбор сценария (для типов с резервной копией).</summary>
+    public bool NeedsScenario => Kind is ScheduledTaskKind.Backup or ScheduledTaskKind.BackupThenUpdateConfig;
+
+    /// <summary>Нужен ли выбор базы (кроме обновления приложения).</summary>
+    public bool NeedsInfobase => Kind is ScheduledTaskKind.Backup
+        or ScheduledTaskKind.UpdateConfig
+        or ScheduledTaskKind.BackupThenUpdateConfig
+        or ScheduledTaskKind.CheckIntegrity;
+
+    /// <summary>Нужен ли путь к файлу .cf (для обновления конфигурации).</summary>
+    public bool NeedsCfgFile => Kind is ScheduledTaskKind.UpdateConfig or ScheduledTaskKind.BackupThenUpdateConfig;
+
+    /// <summary>Доступные единицы интервала повтора (issue #366/#367; кэш — issue #372).</summary>
+    public IReadOnlyList<ScheduledTaskOption> RepeatUnitOptions => _repeatUnitOptions;
+
+    /// <summary>
+    /// Находит пункт списка по значению (issue #372). Окно использует результат для
+    /// установки <c>SelectedItem</c> вместо <c>SelectedValuePath</c>/<c>SelectedValue</c>:
+    /// закрытый ModernComboBox показывал ключ («Backup») вместо названия («Резервная копия»).
+    /// null/пустое значение или отсутствие совпадения — null.
+    /// </summary>
+    public static ScheduledTaskOption? FindOption(IReadOnlyList<ScheduledTaskOption>? options, string? value)
+        => options?.FirstOrDefault(o => string.Equals(o.Value, value, StringComparison.Ordinal));
+
+    private static IReadOnlyList<ScheduledTaskOption> BuildKindOptions()
+    {
+        var options = new[]
+        {
+            new ScheduledTaskOption("Backup", LocalizationManager.T("Schedule.Kind.Backup")),
+            new ScheduledTaskOption("UpdateConfig", LocalizationManager.T("Schedule.Kind.UpdateConfig")),
+            new ScheduledTaskOption("BackupThenUpdateConfig", LocalizationManager.T("Schedule.Kind.BackupThenUpdateConfig")),
+            new ScheduledTaskOption("CheckIntegrity", LocalizationManager.T("Schedule.Kind.CheckIntegrity")),
+            new ScheduledTaskOption("UpdateApp", LocalizationManager.T("Schedule.Kind.UpdateApp")),
+            new ScheduledTaskOption("PlatformUpdateCheck", LocalizationManager.T("Schedule.Kind.PlatformUpdateCheck")),
+            new ScheduledTaskOption("ConfigurationUpdateCheck", LocalizationManager.T("Schedule.Kind.ConfigurationUpdateCheck"))
+        };
+#if DEBUG
+        // Диагностика локализации опций (issue #372): язык и текст первой опции — чтобы
+        // зафиксировать, что ключ («Backup») не подменяет название («Резервная копия»).
+        if (ScheduleDebug.IsEnabled)
+            ScheduleDebug.Log($"[BuildKindOptions] lang={LocalizationManager.Instance.CurrentLanguage}, " +
+                $"T(Schedule.Kind.Backup)='{LocalizationManager.T("Schedule.Kind.Backup")}', " +
+                $"first.Text='{options[0].Text}'");
+#endif
+        return options;
+    }
+
+    private static IReadOnlyList<ScheduledTaskOption> BuildNotifyOptions() => new[]
+    {
+        new ScheduledTaskOption("MainWindow", LocalizationManager.T("Schedule.PlatformCheck.Notify.MainWindow")),
+        new ScheduledTaskOption("SystemNotifications", LocalizationManager.T("Schedule.PlatformCheck.Notify.System"))
+    };
+
+    private static IReadOnlyList<ScheduledTaskOption> BuildRepeatUnitOptions() => new[]
+    {
+        new ScheduledTaskOption("Seconds", LocalizationManager.T("Schedule.Repeat.Unit.Seconds")),
+        new ScheduledTaskOption("Minutes", LocalizationManager.T("Schedule.Repeat.Unit.Minutes")),
+        new ScheduledTaskOption("Hours", LocalizationManager.T("Schedule.Repeat.Unit.Hours")),
+        new ScheduledTaskOption("Days", LocalizationManager.T("Schedule.Repeat.Unit.Days"))
+    };
+
+    /// <summary>Нужны ли опции проверки платформы (issue #366).</summary>
+    public bool NeedsPlatformCheck => Kind is ScheduledTaskKind.PlatformUpdateCheck;
+
+    /// <summary>Нужны ли опции проверки конфигурации (issue #367).</summary>
+    public bool NeedsConfigCheck => Kind is ScheduledTaskKind.ConfigurationUpdateCheck;
+
+    /// <summary>
+    /// Валидация полей формы. Возвращает ключ локализации ошибки либо <c>null</c>,
+    /// если всё корректно.
+    /// </summary>
+    public string? Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Name))
+            return "Schedule.NameRequired";
+
+        if (!TimeSpan.TryParse(Time, out _))
+            return "Schedule.InvalidTime";
+
+        switch (Kind)
+        {
+            case ScheduledTaskKind.Backup:
+            case ScheduledTaskKind.BackupThenUpdateConfig:
+                if (string.IsNullOrWhiteSpace(SelectedScenarioId))
+                    return "Schedule.ScenarioRequired";
+                break;
+            case ScheduledTaskKind.UpdateConfig:
+                break;
+        }
+
+        if (NeedsInfobase && string.IsNullOrWhiteSpace(SelectedInfobaseId))
+            return "Schedule.BaseRequired";
+
+        if (NeedsCfgFile && string.IsNullOrWhiteSpace(ConfigFilePath))
+            return "Schedule.CfgFileRequired";
+
+        if (NeedsPlatformCheck && !PlatformUpdateCheckLogic.IsValidExpression(PlatformCheckExpression))
+            return "Schedule.PlatformCheck.InvalidExpression";
+
+        if (NeedsConfigCheck && string.IsNullOrWhiteSpace(ConfigCheckConfiguration))
+            return "Schedule.ConfigCheck.ConfigurationRequired";
+
+        // Периодичность (issue #366/#367): при включённом повторе интервал —
+        // положительное целое число.
+        if (RepeatEnabled &&
+            (!int.TryParse(RepeatIntervalValueText, out var repeatValue) || repeatValue <= 0))
+            return "Schedule.Repeat.InvalidValue";
+
+        return null;
+    }
+
+    /// <summary>Переносит заполненные поля формы в задание.</summary>
+    public void ApplyTo(ScheduledTask task)
+    {
+        task.Name = Name.Trim();
+        task.Enabled = Enabled;
+        task.Kind = Kind;
+        task.Time = TimeSpan.TryParse(Time, out var t) ? t.ToString(@"hh\:mm") : "00:00";
+        task.ScenarioId = string.IsNullOrWhiteSpace(SelectedScenarioId) ? null : SelectedScenarioId.Trim();
+        task.InfobaseId = string.IsNullOrWhiteSpace(SelectedInfobaseId) ? null : SelectedInfobaseId.Trim();
+        task.ConfigFilePath = string.IsNullOrWhiteSpace(ConfigFilePath) ? null : ConfigFilePath.Trim();
+        task.PlatformCheckExpression = string.IsNullOrWhiteSpace(PlatformCheckExpression)
+            ? null
+            : PlatformCheckExpression.Trim();
+        task.PlatformCheckIncludeTestVersions = PlatformCheckIncludeTestVersions;
+        task.PlatformNotifyChannel = PlatformNotifyChannel;
+        task.ConfigCheckConfiguration = string.IsNullOrWhiteSpace(ConfigCheckConfiguration)
+            ? null
+            : ConfigCheckConfiguration.Trim();
+        task.ConfigCheckNotifyChannel = ConfigCheckNotifyChannel;
+        task.DaysOfWeek = CollectDays();
+
+        // Периодичность и «Уведомлять об отсутствии» (issue #366/#367).
+        task.RepeatEnabled = RepeatEnabled;
+        task.RepeatIntervalValue = int.TryParse(RepeatIntervalValueText, out var repeatValue) && repeatValue > 0
+            ? repeatValue
+            : task.RepeatIntervalValue;
+        task.RepeatIntervalUnit = RepeatIntervalUnit;
+        task.PlatformCheckNotifyWhenNoUpdates = PlatformCheckNotifyWhenNoUpdates;
+        task.ConfigCheckNotifyWhenNoUpdates = ConfigCheckNotifyWhenNoUpdates;
+    }
+
+    private List<DayOfWeek> CollectDays()
+    {
+        var days = new List<DayOfWeek>();
+        if (IsMonday) days.Add(DayOfWeek.Monday);
+        if (IsTuesday) days.Add(DayOfWeek.Tuesday);
+        if (IsWednesday) days.Add(DayOfWeek.Wednesday);
+        if (IsThursday) days.Add(DayOfWeek.Thursday);
+        if (IsFriday) days.Add(DayOfWeek.Friday);
+        if (IsSaturday) days.Add(DayOfWeek.Saturday);
+        if (IsSunday) days.Add(DayOfWeek.Sunday);
+        return days;
+    }
+}

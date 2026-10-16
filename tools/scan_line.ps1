@@ -10,7 +10,7 @@ public class WinF {
 }
 "@
 
-$p = Get-Process -Name 'Configuration Management' -ErrorAction SilentlyContinue | Select-Object -First 1
+$p = Get-Process -Name 'Workspace1C' -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p) { Write-Host 'NO WINDOW'; exit }
 [WinF]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 Start-Sleep -m 400

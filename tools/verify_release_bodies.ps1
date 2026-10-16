@@ -2,7 +2,7 @@
 # эталоном из CHANGELOG.md (построение и сравнение строк в памяти, без
 # зависимости от кодировки консоли).
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$repo = 'sivatorov/ConfigurationManagement'
+$repo = 'sivatorov/Workspace1C'
 
 # --- 1. Парсим CHANGELOG как UTF-8 ---
 $changelogPath = Join-Path $PSScriptRoot '..\CHANGELOG.md'

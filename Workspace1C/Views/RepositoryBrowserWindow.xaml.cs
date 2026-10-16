@@ -1,0 +1,123 @@
+using System;
+using System.ComponentModel;
+using System.Windows;
+using Workspace1C.Localization;
+using Workspace1C.Models;
+using Workspace1C.Services;
+using Workspace1C.ViewModels;
+
+namespace Workspace1C
+{
+    /// <summary>
+    /// Окно «Хранилище конфигурации…» (цикл 0.3.9.127–0.3.9.130, Windows/WPF): панель
+    /// подключения (адрес и пользователь readonly из свойств базы, пароль — в памяти окна),
+    /// список версий хранилища (№/дата/автор/комментарий) и состав выбранной версии
+    /// (тип/имя/владелец), действия этапа 3 (сравнение с базой / между версиями, выгрузка .cf),
+    /// статус-строка и подсказка. Вся логика — в чистой ViewModel
+    /// <see cref="RepositoryBrowserViewModel"/>; окно прогресса операций —
+    /// <see cref="RepositoryProgressWindow"/>; результат сравнения — существующее
+    /// <see cref="ConfigDiffResultWindow"/> с экспортом CSV/TXT. PasswordBox в WPF не биндится —
+    /// пароль передаётся в VM из кода при нажатии «Подключить».
+    /// </summary>
+    public partial class RepositoryBrowserWindow : Window
+    {
+        private readonly RepositoryBrowserViewModel _vm;
+        private RepositoryProgressWindow? _progress;
+
+        /// <param name="infobase">Выбранная база с заполненным адресом хранилища.</param>
+        /// <param name="persistChanges">
+        /// Сохранение списка баз после записи в историю запусков (передаёт главное окно);
+        /// null — без сохранения.
+        /// </param>
+        public RepositoryBrowserWindow(Infobase infobase, Action? persistChanges = null)
+        {
+            InitializeComponent();
+
+            var service = AppServices.GetRequiredService<IRepositoryStorageService>();
+            var dialogs = AppServices.GetRequiredService<IDialogService>();
+
+            _vm = new RepositoryBrowserViewModel(
+                infobase,
+                service,
+                dialogs,
+                action => Application.Current?.Dispatcher.BeginInvoke(action),
+                showDiffResult: result =>
+                {
+                    var window = new ConfigDiffResultWindow(result) { Owner = this };
+                    window.ShowDialog();
+                },
+                persistChanges: persistChanges);
+
+            DataContext = _vm;
+            Title = LocalizationManager.T("RepositoryBrowser.Title");
+            VersionsGrid.ItemsSource = _vm.Versions;
+            ObjectsGrid.ItemsSource = _vm.Objects;
+
+            // Окно прогресса: показывается, пока идёт подключение/загрузка состава версии;
+            // текст этапа обновляется событиями StageChanged (IProgress сервиса).
+            _vm.PropertyChanged += OnVmPropertyChanged;
+            _vm.StageChanged += OnStageChanged;
+            Closed += OnWindowClosed;
+        }
+
+        private void OnConnect_Click(object sender, RoutedEventArgs e)
+        {
+            // PasswordBox не поддерживает привязку — передаём пароль в VM перед командой.
+            _vm.Password = RepositoryPasswordBox.Password ?? string.Empty;
+            _vm.ConnectCommand.Execute(null);
+        }
+
+        private void OnRefresh_Click(object sender, RoutedEventArgs e) => _vm.RefreshCommand.Execute(null);
+
+        private void OnClose_Click(object sender, RoutedEventArgs e) => Close();
+
+        private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(RepositoryBrowserViewModel.IsBusy) &&
+                e.PropertyName != nameof(RepositoryBrowserViewModel.IsObjectsLoading))
+                return;
+
+            if (_vm.IsBusy || _vm.IsObjectsLoading)
+            {
+                // Текст этапа берём из статуса VM: подключение, сравнение, выгрузка…
+                // (последний установленный перед операцией, см. ConnectAsync/Compare*Async/DumpVersionToCfAsync).
+                ShowProgress(_vm.IsObjectsLoading
+                    ? LocalizationManager.T("RepositoryBrowser.Status.ObjectsLoading")
+                    : string.IsNullOrWhiteSpace(_vm.StatusText)
+                        ? LocalizationManager.T("RepositoryBrowser.Status.Connecting")
+                        : _vm.StatusText);
+            }
+            else
+            {
+                HideProgress();
+            }
+        }
+
+        private void OnStageChanged(string stage) => _progress?.SetStage(stage);
+
+        private void ShowProgress(string stage)
+        {
+            if (_progress is null)
+            {
+                _progress = new RepositoryProgressWindow { Owner = this };
+                _progress.Show();
+                IsEnabled = false;
+            }
+            _progress.SetStage(stage);
+        }
+
+        private void HideProgress()
+        {
+            _progress?.Close();
+            _progress = null;
+            IsEnabled = true;
+        }
+
+        private void OnWindowClosed(object? sender, EventArgs e)
+        {
+            _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vm.StageChanged -= OnStageChanged;
+            HideProgress();
+        }
+    }
+}

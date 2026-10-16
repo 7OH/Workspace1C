@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Карта семантики иконок Configuration Management → имена в открытых библиотеках.
+Карта семантики иконок Workspace 1C → имена в открытых библиотеках.
 
 ICON_KEYS: ключ ресурса из Themes/Icons.xaml / Icons.axaml → (MDI-имя, Phosphor-имя).
 PACK_KINDS: PackIconKind (MaterialDesignThemes, WPF) → Phosphor-имя.

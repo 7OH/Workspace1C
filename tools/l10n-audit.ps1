@@ -4,8 +4,8 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$langDir = Join-Path $root 'Configuration Management\Localization\Languages'
-$srcDir  = Join-Path $root 'Configuration Management'
+$langDir = Join-Path $root 'Workspace1C\Localization\Languages'
+$srcDir  = Join-Path $root 'Workspace1C'
 $reportPath = Join-Path $PSScriptRoot 'l10n-audit-report.txt'
 
 function Get-Keys([string]$jsonPath) {

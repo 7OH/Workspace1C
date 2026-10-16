@@ -4,10 +4,10 @@
 #
 # Требования:
 #   - Собранный single-file бинарь linux-x64:
-#       (cd "Configuration Management" && ./build.sh Release publish)
+#       (cd "Workspace1C" && ./build.sh Release publish)
 #   - dpkg-deb (обычно предустановлен в Debian/Ubuntu).
 #
-# Результат: package/linux/deb/out/configuration-management_<версия>_amd64.deb
+# Результат: package/linux/deb/out/workspace-1c_<версия>_amd64.deb
 # =============================================================================
 set -euo pipefail
 
@@ -17,19 +17,19 @@ set -euo pipefail
 umask 022
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-PROJECT_DIR="$ROOT/Configuration Management"
+PROJECT_DIR="$ROOT/Workspace1C"
 PUBLISH_DIR="$PROJECT_DIR/publish/linux-x64"
-BINARY="$PUBLISH_DIR/ConfigurationManagement"
+BINARY="$PUBLISH_DIR/Workspace1C"
 
-APP_ID="configuration-management"
-BINARY_NAME="ConfigurationManagement"
+APP_ID="workspace-1c"
+BINARY_NAME="Workspace1C"
 ARCH="amd64"
 
 # Версия берётся только из csproj, запасного источника нет намеренно:
 # в control стоит подстановка, и молчаливый откат к устаревшему числу
 # (там была 0.3.1.1 при 0.3.3.39 в сборке) хуже честной остановки.
 CONTROL_SRC="$ROOT/package/linux/deb/DEBIAN/control"
-CSPROJ="$PROJECT_DIR/Configuration Management.csproj"
+CSPROJ="$PROJECT_DIR/Workspace1C.csproj"
 
 # Комментарии отбрасываются: в csproj над тегом лежит пояснение,
 # где та же версия упомянута текстом, и оно попадало в подстановку.

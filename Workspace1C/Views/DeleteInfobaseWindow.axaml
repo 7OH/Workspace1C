@@ -1,0 +1,129 @@
+<!-- Диалог удаления информационной базы (Avalonia/Linux). Раскладка повторяет
+     Views/DeleteInfobaseWindow.xaml Windows-версии: заголовок, карточка со
+     сведениями из шести строк, пояснение, красная панель физического удаления
+     и кнопки. Значения полей и состояние панели заполняет код за разметкой. -->
+<local:ModalWindowBase xmlns="https://github.com/avaloniaui"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       xmlns:local="clr-namespace:Workspace1C"
+                       xmlns:loc="clr-namespace:Workspace1C.Localization"
+                       xmlns:controls="clr-namespace:Workspace1C.Controls"
+                       x:Class="Workspace1C.DeleteInfobaseWindow"
+                       Title="{loc:Loc DeleteInfobase.Title}"
+                       Width="520"
+                       MinWidth="460"
+                       SizeToContent="Height"
+                       FontSize="13"
+                       CanResize="False"
+                       SystemDecorations="None">
+    <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+
+        <!-- Заголовок со значком предупреждения 28 и отступом 12
+             (DeleteInfobaseWindow.xaml:37-41). -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,14">
+            <Path Data="{DynamicResource IconAlertCircleOutline}" Width="28" Height="28"
+                  Stretch="Uniform" Fill="#EF4444" VerticalAlignment="Center"
+                  Margin="0,0,12,0"/>
+            <TextBlock Text="{loc:Loc DeleteInfobase.Title}"
+                       FontSize="16" FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource CardBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderColorBrush}"
+                BorderThickness="1" CornerRadius="8"
+                Padding="12" Margin="0,0,0,14">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc DeleteInfobase.NameLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,6"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="NameText"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc DeleteInfobase.TypeLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,6"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TypeText"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc DeleteInfobase.PathLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,6"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="PathText"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="{loc:Loc DeleteInfobase.GroupLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,6"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="GroupText"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="{loc:Loc DeleteInfobase.PlatformLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,6"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="PlatformText"
+                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="{loc:Loc DeleteInfobase.OnDiskLabel}"
+                           FontWeight="SemiBold" Margin="0,0,12,0"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="ExistsText"
+                           TextWrapping="Wrap"/>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="2" Text="{loc:Loc DeleteInfobase.Note}"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+        <!-- Панель физического удаления выделена красным, как у автора:
+             это необратимое действие, и оно не должно выглядеть рядовой галочкой. -->
+        <Border Grid.Row="3" x:Name="PhysicalPanel"
+                Background="#FEF2F2" BorderBrush="#FECACA"
+                BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <CheckBox x:Name="PhysicalCheck"
+                              Content="{loc:Loc DeleteInfobase.PhysicalDelete}"
+                              FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <!-- Тот же контрол справки, что и в остальных окнах:
+                         в разметке это controls:HelpLink (DeleteInfobaseWindow.xaml:97). -->
+                    <controls:HelpLink x:Name="PhysicalHelp" VerticalAlignment="Center"
+                                       HelpText="{loc:Loc DeleteInfobase.PhysicalHelp}"/>
+                </StackPanel>
+                <TextBlock x:Name="PhysicalHint" Margin="24,6,0,0" FontSize="12"
+                           Foreground="#B91C1C" TextWrapping="Wrap"
+                           Text="{loc:Loc DeleteInfobase.PhysicalHint}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Порядок кнопок как в разметке WPF: удаление слева, отмена справа. -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="10">
+            <Button x:Name="DeleteButton" Width="140" Height="36" IsDefault="True"
+                    CornerRadius="8" HorizontalContentAlignment="Center"
+                    Background="#DC2626" BorderThickness="0" Foreground="White">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path Data="{DynamicResource IconDelete}" Width="16" Height="16"
+                          Stretch="Uniform" Fill="White" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc DeleteInfobase.Delete}" FontWeight="SemiBold"
+                               Foreground="White" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button x:Name="CancelButton" Width="140" Height="36" IsCancel="True"
+                    CornerRadius="8" HorizontalContentAlignment="Center"
+                    Background="Transparent" BorderThickness="1.5"
+                    BorderBrush="{DynamicResource BorderColorBrush}"
+                    Foreground="{DynamicResource TextPrimaryBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path Data="{DynamicResource IconClose}" Width="16" Height="16"
+                          Stretch="Uniform" VerticalAlignment="Center"
+                          Fill="{DynamicResource TextSecondaryBrush}"/>
+                    <TextBlock Text="{loc:Loc DeleteInfobase.Cancel}" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+    </Grid>
+</local:ModalWindowBase>

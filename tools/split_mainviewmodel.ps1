@@ -6,7 +6,7 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Get-Location
-$base = Join-Path $root 'Configuration Management\ViewModels'
+$base = Join-Path $root 'Workspace1C\ViewModels'
 $src = Join-Path $base 'MainViewModel.cs'
 $bak = Join-Path $base 'MainViewModel.cs.bak'
 
@@ -37,7 +37,7 @@ function New-Partial {
     $out.Add('#if WINDOWS')
     foreach ($u in $usings) { $out.Add($u) }
     $out.Add('')
-    $out.Add('namespace Configuration_Management.ViewModels;')
+    $out.Add('namespace Workspace1C.ViewModels;')
     $out.Add('')
     $out.Add('/// <summary>Main ViewModel (partial class split by feature blocks, see MainViewModel.*.cs).</summary>')
     $out.Add('public partial class MainViewModel : ViewModelBase')

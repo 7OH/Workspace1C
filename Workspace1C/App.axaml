@@ -1,0 +1,37 @@
+<!-- Avalonia-версия приложения (Linux). Включается только в Linux-конфигурации.
+     Windows использует WPF App.xaml. -->
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Workspace1C.App"
+             RequestedThemeVariant="Default">
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://Workspace1C/Themes/ControlDefaults.axaml" />
+    </Application.Styles>
+
+    <Application.Resources>
+        <!-- Векторные иконки (Linux): StreamGeometry-ресурсы для Path.Data.
+             Светлая/тёмная палитра накладывается динамически ThemeManager.ApplyScheme. -->
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Workspace1C/Themes/Icons.axaml" />
+                <!-- Второй набор иконок (Outline, Задача 5): ключи с суффиксом ".Outline".
+                     Резолв (IconHelper) выбирает активный набор по ресурсу IconSetName,
+                     который выставляет ThemeManager.ApplyIconSet. -->
+                <ResourceInclude Source="avares://Workspace1C/Themes/IconsOutline.axaml" />
+                <!-- Наборы иконок Material/MacOS/WindowsXp/Glass (Задача 2): суффиксные ключи
+                     (IconAdd.Material и т.п.). Отсутствующие в наборе иконки бесшовно
+                     фолбэчатся на Fluent через IconResolutionCandidates. -->
+                <ResourceInclude Source="avares://Workspace1C/Themes/IconsMaterial.axaml" />
+                <ResourceInclude Source="avares://Workspace1C/Themes/IconsMacOS.axaml" />
+                <ResourceInclude Source="avares://Workspace1C/Themes/IconsWindowsXp.axaml" />
+                <ResourceInclude Source="avares://Workspace1C/Themes/IconsGlass.axaml" />
+                <ResourceInclude Source="avares://Workspace1C/Themes/LightTheme.axaml" />
+                <ResourceInclude Source="avares://Workspace1C/Themes/Controls.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!-- «Блик» поверх иконок (0.3.12.60): у набора Windows XP ThemeManager.ApplyIconSet
+                 подменяет кисть объёмным градиентом, у остальных наборов она прозрачна. -->
+            <SolidColorBrush x:Key="IconGlossBrush" Color="Transparent"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

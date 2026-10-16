@@ -10,11 +10,11 @@ public class WinV {
 }
 "@
 
-$p = Get-Process -Name 'Configuration Management' -ErrorAction SilentlyContinue | Select-Object -First 1
+$p = Get-Process -Name 'Workspace1C' -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p) {
-    Start-Process -FilePath 'Configuration Management\bin\Debug\net10.0-windows\Configuration Management.exe'
+    Start-Process -FilePath 'Workspace1C\bin\Debug\net10.0-windows\Workspace1C.exe'
     Start-Sleep -Seconds 5
-    $p = Get-Process -Name 'Configuration Management' -ErrorAction SilentlyContinue | Select-Object -First 1
+    $p = Get-Process -Name 'Workspace1C' -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 if (-not $p) { Write-Host 'NO WINDOW'; exit }
 [WinV]::SetForegroundWindow($p.MainWindowHandle) | Out-Null

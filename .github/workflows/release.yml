@@ -43,22 +43,22 @@ jobs:
           dotnet-version: '10.0.x'
 
       # На реальном Linux скрипт собирает net10.0 + Avalonia (linux-x64),
-      # выдаёт dist/linux-x64/ConfigurationManagement — один исполняемый файл.
+      # выдаёт dist/linux-x64/Workspace1C — один исполняемый файл.
       - name: Сборка Linux single-file
-        working-directory: Configuration Management
+        working-directory: Workspace1C
         run: ./build-linux-single-file.sh Release
 
       - name: Подготовка asset'а релиза
         run: |
           mkdir -p dist/release
-          cp "Configuration Management/dist/linux-x64/ConfigurationManagement" \
-             dist/release/ConfigurationManagement-linux-x64
+          cp "Workspace1C/dist/linux-x64/Workspace1C" \
+             dist/release/Workspace1C-linux-x64
           ls -lh dist/release
 
       - name: Прикрепление Linux-артефакта к GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/release/ConfigurationManagement-linux-x64
+          files: dist/release/Workspace1C-linux-x64
           # Перезаписываем одноимённый asset при повторном прогоне на том же релизе.
           overwrite: true
           # Падаем, если указанный файл не собран/не существует.

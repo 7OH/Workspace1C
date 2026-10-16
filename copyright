@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: Configuration Management
-Source: https://github.com/sivatorov/ConfigurationManagement
+Upstream-Name: Workspace 1C
+Source: https://github.com/sivatorov/Workspace1C
 
 Files: *
 Copyright: 2026 Sivatorov and contributors

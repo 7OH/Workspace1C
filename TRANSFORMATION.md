@@ -48,8 +48,8 @@
 ## Сборка
 ```bash
 # Windows
-dotnet build "Configuration Management/Configuration Management.csproj" -c Release
+dotnet build "Workspace1C/Workspace1C.csproj" -c Release
 
 # Linux
-dotnet build "Configuration Management/Configuration Management.csproj" -c Release
+dotnet build "Workspace1C/Workspace1C.csproj" -c Release
 ```

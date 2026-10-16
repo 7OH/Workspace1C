@@ -1,0 +1,874 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Workspace1C.Models;
+using Workspace1C.Services;
+using Workspace1C.ViewModels;
+using Xunit;
+
+namespace Workspace1C.Tests;
+
+/// <summary>
+/// Тесты ViewModel окна «Обозреватель метаданных» (0.3.9.133, этап 2): дефолты,
+/// выбор источника и валидация, построение корня дерева (подсистемы + «Без подсистемы»,
+/// пустая конфигурация — без дерева), ленивое раскрытие узлов (EnsureLoaded один раз),
+/// детали выбранного объекта, Dispose удаляет временный каталог, ошибки сервиса —
+/// статус-строка без исключений. Fake <see cref="IMetadataExplorerService"/> + временная
+/// выгрузка на лету (образец ConfigurationDiffTests / RepositoryBrowserViewModelTests).
+/// </summary>
+public sealed class MetadataExplorerViewModelTests : IDisposable
+{
+    private readonly string _tempRoot;
+
+    public MetadataExplorerViewModelTests()
+    {
+        _tempRoot = Path.Combine(Path.GetTempPath(), "cm_metavm_tests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempRoot);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempRoot, recursive: true); } catch { /* ignore */ }
+    }
+
+    private static Infobase CreateBase(string name = "Бухгалтерия") => new()
+    {
+        Id = "test-id",
+        Name = name,
+        PlatformVersion = "8.3.27.1644"
+    };
+
+    /// <summary>Шапка XML-файла объекта выгрузки (namespace из реальной выгрузки 8.3.27).</summary>
+    private const string Ns =
+        "<MetaDataObject xmlns=\"http://v8.1c.ru/8.3/MDClasses\" " +
+        "xmlns:app=\"http://v8.1c.ru/8.2/managed-application/core\" " +
+        "xmlns:v8=\"http://v8.1c.ru/8.1/data/core\" " +
+        "xmlns:xr=\"http://v8.1c.ru/8.3/xcf/readable\" version=\"2.20\">";
+
+    // ===================== Дефолты =====================
+
+    [Fact]
+    public void Defaults_EmptyCollections_TitleEmpty_CommandsExist()
+    {
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() },
+            CreateBase(),
+            new FakeMetadataExplorerService(),
+            new RecordingDialogs());
+
+        Assert.Single(vm.Bases);
+        Assert.NotNull(vm.SelectedBase);
+        Assert.Equal("Бухгалтерия", vm.SelectedBase.Name);
+        Assert.True(vm.IsSourceBase);
+        Assert.False(vm.IsSourceCf);
+        Assert.Empty(vm.TreeNodes);
+        Assert.Equal(string.Empty, vm.ConfigurationTitle);
+        Assert.Equal(string.Empty, vm.StatusText);
+        Assert.Equal(string.Empty, vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+        Assert.False(vm.HasDetails);
+        Assert.NotNull(vm.LoadCommand);
+        Assert.NotNull(vm.BrowseCfCommand);
+    }
+
+    [Fact]
+    public void Constructor_SelectedBaseNotInList_FallsBackToFirst()
+    {
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase("Первая"), CreateBase("Вторая") },
+            CreateBase("Отсутствующая"),
+            new FakeMetadataExplorerService(),
+            new RecordingDialogs());
+
+        Assert.Equal("Первая", vm.SelectedBase!.Name);
+    }
+
+    // ===================== Источник и валидация =====================
+
+    [Fact]
+    public void SourceMode_SwitchingToCf_KeepsBaseForSelection()
+    {
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(),
+            new FakeMetadataExplorerService(), new RecordingDialogs());
+
+        vm.IsSourceCf = true;
+        Assert.Equal(MetadataExplorerViewModel.SourceMode.Cf, vm.Mode);
+        Assert.True(vm.IsSourceCf);
+
+        vm.IsSourceBase = true;
+        Assert.Equal(MetadataExplorerViewModel.SourceMode.Base, vm.Mode);
+    }
+
+    [Fact]
+    public void BrowseCf_OpenFileDialogSetsPath()
+    {
+        var dialogs = new RecordingDialogs { OpenFileResult = @"C:\tmp\etap.cf" };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(),
+            new FakeMetadataExplorerService(), dialogs);
+
+        vm.BrowseCf();
+
+        Assert.Equal(@"C:\tmp\etap.cf", vm.CfPath);
+    }
+
+    [Fact]
+    public async Task Load_EmptyCfPath_ValidationError_ServiceNotCalled()
+    {
+        var fake = new FakeMetadataExplorerService();
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        vm.IsSourceCf = true;
+        vm.CfPath = "   ";
+
+        await vm.LoadAsync();
+
+        Assert.NotEmpty(vm.ErrorMessage);
+        Assert.NotEmpty(vm.StatusText);
+        Assert.False(vm.IsBusy);
+        Assert.Equal(0, fake.CfCalls);
+    }
+
+    [Fact]
+    public async Task Load_NonExistingCfFile_ValidationError()
+    {
+        var fake = new FakeMetadataExplorerService();
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        vm.IsSourceCf = true;
+        vm.CfPath = Path.Combine(_tempRoot, "нет_такого.cf");
+
+        await vm.LoadAsync();
+
+        Assert.NotEmpty(vm.ErrorMessage);
+        Assert.Equal(0, fake.CfCalls);
+    }
+
+    // ===================== Загрузка: корень дерева =====================
+
+    [Fact]
+    public async Task Load_FromBase_BuildsRoot_SubsystemsAndNoSubsystemNodes()
+    {
+        var dumpDir = CreateDumpWithSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Разведка", "1.2.3.4")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        await vm.LoadAsync();
+
+        Assert.False(vm.IsBusy);
+        Assert.Equal(string.Empty, vm.ErrorMessage);
+        Assert.Equal("Разведка 1.2.3.4", vm.ConfigurationTitle);
+        Assert.Equal(1, fake.BaseCalls);
+
+        var root = Assert.Single(vm.TreeNodes);
+        Assert.Equal(MetadataTreeNodeKind.Root, root.Kind);
+        // Имя корня строится через Loc — в тестах локализация отдаёт ключ as-is,
+        // поэтому проверяем только роль узла и шапку (та строится без локализации).
+        Assert.NotEmpty(root.DisplayName);
+
+        // Дети корня: «Подсистемы» + «Без подсистемы».
+        Assert.Equal(2, root.Children.Count);
+        Assert.Equal(MetadataTreeNodeKind.Subsystem, root.Children[0].Kind);
+        Assert.Equal(MetadataTreeNodeKind.NoSubsystemGroup, root.Children[1].Kind);
+
+        // «Без подсистемы» не загружено до раскрытия (заглушка-раскрывалка).
+        Assert.False(root.Children[1].IsLoaded);
+        Assert.Single(root.Children[1].Children); // placeholder
+    }
+
+    [Fact]
+    public async Task Load_NoSubsystems_AllObjectsNode()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        await vm.LoadAsync();
+
+        var root = Assert.Single(vm.TreeNodes);
+        var group = Assert.Single(root.Children);
+        Assert.Equal(MetadataTreeNodeKind.NoSubsystemGroup, group.Kind);
+    }
+
+    [Fact]
+    public async Task Load_EmptyConfiguration_NoTree_StatusEmpty()
+    {
+        var dumpDir = Path.Combine(_tempRoot, "dump_empty_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dumpDir);
+        WriteFile(Path.Combine(dumpDir, "Configuration.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Configuration><Properties><Name>Пустая</Name><Synonym/><Comment/>" +
+            "<Version>1.0.0.0</Version></Properties><ChildObjects/></Configuration></MetaDataObject>");
+        WriteFile(Path.Combine(dumpDir, "Languages", "ru.xml"), "<root/>");
+
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Пустая", "1.0.0.0")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        await vm.LoadAsync();
+
+        // Пустая конфигурация: дерево без узлов, статус «конфигурация пуста».
+        Assert.Empty(vm.TreeNodes);
+        Assert.NotEmpty(vm.StatusText);
+        Assert.Equal("Пустая 1.0.0.0", vm.ConfigurationTitle);
+    }
+
+    // ===================== Ленивое раскрытие =====================
+
+    [Fact]
+    public async Task EnsureLoaded_LoadsChildrenOnce_ForSubsystemAndType()
+    {
+        var dumpDir = CreateDumpWithSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Разведка", "1.2.3.4")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        // Строим дерево: ApplyDump применяется синхронно (dispatchToUi = null в тестах).
+        await vm.LoadAsync();
+
+        var root = Assert.Single(vm.TreeNodes);
+        var subsystemsContainer = root.Children[0]; // «Подсистемы» (контейнер)
+        Assert.Equal(MetadataTreeNodeKind.Subsystem, subsystemsContainer.Kind);
+        Assert.False(subsystemsContainer.IsLoaded);
+
+        // До раскрытия — только заглушка-раскрывалка.
+        Assert.Single(subsystemsContainer.Children);
+
+        subsystemsContainer.EnsureLoaded();
+
+        Assert.True(subsystemsContainer.IsLoaded);
+        var subsystemNode = Assert.Single(subsystemsContainer.Children);
+        Assert.Equal(MetadataTreeNodeKind.Subsystem, subsystemNode.Kind);
+        Assert.False(subsystemNode.IsLoaded);
+
+        // Раскрытие подсистемы: дети — тип из состава Content.
+        subsystemNode.EnsureLoaded();
+        var typeNode = Assert.Single(subsystemNode.Children);
+        Assert.Equal(MetadataTreeNodeKind.Type, typeNode.Kind);
+        Assert.NotEmpty(typeNode.DisplayName); // локализация типа через MetadataTypeLocalizer (ключ as-is в тестах)
+
+        // Идемпотентность: повторные вызовы не дублируют детей.
+        var countAfterFirst = subsystemNode.Children.Count;
+        subsystemNode.EnsureLoaded();
+        Assert.Equal(countAfterFirst, subsystemNode.Children.Count);
+
+        // Раскрытие типа подгружает объекты один раз.
+        Assert.False(typeNode.IsLoaded);
+        typeNode.EnsureLoaded();
+        Assert.True(typeNode.IsLoaded);
+        Assert.Single(typeNode.Children);
+        var objectNode = typeNode.Children[0];
+        Assert.Equal(MetadataTreeNodeKind.Object, objectNode.Kind);
+        Assert.Equal("Контрагенты", objectNode.ObjectSummary!.Name);
+
+        typeNode.EnsureLoaded();
+        Assert.Single(typeNode.Children);
+    }
+
+    // ===================== Детали объекта =====================
+
+    [Fact]
+    public async Task LoadDetailsAsync_ObjectNode_FillsDetailsPanel()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        await vm.LoadAsync();
+
+        var root = Assert.Single(vm.TreeNodes);
+        var group = Assert.Single(root.Children);
+        group.EnsureLoaded();
+        var catalogNode = group.Children.First(c => c.Kind == MetadataTreeNodeKind.Type);
+        catalogNode.EnsureLoaded();
+        var objectNode = catalogNode.Children.Single(c => !c.IsPlaceholder);
+
+        vm.SelectedNode = objectNode;
+        await vm.LoadDetailsAsync(objectNode);
+
+        Assert.True(vm.HasDetails);
+        Assert.Equal("Контрагенты", vm.DetailsName);
+        Assert.Equal("Контрагенты", vm.DetailsSynonym);
+        Assert.Equal("Справочник контрагентов", vm.DetailsComment);
+        Assert.Equal("1", vm.DetailsAttributesText);   // Catalogs/Контрагенты/Attributes/ИНН.xml
+        Assert.Equal("0", vm.DetailsFormsText);
+        Assert.Equal("Простая 2.0.0.1", vm.ConfigurationTitle);
+        Assert.Contains("Контрагенты", vm.DetailsRelPath);
+        Assert.NotEmpty(vm.DetailsHierarchicalText);   // «Да»/«Нет» (локализовано, OrderedHierarchical=true)
+    }
+
+    [Fact]
+    public async Task LoadDetailsAsync_NonObjectNode_ClearsPanel()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        await vm.LoadAsync();
+
+        vm.SelectedNode = null;
+
+        Assert.False(vm.HasDetails);
+        Assert.Equal(string.Empty, vm.DetailsName);
+    }
+
+    // ===================== Dispose =====================
+
+    [Fact]
+    public async Task Dispose_DeletesTemporaryDumpDirectory()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        await vm.LoadAsync();
+
+        Assert.True(Directory.Exists(dumpDir));
+
+        vm.Dispose();
+
+        Assert.False(Directory.Exists(dumpDir));
+    }
+
+    // ===================== Ошибки сервиса =====================
+
+    [Fact]
+    public async Task Load_ServiceThrows_StatusError_NoCrash()
+    {
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseException = new MetadataExplorerException("Ошибка выгрузки: база недоступна")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        await vm.LoadAsync();
+
+        Assert.False(vm.IsBusy);
+        Assert.NotEmpty(vm.ErrorMessage);
+        Assert.Contains("база недоступна", vm.ErrorMessage);
+        // issue #365: статус — СВОЁ сообщение обозревателя, а не текст окна сравнения.
+        // В тестах локализация отдаёт ключ as-is, поэтому проверяем именно ключ.
+        Assert.Contains("MetadataExplorer.Errors.OperationFailed", vm.StatusText);
+        Assert.DoesNotContain("ConfigDiff", vm.StatusText);
+        Assert.Empty(vm.TreeNodes);
+        Assert.Equal(string.Empty, vm.ConfigurationTitle);
+    }
+
+    [Fact]
+    public async Task Load_ServiceThrowsEmptyMessage_UnknownExplorerKey_NotComparisonText()
+    {
+        // issue #365: пустое сообщение исключения → ключ «Неизвестная ошибка» обозревателя,
+        // а не «Не удалось выполнить операцию сравнения конфигураций» (ConfigDiff.Err*).
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseException = new MetadataExplorerException(string.Empty)
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+
+        await vm.LoadAsync();
+
+        Assert.Contains("MetadataExplorer.Errors.Unknown", vm.ErrorMessage);
+        Assert.DoesNotContain("ConfigDiff", vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Load_ServiceThrows_ShowsErrorDialog_WithReason_AndLogsFullException()
+    {
+        // issue #365: причина сбоя «Загрузить» должна быть видна пользователю
+        // (диалог с полным текстом) и попадать в app-лог (IAppLogger).
+        var dialogs = new RecordingDialogs();
+        var logger = new FakeAppLogger();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseException = new MetadataExplorerException("Причина сбоя: конфигуратор заблокирован")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            logger: logger);
+
+        await vm.LoadAsync();
+
+        Assert.Contains("Причина сбоя: конфигуратор заблокирован", vm.ErrorMessage);
+        Assert.Equal(1, dialogs.ErrorCalls);
+        Assert.Contains("Причина сбоя: конфигуратор заблокирован", dialogs.LastErrorMessage);
+        Assert.Single(logger.Errors);
+        Assert.Contains("Причина сбоя: конфигуратор заблокирован", logger.Errors[0]);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Load_ServiceThrows_UnknownExceptionType_TextPresentInUiAndLog()
+    {
+        // issue #365: неизвестное исключение (не MetadataExplorerException) — текст
+        // исключения всё равно виден в ErrorMessage/lоге, а не generic-фраза.
+        var dialogs = new RecordingDialogs();
+        var logger = new FakeAppLogger();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseException = new InvalidOperationException("IOException: неверный путь выгрузки")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            logger: logger);
+
+        await vm.LoadAsync();
+
+        Assert.Contains("IOException: неверный путь выгрузки", vm.ErrorMessage);
+        Assert.Equal(1, dialogs.ErrorCalls);
+        Assert.Contains("IOException: неверный путь выгрузки", dialogs.LastErrorMessage);
+        Assert.Single(logger.Errors);
+        Assert.Contains("IOException: неверный путь выгрузки", logger.Errors[0]);
+    }
+
+    [Fact]
+    public async Task Load_ServiceThrows_NullLogger_DoesNotCrash()
+    {
+        // issue #365: без логгера (тесты/контейнер не настроен) ошибка всё равно
+        // показывается и не роняет окно.
+        var dialogs = new RecordingDialogs();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseException = new MetadataExplorerException("причина без логгера")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            logger: null);
+
+        await vm.LoadAsync();
+
+        Assert.Contains("причина без логгера", vm.ErrorMessage);
+        Assert.Equal(1, dialogs.ErrorCalls);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Load_FromCf_CallsDumpFromCfWithPath()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var cfPath = Path.Combine(_tempRoot, "источник.cf");
+        File.WriteAllText(cfPath, "fake cf content");
+
+        var fake = new FakeMetadataExplorerService
+        {
+            CfResult = new MetadataDump(dumpDir, "ИзCf", "3.0.0.0")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, new RecordingDialogs());
+        vm.IsSourceCf = true;
+        vm.CfPath = cfPath;
+
+        await vm.LoadAsync();
+
+        Assert.Equal(1, fake.CfCalls);
+        Assert.Equal(cfPath, fake.LastCfPath);
+        Assert.Equal("ИзCf 3.0.0.0", vm.ConfigurationTitle);
+        Assert.Single(vm.TreeNodes);
+    }
+
+    // ===================== Платформа (issue #365) =====================
+
+    /// <summary>VM с подменяемым источником установленных платформ (без файловой системы).
+    /// Выбранная база берётся из того же списка (иначе Contains(selectedBase) === false).</summary>
+    private static MetadataExplorerViewModel CreatePlatformVm(
+        FakeMetadataExplorerService? fake = null,
+        IReadOnlyList<Infobase>? bases = null,
+        Infobase? selectedBase = null,
+        IReadOnlyList<string>? installed = null)
+    {
+        var list = bases ?? (selectedBase is not null
+            ? new[] { selectedBase }
+            : new[] { CreateBase() });
+        return new MetadataExplorerViewModel(
+            list,
+            selectedBase ?? list[0],
+            fake ?? new FakeMetadataExplorerService(),
+            new RecordingDialogs(),
+            installedPlatformsProvider: () => installed ?? new[] { "8.3.27.2214", "8.3.26.1656" });
+    }
+
+    [Fact]
+    public void Platform_ConstructorWithBaseVersion_AddsVersionToListAndSelectsIt()
+    {
+        // Версия базы, которой нет среди установленных, добавляется в список доступных.
+        var baseWithVersion = CreateBase("Бухгалтерия");
+        baseWithVersion.PlatformVersion = "8.3.24.1646";
+        var vm = CreatePlatformVm(
+            installed: new[] { "8.3.27.2214", "8.3.26.1656" },
+            selectedBase: baseWithVersion);
+
+        Assert.Equal("8.3.24.1646", vm.SelectedPlatformVersion);
+        Assert.Equal(
+            new[] { "8.3.27.2214", "8.3.26.1656", "8.3.24.1646" },
+            vm.PlatformVersions.ToArray());
+    }
+
+    [Fact]
+    public void Platform_Constructor_WithoutInstalled_FallsBackToBaseVersion()
+    {
+        var vm = CreatePlatformVm(installed: Array.Empty<string>());
+
+        Assert.Equal("8.3.27.1644", vm.SelectedPlatformVersion);
+        Assert.Single(vm.PlatformVersions);
+    }
+
+    [Fact]
+    public void Platform_ChangingSelectedBase_UpdatesVersion()
+    {
+        var first = CreateBase("Первая");
+        first.PlatformVersion = "8.3.24.1646";
+        var second = CreateBase("Вторая");
+        second.PlatformVersion = "8.3.25.1800";
+        var vm = CreatePlatformVm(bases: new[] { first, second }, selectedBase: first);
+
+        vm.SelectedBase = second;
+
+        Assert.Equal("8.3.25.1800", vm.SelectedPlatformVersion);
+        Assert.Contains("8.3.25.1800", vm.PlatformVersions);
+    }
+
+    [Fact]
+    public void Platform_SwitchToCf_SetsMaxInstalledVersion()
+    {
+        var vm = CreatePlatformVm(
+            installed: new[] { "8.3.27.2214", "8.3.26.1656" },
+            selectedBase: CreateBase());
+
+        // До переключения — версия базы.
+        Assert.Equal("8.3.27.1644", vm.SelectedPlatformVersion);
+
+        vm.IsSourceCf = true;
+
+        Assert.Equal(MetadataExplorerViewModel.SourceMode.Cf, vm.Mode);
+        Assert.Equal("8.3.27.2214", vm.SelectedPlatformVersion);
+    }
+
+    [Fact]
+    public async Task Platform_ManualEntry_IsPassedToDumpFromCf()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var cfPath = Path.Combine(_tempRoot, "manual.cf");
+        File.WriteAllText(cfPath, "cf");
+        var fake = new FakeMetadataExplorerService
+        {
+            CfResult = new MetadataDump(dumpDir, "Розница", "3.0.14.168")
+        };
+        var vm = CreatePlatformVm(fake, installed: new[] { "8.3.26.1656" });
+        vm.IsSourceCf = true;
+        // Пользователь ввёл собственную версию платформы.
+        vm.SelectedPlatformVersion = "9.9.9.9";
+        vm.CfPath = cfPath;
+
+        await vm.LoadAsync();
+
+        Assert.Equal(1, fake.CfCalls);
+        Assert.Equal("9.9.9.9", fake.LastPlatformVersion);
+    }
+
+    // ===================== Этап 5: блокировка и ограничения объёма =====================
+
+    [Fact]
+    public void ScanDumpDirectory_CountsFilesAndTotalBytes()
+    {
+        var dir = Path.Combine(_tempRoot, "scan_" + Guid.NewGuid().ToString("N"));
+        WriteFile(Path.Combine(dir, "Configuration.xml"), "abc");                     // 3 байта
+        WriteFile(Path.Combine(dir, "Subsystems", "Основное.xml"), "abcdef");         // 6 байт
+        WriteFile(Path.Combine(dir, "Catalogs", "Контрагенты", "Attributes", "ИНН.xml"), "x"); // 1 байт
+
+        var (fileCount, totalBytes) = MetadataExplorerViewModel.ScanDumpDirectory(dir);
+
+        Assert.Equal(3, fileCount);
+        Assert.Equal(10, totalBytes);
+    }
+
+    [Fact]
+    public void ScanDumpDirectory_MissingRoot_ReturnsZero()
+    {
+        var (fileCount, totalBytes) =
+            MetadataExplorerViewModel.ScanDumpDirectory(Path.Combine(_tempRoot, "нет_такого"));
+
+        Assert.Equal((0, 0), (fileCount, totalBytes));
+    }
+
+    [Fact]
+    public void FormatDumpSummary_ComposesCountAndFormattedSize()
+    {
+        Func<string, string> fakeT = key =>
+            key == "MetadataExplorer.Status.DumpSummaryFormat"
+                ? "Выгружено: {0} файлов, {1}"
+                : key;
+        var sizeText = Infobase.FormatSize(10); // в тестах локализация отдаёт ключ as-is
+
+        var text = MetadataExplorerViewModel.FormatDumpSummary(3, 10, fakeT);
+
+        Assert.Equal($"Выгружено: 3 файлов, {sizeText}", text);
+    }
+
+    [Fact]
+    public async Task Load_BaseBlocked_ConfirmFalse_AbortsWithoutServiceCall()
+    {
+        var dialogs = new RecordingDialogs { ConfirmResult = false };
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(CreateDumpWithoutSubsystems(), "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            designerBlockCheck: _ => "Уже запущена другая выгрузка или операция конфигуратора.");
+
+        await vm.LoadAsync();
+
+        Assert.Equal(1, dialogs.ConfirmCalls);
+        Assert.Contains("другая выгрузка", dialogs.LastConfirmMessage);
+        // В тестах локализация отдаёт ключ as-is — проверяем ключ вопроса подтверждения.
+        Assert.Contains("MetadataExplorer.Confirm.ContinuePrompt", dialogs.LastConfirmMessage);
+        Assert.Equal(0, fake.BaseCalls);
+        Assert.False(vm.IsBusy);
+        Assert.Empty(vm.TreeNodes);
+    }
+
+    [Fact]
+    public async Task Load_BaseBlocked_ConfirmTrue_ContinuesDump()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var dialogs = new RecordingDialogs { ConfirmResult = true };
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            designerBlockCheck: _ => "Конфигуратор этой базы уже запущен.");
+
+        await vm.LoadAsync();
+
+        Assert.Equal(1, dialogs.ConfirmCalls);
+        Assert.Equal(1, fake.BaseCalls);
+        Assert.Single(vm.TreeNodes);
+    }
+
+    [Fact]
+    public async Task Load_FromBase_NotBlocked_NoConfirm_StatusHasDumpSummary()
+    {
+        var dumpDir = CreateDumpWithoutSubsystems();
+        var dialogs = new RecordingDialogs();
+        var fake = new FakeMetadataExplorerService
+        {
+            BaseResult = new MetadataDump(dumpDir, "Простая", "2.0.0.1")
+        };
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            designerBlockCheck: _ => null);
+
+        await vm.LoadAsync();
+
+        Assert.Equal(0, dialogs.ConfirmCalls);
+        // В тестах локализация отдаёт ключ as-is — проверяем составной статус по ключу сводки.
+        Assert.Contains("MetadataExplorer.Status.DumpSummaryFormat", vm.StatusText);
+        Assert.Contains("MetadataExplorer.Status.LoadedFormat", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Load_Error_ShowErrorDispatchesToUiThread()
+    {
+        // Issue #365 (стек 7OH): диалог ошибки вызывался ВНЕ UI-диспатча — на Windows
+        // возникало «Вызывающим потоком должен быть STA» при создании MaterialMessageWindow.
+        // Сейчас ShowError находится внутри диспатча: до его выполнения диалогов нет.
+        var dialogs = new RecordingDialogs();
+        var fake = new FakeMetadataExplorerService { BaseException = new InvalidOperationException("boom") };
+        var dispatched = new List<Action>();
+        var vm = new MetadataExplorerViewModel(
+            new[] { CreateBase() }, CreateBase(), fake, dialogs,
+            dispatchToUi: a => dispatched.Add(a),
+            designerBlockCheck: _ => null);
+
+        await vm.LoadAsync();
+
+        Assert.Equal(0, dialogs.ErrorCalls);
+        Assert.True(dispatched.Count >= 1, "ошибка должна быть применена через диспетчер");
+
+        // Выполняем отложенные действия порциями: сами действия ставят в диспетчер
+        // уведомления PropertyChanged, поэтому перебираем снимки до опустошения.
+        for (var guard = 0; dispatched.Count > 0 && guard < 50; guard++)
+        {
+            var batch = dispatched.ToList();
+            dispatched.Clear();
+            foreach (var action in batch)
+                action();
+        }
+
+        Assert.Equal(1, dialogs.ErrorCalls);
+        Assert.Equal("MetadataExplorer.Errors.OperationFailed", vm.StatusText);
+        Assert.Contains("boom", dialogs.LastErrorMessage);
+    }
+
+    // ===================== Фикстуры =====================
+
+    /// <summary>Выгрузка с подсистемами: Subsystems/Основное + Catalogs/Контрагенты + Documents/ЗаказКлиента.</summary>
+    private string CreateDumpWithSubsystems()
+    {
+        var dir = Path.Combine(_tempRoot, "dump_sys_" + Guid.NewGuid().ToString("N"));
+        WriteFile(Path.Combine(dir, "Configuration.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Configuration><Properties><Name>Разведка</Name><Synonym/><Comment/>" +
+            "<Version>1.2.3.4</Version></Properties><ChildObjects/></Configuration></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Subsystems", "Основное.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Subsystem><Properties><Name>Основное</Name>" +
+            "<Synonym><v8:item><v8:content>Основное</v8:content></v8:item></Synonym>" +
+            "<Comment/><Content><v8:item><v8:content>Catalog.Контрагенты</v8:content></v8:item></Content>" +
+            "</Properties><ChildObjects/></Subsystem></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Catalogs", "Контрагенты.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Catalog><Properties><Name>Контрагенты</Name>" +
+            "<Synonym><v8:item><v8:content>Контрагенты</v8:content></v8:item></Synonym>" +
+            "<Comment>Справочник контрагентов</Comment><Hierarchical>true</Hierarchical>" +
+            "</Properties><ChildObjects/></Catalog></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Catalogs", "Контрагенты", "Attributes", "ИНН.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Attribute><Properties><Name>ИНН</Name></Properties></Attribute></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Documents", "ЗаказКлиента.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Document><Properties><Name>ЗаказКлиента</Name><Synonym/><Comment/></Properties>" +
+            "<ChildObjects/></Document></MetaDataObject>");
+        return dir;
+    }
+
+    /// <summary>Выгрузка без подсистем: Catalogs/Контрагенты + Documents/ЗаказКлиента.</summary>
+    private string CreateDumpWithoutSubsystems()
+    {
+        var dir = Path.Combine(_tempRoot, "dump_obj_" + Guid.NewGuid().ToString("N"));
+        WriteFile(Path.Combine(dir, "Configuration.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Configuration><Properties><Name>Простая</Name><Synonym/><Comment/>" +
+            "<Version>2.0.0.1</Version></Properties><ChildObjects/></Configuration></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Catalogs", "Контрагенты.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Catalog><Properties><Name>Контрагенты</Name>" +
+            "<Synonym><v8:item><v8:content>Контрагенты</v8:content></v8:item></Synonym>" +
+            "<Comment>Справочник контрагентов</Comment><OrderedHierarchical>true</OrderedHierarchical>" +
+            "</Properties><ChildObjects/></Catalog></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Catalogs", "Контрагенты", "Attributes", "ИНН.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Attribute><Properties><Name>ИНН</Name></Properties></Attribute></MetaDataObject>");
+        WriteFile(Path.Combine(dir, "Documents", "ЗаказКлиента.xml"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Ns +
+            "<Document><Properties><Name>ЗаказКлиента</Name><Synonym/><Comment/></Properties>" +
+            "<ChildObjects/></Document></MetaDataObject>");
+        return dir;
+    }
+
+    private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    // ===================== Fakes =====================
+
+    /// <summary>Fake-сервис выгрузки: фиксирует вызовы, возвращает заданные результаты.</summary>
+    private sealed class FakeMetadataExplorerService : IMetadataExplorerService
+    {
+        public MetadataDump? BaseResult { get; set; }
+        public MetadataDump? CfResult { get; set; }
+        public Exception? BaseException { get; set; }
+        public Exception? CfException { get; set; }
+
+        public int BaseCalls { get; private set; }
+        public int CfCalls { get; private set; }
+        public string? LastCfPath { get; private set; }
+        public string? LastPlatformVersion { get; private set; }
+
+        public Task<MetadataDump> DumpFromBaseAsync(
+            Infobase infobase, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            BaseCalls++;
+            if (BaseException is not null)
+                throw BaseException;
+            progress?.Report("dump");
+            return Task.FromResult(BaseResult!);
+        }
+
+        public Task<MetadataDump> DumpFromCfAsync(
+            string cfPath, string platformVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            CfCalls++;
+            LastCfPath = cfPath;
+            LastPlatformVersion = platformVersion;
+            if (CfException is not null)
+                throw CfException;
+            progress?.Report("dump");
+            return Task.FromResult(CfResult!);
+        }
+    }
+
+    /// <summary>
+    /// Fake-логгер (issue #365): запоминает все записи Error с полным текстом;
+    /// Info/Warn доступны для полноты интерфейса, но в тестах не проверяются.
+    /// </summary>
+    private sealed class FakeAppLogger : IAppLogger
+    {
+        public List<string> Errors { get; } = new();
+
+        public void Info(string message) { }
+        public void Warn(string message) { }
+        public void Error(string message, Exception? exception = null) => Errors.Add(message);
+    }
+
+    /// <summary>Запись диалогов для тестов: ничего не показывает, выбор файла и результат
+    /// Confirm — настраиваемые; вызовы Confirm и ShowError записываются.</summary>
+    private sealed class RecordingDialogs : IDialogService
+    {
+        public string? OpenFileResult { get; set; }
+        public bool? ConfirmResult { get; set; }
+        public int ConfirmCalls { get; private set; }
+        public string? LastConfirmMessage { get; private set; }
+        public int ErrorCalls { get; private set; }
+        public string? LastErrorMessage { get; private set; }
+
+        public void ShowInfo(string message, string title = "") { }
+        public void ShowWarning(string message, string title = "") { }
+        public void ShowError(string message, string title = "")
+        {
+            ErrorCalls++;
+            LastErrorMessage = message;
+        }
+        public bool Confirm(string message, string title = "")
+        {
+            ConfirmCalls++;
+            LastConfirmMessage = message;
+            return ConfirmResult ?? true;
+        }
+        public string? OpenFileDialog(string title = "", string filter = "", string? initialDirectory = null) => OpenFileResult;
+        public string? SaveFileDialog(string title = "", string defaultFileName = "", string filter = "", string? initialDirectory = null) => null;
+        public string? OpenFolderDialog(string title = "", string? initialDirectory = null) => null;
+    }
+}

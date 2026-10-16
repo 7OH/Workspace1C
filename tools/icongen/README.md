@@ -1,6 +1,6 @@
 # icongen — генератор наборов иконок тем
 
-Создаёт словари ресурсов `Configuration Management/Themes/Icons<Набор>.xaml` (WPF) и
+Создаёт словари ресурсов `Workspace1C/Themes/Icons<Набор>.xaml` (WPF) и
 `Icons<Набор>.axaml` (Avalonia) так, чтобы **каждый** ключ базового набора
 (`Icons.xaml` / `Icons.axaml`) и **каждый** используемый вид значка
 `materialDesign:PackIcon` имел вариант в каждой теме.

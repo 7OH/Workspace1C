@@ -10,7 +10,7 @@ public class Win {
 }
 "@
 
-$p = Get-Process -Name 'Configuration Management' -ErrorAction SilentlyContinue | Select-Object -First 1
+$p = Get-Process -Name 'Workspace1C' -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $p) { Write-Host 'NO WINDOW'; exit }
 [Win]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 Start-Sleep -m 500
@@ -24,7 +24,7 @@ $h = $r.B - $r.T
 $bmp = New-Object System.Drawing.Bitmap($w, $h)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
-$bmp.Save('f:\ya\Yandex.Disk\h\Configuration_Management_test\window.png')
+$bmp.Save('f:\ya\Yandex.Disk\h\Workspace1C_test\window.png')
 Write-Host ("SIZE {0}x{1}" -f $w, $h)
 
 # Sample a horizontal line at bottom (near bottom edge) to detect the light square

@@ -1,0 +1,1592 @@
+#if WINDOWS
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Threading;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Win32;
+using Workspace1C.Localization;
+using Workspace1C.Models;
+using Workspace1C.Services;
+
+namespace Workspace1C.ViewModels;
+
+/// <summary>Main ViewModel (partial class split by feature blocks, see MainViewModel.*.cs).</summary>
+public partial class MainViewModel : ViewModelBase
+{
+    private readonly IInfobaseRepository _repository;
+    private readonly IDialogService _dialogs;
+    private readonly IAppLogger _logger;
+    private readonly IOneCLauncher _launcher;
+    private readonly IIbasesSyncService _ibasesSync;
+    private readonly IDeletedGroupPathsStore _deletedGroupPaths;
+    private Infobase? _selectedInfobase;
+    private string _lastSelectedInfobaseId = string.Empty;
+    private string _lastSelectedGroupPath = string.Empty;
+    private string _searchText = string.Empty;
+    private bool _showFavoritesOnly;
+    private bool _groupByGroup = true;
+    private bool _showEmptyGroups;
+    private string _noGroupColor = "#6B7280";
+    private string _noGroupIconColor = "#FFFFFF";
+    private string _noGroupIcon = string.Empty;
+    private string _pinnedColor = "#8B5CF6";
+    private string _pinnedIconColor = "#FFFFFF";
+    private string _pinnedIcon = string.Empty;
+    private string _savedTheme = string.Empty;
+    private string _fullTheme = string.Empty;
+    private ColorScheme? _activeColorScheme;
+    /// <summary>Флаг подписки на событие смены языка (предотвращает дублирование подписки).</summary>
+    private bool _languageChangedSubscribed;
+    private readonly HashSet<string> _collapsedGroups = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _installedPlatformVersions = new();
+    private List<string> _additionalPlatformSearchPaths = new();
+    private double _nameColumnWidth;
+    private double _versionColumnWidth;
+    private double _launchModeColumnWidth;
+    private double _serverColumnWidth;
+    private double _lastLaunchColumnWidth;
+    private bool _showFavoritesButton = true;
+    private bool _showPinnedButton = true;
+    private bool _showTagFilterPanel;
+    private bool _allowMultipleInstances;
+    private bool _checkForUpdatesOnStartup = true;
+    private bool _autoUpdateEnabled = true;
+    // Настраиваемый шаблон имени COM-коннектора 1С (issue #175). Пустая строка —
+    // стандартные ProgID V85/V83/V82/V81.COMConnector.
+    private string _comConnectorNameTemplate = "";
+    // Таймаут определения свойств конфигурации через COM (issue #174), мс. Первое
+    // COM-подключение часто превышает прежние 8000 мс; по умолчанию — 30000.
+    private int _comDetectTimeoutMs = 30000;
+    // Быстрая TCP-проверка порта кластера перед COM (функция 12, 0.3.9.233);
+    // по умолчанию выключена (консервативно).
+    private bool _tcpPrecheckEnabled;
+    // Глубина истории запусков одной базы (issue #246), по умолчанию 30.
+    private int _maxLaunchHistoryPerBase = 30;
+    private readonly ObservableCollection<string> _activeTagFilters = new();
+    private ListViewMode _listViewMode = ListViewMode.All;
+    /// <summary>Отбор «Только запущенные» (issue #339).</summary>
+    private bool _showRunningOnly;
+
+    private bool _showTags = true;
+    private bool _showVersionColumn = true;
+    private bool _showConfigurationColumn = true;
+    private bool _showConfigurationVersionColumn = true;
+    private double _configurationColumnWidth;
+    private double _configurationVersionColumnWidth;
+    private double _actionsColumnWidth;
+    private bool _showRightPanelDetails = true;
+    private bool _statusShowConnectionPath = true;
+    private bool _statusShowArchitecture = true;
+    private bool _statusShowLaunchMode = true;
+
+    /// <summary>Переопределение типа клиента для текущего запуска (не сохраняется в базу).</summary>
+    private SessionClientMode _sessionClientMode = SessionClientMode.Auto;
+    /// <summary>Переопределение разрядности для текущего запуска (не сохраняется в базу).</summary>
+    private SessionArchitectureMode _sessionArchitecture = SessionArchitectureMode.Auto;
+    /// <summary>Разрядность по умолчанию, если у базы она не указана (X86 / X64).</summary>
+    private string _defaultArchitecture = "X64";
+    /// <summary>Показывать блок «Текущая сессия» в правой панели.</summary>
+    private bool _showSessionLaunchPanel = true;
+    private bool _statusShowPort = true;
+    private bool _statusShowPlatformVersion = true;
+    private bool _statusShowClientType;
+    private bool _statusShowConnectionType;
+    private bool _statusShowUser;
+    private bool _statusShowId;
+    private bool _showLaunchModeColumn = true;
+    private bool _showServerColumn = true;
+    private bool _showLastLaunchColumn = true;
+    private bool _showSizeColumn = true;
+    private bool _showActionsColumn = true;
+    private double _sizeColumnWidth;
+    private bool _showModifiedColumn = true;
+    private double _modifiedColumnWidth;
+    private bool _showLastBackupColumn = true;
+    private double _lastBackupColumnWidth;
+    private List<string> _columnOrder = new();
+
+    // Автосохранение состояния списка (раскрытые/свёрнутые группы) с периодичностью.
+    private System.Windows.Threading.DispatcherTimer? _listStateAutoSaveTimer;
+    /// <summary>Флаг «состояние раскрытия групп менялось после последнего сохранения».</summary>
+    private bool _listStateDirty;
+    private bool _autoSaveListState = true;
+    private int _listStateAutoSaveIntervalSeconds = 10;
+    private double _windowWidth;
+    private double _windowHeight;
+    private double _windowLeft;
+    private double _windowTop;
+    /// <summary>Отмена предыдущего отложенного сохранения (debounce).</summary>
+    private CancellationTokenSource? _saveDebounceCts;
+    private const int SaveDebounceMs = 400;
+    private string _windowState = string.Empty;
+    private bool _rememberWindowLayout = true;
+    private IbasesSyncMode _ibasesSyncMode = IbasesSyncMode.None;
+    private string _ibasesSyncFilePath = string.Empty;
+    private IbasesSyncTrigger _ibasesSyncTrigger = IbasesSyncTrigger.OnStartup;
+    // ---- Профиль: резервное копирование в произвольный каталог ----
+    private string _profileBackupDirectory = string.Empty;
+    private bool _profileRestoreOnStartup;
+    private int _ibasesSyncIntervalMinutes = 30;
+    private string _ibasesSyncScheduleTime = "09:00";
+    private bool _ibasesBackupEnabled = true;
+    private int _ibasesBackupKeepCount = 5;
+    // «Сохранять после правки» (issue #269): записывать изменения в ibases.v8i сразу после правки.
+    private bool _ibasesSaveAfterEdit = true;
+    // Момент последней успешной выгрузки приложения в ibases.v8i (UTC, issue #278): в двустороннем
+    // режиме по нему определяется внешнее изменение файла (см. IbasesSyncOrderResolver).
+    private DateTime _ibasesLastSyncExportUtc;
+    private bool _addTimestampToExportFileName = true;
+    private string _exportTimestampFormat = "yyyyMMdd_HHmmss";
+    private string _syncMessage = string.Empty;
+    private DispatcherTimer? _syncTimer;
+    private DateTime? _nextScheduleRun;
+    private bool _syncTimerRunning;
+    private bool _closeToTray;
+    private bool _showTrayIcon = true;
+    // Системные уведомления ОС о завершении фоновых операций (функция №4).
+    private bool _showSystemNotifications = true;
+    // Догоняющее выполнение пропущенных заданий при старте (функция №7).
+    private bool _catchUpMissedTasks = true;
+    // Порог предупреждения «Свободно на диске» в Центре обслуживания (0.3.9.96), ГБ.
+    private int _maintenanceFreeSpaceWarningGb = Services.DiskFreeSpaceHelper.DefaultWarningGb;
+    private bool _compactMode;
+
+    // ---- Быстрый запуск: индикатор загрузки и фоновое построение дерева ----
+    private bool _isLoading;
+    private string _loadingMessage = string.Empty;
+    private bool _startupInitCompleted;
+    /// <summary>Кеш размеров файловых ИБ (ускоряет запуск при большом списке баз).</summary>
+    private readonly Dictionary<string, Models.FileSizeCacheEntry> _fileSizeCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool _escapeToTray = true;
+    private string _afterLaunchAction = "None";
+    private List<string> _templateCatalogPaths = new();
+    /// <summary>Интеграция с проводником Windows (функция №12): ассоциация .1CD и контекстное меню.</summary>
+    private bool _explorerIntegrationEnabled;
+    // Автозапуск при старте ОС (функция №31) и копия экрана (функция №30).
+    private bool _autoStartEnabled;
+    private string _screenshotHotkey = "Ctrl+F12";
+    private string _screenshotSaveDirectory = "";
+    private string _hotkeyEnterprise = "F3";
+    private string _hotkeyConfigurator = "F4";
+    private string _hotkeyCheckUpdate = "F9";
+    private string _hotkeyActualReleases = "Alt+F9";
+    // Автообновление платформы 1С (функция 9, этап 0.3.9.214).
+    private string _hotkeyPlatformUpdate = "Ctrl+F9";
+    // Учётная запись ИТС (issue #333): идентификатор выбранной записи справочника
+    // its_accounts.json; пусто — используется «Основная».
+    private string _itsAccountId = "";
+    private string _hotkeyFavorite = "F8";
+    private string _hotkeyEdit = "F2";
+    private string _hotkeyDelete = "Delete";
+    private string _hotkeyClearCache = "";
+    private string _hotkeyAdd = "Insert";
+    private string _hotkeyPin = "";
+    private string _hotkeyShowAll = "";
+    private string _hotkeyShowFavorites = "";
+    private string _hotkeyShowRecent = "";
+    /// <summary>Горячая клавиша отбора «Только запущенные» (issue #339). Пусто — не назначена.</summary>
+    private string _hotkeyShowRunning = "";
+    private string _hotkeyClearSearch = "Ctrl+Shift+C";
+    private string _hotkeyClearTags = "Ctrl+Shift+T";
+    private string _hotkeyRightPanelDetails = "";
+    private string _hotkeyFindInList = "Ctrl+T";
+    private string _hotkeyCommandPalette = "Ctrl+K";
+    // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+    private string _hotkeyBookmarksMenu = "Ctrl+B";
+    private string _hotkeySwitchUser = "";
+    /// <summary>
+    /// Разрешить правку структуры меню «Утилиты» (issue #374): при включении меню
+    /// строится по пользовательской компоновке из файла <c>utilities_menu_layout.json</c>.
+    /// </summary>
+    private bool _utilitiesMenuEditingEnabled;
+
+    /// <summary>
+    /// Разрешить правку структуры меню «Утилиты» (issue #374). По умолчанию выключено —
+    /// меню строится по стандартной компоновке (обратная совместимость).
+    /// </summary>
+    public bool UtilitiesMenuEditingEnabled
+    {
+        get => _utilitiesMenuEditingEnabled;
+        set => SetProperty(ref _utilitiesMenuEditingEnabled, value);
+    }
+
+    private string _sortField = "Name";
+    private bool _sortAscending = true;
+    /// <summary>Направление сортировки подгрупп по имени (true — А→Я, false — Я→А).</summary>
+    private bool _groupSortAscending = true;
+    private string _fontFamily = Themes.ThemeManager.DefaultFontFamily;
+    private double _fontSize = Themes.ThemeManager.DefaultFontSize;
+    private string _fontWeight = Themes.ThemeManager.DefaultFontWeight;
+    private string _fontStyle = Themes.ThemeManager.DefaultFontStyle;
+    private Dictionary<string, Models.ElementFontSettings> _elementFonts = new();
+    private readonly List<string> _favoriteHotkeyIds = new();
+    private CancellationTokenSource? _searchDebounceCts;
+    private HashSet<string> _activeTagFilterSet = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Пользовательские параметры запуска, добавленные в справочник параметров (issue #141).</summary>
+    private List<string> _customLaunchParameters = new();
+
+    /// <summary>Глобальное действие по двойному щелчку на базе (функция №28 StartManager).</summary>
+    private string _defaultDoubleClickAction = Models.DoubleClickAction.GlobalDefault;
+
+    /// <summary>Идёт ли в данный момент выгрузка .dt/.cf (показывает индикатор в верхней панели).</summary>
+    private bool _isExporting;
+    /// <summary>Текст подсказки индикатора выгрузки (сводка о текущей операции).</summary>
+    private string _exportIndicatorTooltip = string.Empty;
+
+    /// <summary>Событие: изменился список избранных с горячими клавишами (нужно перерегистрировать биндинги).</summary>
+    public event EventHandler? FavoriteHotkeysChanged;
+
+    /// <summary>
+    /// Внутренний набор узлов дерева групп, перестраиваемый при изменении данных.
+    /// Заполняется в методе <see cref="RebuildGroupTree"/>.
+    /// </summary>
+    private List<GroupNodeViewModel> _groupNodes = new();
+
+    public MainViewModel(
+        IInfobaseRepository? repository = null,
+        IDialogService? dialogs = null,
+        IAppLogger? logger = null,
+        IOneCLauncher? launcher = null,
+        IIbasesSyncService? ibasesSync = null,
+        IDeletedGroupPathsStore? deletedGroupPaths = null)
+    {
+        _repository = repository ?? new InfobaseRepository();
+        _dialogs = dialogs ?? new WpfDialogService();
+        _logger = logger ?? new FileAppLogger();
+        _launcher = launcher ?? new OneCLauncherService();
+        _ibasesSync = ibasesSync ?? new IbasesSyncService();
+        _deletedGroupPaths = deletedGroupPaths ?? new DeletedGroupPathsStore();
+        _logger.Info("MainViewModel инициализирован");
+
+        // При изменении реестра учётных записей (создание/переименование/удаление в окне
+        // настроек) обновляем видимость кнопки «Смена пользователя» (issue #200).
+        try
+        {
+            AppServices.GetRequiredService<IProfileService>().ProfilesChanged += OnProfilesChanged;
+        }
+        catch { /* сервис профилей может отсутствовать в изолированном контексте */ }
+
+        // Отслеживание выгрузок .dt/.cf для анимированного индикатора в верхней панели.
+        OneCLauncher.DesignerBatchStarted += OnDesignerBatchStarted;
+        OneCLauncher.DesignerBatchCompleted += OnDesignerBatchCompleted;
+
+        // Индикатор фоновых загрузок в статусной строке (issue #334 п.1): подписка на
+        // общий менеджер (скачивание платформы/цепочек продолжается после закрытия окон).
+        InitializeBackgroundDownloadsIndicator();
+
+        // Загружаем настройки интерфейса (состояние кнопок «Избранные» и «Группировать»).
+        var settings = _repository.LoadSettings();
+        _showFavoritesOnly = settings.ShowFavoritesOnly;
+        _groupByGroup = settings.GroupByGroup;
+        if (settings.ShowRunningOnly)
+            _listViewMode = ListViewMode.Running;
+        _showEmptyGroups = settings.ShowEmptyGroups;
+        _noGroupColor = string.IsNullOrWhiteSpace(settings.NoGroupColor) ? "#6B7280" : settings.NoGroupColor;
+        _noGroupIconColor = string.IsNullOrWhiteSpace(settings.NoGroupIconColor) ? "#FFFFFF" : settings.NoGroupIconColor;
+        _noGroupIcon = settings.NoGroupIcon ?? string.Empty;
+        _pinnedColor = string.IsNullOrWhiteSpace(settings.PinnedColor) ? "#8B5CF6" : settings.PinnedColor;
+        _pinnedIconColor = string.IsNullOrWhiteSpace(settings.PinnedIconColor) ? "#FFFFFF" : settings.PinnedIconColor;
+        _pinnedIcon = settings.PinnedIcon ?? string.Empty;
+        _savedTheme = settings.Theme;
+        // Полноценная тема: к старту главного окна ApplyFullTheme уже применил тему
+        // (App.OnStartup), поэтому берём актуальный идентификатор из ThemeManager;
+        // иначе — мигрируем выбор из устаревшего поля Theme.
+        _fullTheme = Themes.ThemeManager.CurrentFullTheme?.Id ?? settings.NormalizeThemeSelection();
+        _fontFamily = string.IsNullOrWhiteSpace(settings.FontFamily)
+            ? Themes.ThemeManager.DefaultFontFamily : settings.FontFamily;
+        _fontSize = settings.FontSize > 0 ? settings.FontSize : Themes.ThemeManager.DefaultFontSize;
+        _fontWeight = string.Equals(settings.FontWeight, "Bold", StringComparison.OrdinalIgnoreCase)
+            ? "Bold" : Themes.ThemeManager.DefaultFontWeight;
+        _fontStyle = string.Equals(settings.FontStyle, "Italic", StringComparison.OrdinalIgnoreCase)
+            ? "Italic" : Themes.ThemeManager.DefaultFontStyle;
+        _elementFonts = settings.ElementFonts is null
+            ? new Dictionary<string, Models.ElementFontSettings>()
+            : new Dictionary<string, Models.ElementFontSettings>(settings.ElementFonts);
+        // Единая активная схема с двумя палитрами; старые раздельные схемы (активная +
+        // слоты светлой/тёмной темы) объединяются при миграции.
+        _activeColorScheme = Models.ColorScheme.FromLegacy(
+            settings.ActiveColorScheme, settings.LightColorScheme, settings.DarkColorScheme);
+        if (string.IsNullOrWhiteSpace(_savedTheme))
+            _savedTheme = Themes.ThemeManager.LightThemeName;
+        _additionalPlatformSearchPaths = new List<string>(settings.AdditionalPlatformSearchPaths ?? new List<string>());
+        PlatformVersionService.SetAdditionalSearchPaths(_additionalPlatformSearchPaths);
+        // Пользовательские параметры запуска (issue #141): дополняют справочник ключей.
+        _customLaunchParameters = new List<string>(settings.CustomLaunchParameters ?? new List<string>());
+        // Глобальное действие по двойному щелчку на базе (функция №28 StartManager).
+        _defaultDoubleClickAction = Models.DoubleClickAction.Normalize(settings.DefaultDoubleClickAction);
+        // Актуальный список версий платформы с диска (Program Files + доп. пути) собирается
+        // в фоне уже после показа окна: рекурсивное сканирование каталогов установки могло бы
+        // заметно задержать появление главного окна. Сразу берём сохранённый список из настроек,
+        // чтобы выпадающие списки выбора версии работали с самого начала.
+        _installedPlatformVersions = new List<string>(settings.InstalledPlatformVersions ?? new List<string>());
+        _ = RefreshInstalledPlatformVersionsInBackground();
+        _nameColumnWidth = settings.NameColumnWidth;
+        _versionColumnWidth = settings.VersionColumnWidth;
+        _launchModeColumnWidth = settings.LaunchModeColumnWidth;
+        _serverColumnWidth = settings.ServerColumnWidth;
+        _lastLaunchColumnWidth = settings.LastLaunchColumnWidth;
+        _showFavoritesButton = settings.ShowFavoritesButton;
+        _showPinnedButton = settings.ShowPinnedButton;
+        _showTags = settings.ShowTags;
+        _showTagFilterPanel = settings.ShowTagFilterPanel;
+        _allowMultipleInstances = settings.AllowMultipleInstances;
+        _checkForUpdatesOnStartup = settings.CheckForUpdatesOnStartup;
+        _autoUpdateEnabled = settings.AutoUpdateEnabled;
+        // Правка структуры меню «Утилиты» (issue #374): по умолчанию выключена —
+        // меню строится по стандартной компоновке (обратная совместимость).
+        _utilitiesMenuEditingEnabled = settings.UtilitiesMenuEditingEnabled;
+        _comConnectorNameTemplate = settings.ComConnectorNameTemplate ?? "";
+        // Кэш шаблона в коннекторе заполняем сразу, а не ленивым чтением файла (issue #175):
+        // иначе результат зависел бы от того, случилось ли COM-чтение до смены активного
+        // профиля, — после неё каталог настроек уже другой, а список баз в окне прежний.
+        OneCComConnector.ApplyTemplate(_comConnectorNameTemplate);
+        _comDetectTimeoutMs = Math.Max(1000, settings.ComDetectTimeoutMs);
+        // Быстрая TCP-проверка порта кластера перед COM при проверке доступности
+        // клиент-серверных баз (функция 12, 0.3.9.233).
+        _tcpPrecheckEnabled = settings.AvailabilityTcpPrecheckEnabled;
+        // Глубина истории запусков одной базы (issue #246).
+        _maxLaunchHistoryPerBase = settings.MaxLaunchHistoryPerBase > 0
+            ? settings.MaxLaunchHistoryPerBase
+            : 30;
+        // Режим функциональности и параметры 1CLaunch.cfg (Этап 10 StartManager).
+        LoadFunctionalSettings(settings);
+        _showVersionColumn = settings.ShowVersionColumn;
+        _showConfigurationColumn = settings.ShowConfigurationColumn;
+        _showConfigurationVersionColumn = settings.ShowConfigurationVersionColumn;
+        _configurationColumnWidth = settings.ConfigurationColumnWidth;
+        _configurationVersionColumnWidth = settings.ConfigurationVersionColumnWidth;
+        _actionsColumnWidth = settings.ActionsColumnWidth;
+        _showRightPanelDetails = settings.ShowRightPanelDetails;
+        _showSessionLaunchPanel = settings.ShowSessionLaunchPanel;
+        if (Enum.TryParse<SessionClientMode>(settings.SessionClientMode, true, out var scm))
+            _sessionClientMode = scm;
+        if (Enum.TryParse<SessionArchitectureMode>(settings.SessionArchitecture, true, out var sam))
+            _sessionArchitecture = sam;
+        // Передаём «Текущую сессию» лаунчеру: он учитывает её первым шагом приоритета
+        // выбора разрядности (issue #146), даже для запусков напрямую (без переопределений).
+        OneCLauncher.SessionArchitecture = _sessionArchitecture;
+        // Режим «Разрядности по умолчанию» (X86 / X64 / Priority). Сохраняем строку
+        // как есть, а лаунчер сам разрешает её; легаси «X64» остаётся X64.
+        _defaultArchitecture = NormalizeDefaultArchitecture(settings.DefaultArchitecture);
+        OneCLauncher.DefaultArchitectureMode = _defaultArchitecture;
+        _statusShowConnectionPath = settings.StatusShowConnectionPath;
+        _statusShowArchitecture = settings.StatusShowArchitecture;
+        _statusShowLaunchMode = settings.StatusShowLaunchMode;
+        _statusShowPort = settings.StatusShowPort;
+        _statusShowPlatformVersion = settings.StatusShowPlatformVersion;
+        _statusShowClientType = settings.StatusShowClientType;
+        _statusShowConnectionType = settings.StatusShowConnectionType;
+        _statusShowUser = settings.StatusShowUser;
+        _statusShowId = settings.StatusShowId;
+        _showLaunchModeColumn = settings.ShowLaunchModeColumn;
+        _showServerColumn = settings.ShowServerColumn;
+        _showLastLaunchColumn = settings.ShowLastLaunchColumn;
+        _showSizeColumn = settings.ShowSizeColumn;
+        _showActionsColumn = settings.ShowActionsColumn;
+        _sizeColumnWidth = settings.SizeColumnWidth;
+        _showModifiedColumn = settings.ShowModifiedColumn;
+        _modifiedColumnWidth = settings.ModifiedColumnWidth;
+        _showLastBackupColumn = settings.ShowLastBackupColumn;
+        _lastBackupColumnWidth = settings.LastBackupColumnWidth;
+        _autoSaveListState = settings.AutoSaveListState;
+        _listStateAutoSaveIntervalSeconds = Math.Max(1, settings.ListStateAutoSaveIntervalSeconds);
+        _columnOrder = settings.ColumnOrder is { Count: > 0 }
+            ? new List<string>(settings.ColumnOrder)
+            : new List<string>();
+        _windowWidth = settings.WindowWidth;
+        _windowHeight = settings.WindowHeight;
+        _windowLeft = settings.WindowLeft;
+        _windowTop = settings.WindowTop;
+        _windowState = settings.WindowState;
+        _rememberWindowLayout = settings.RememberWindowLayout;
+        _ibasesSyncMode = settings.IbasesSyncMode;
+        _ibasesSyncFilePath = settings.IbasesSyncFilePath;
+        _ibasesSyncTrigger = settings.IbasesSyncTrigger;
+        _ibasesSyncIntervalMinutes = settings.IbasesSyncIntervalMinutes;
+        _ibasesSyncScheduleTime = settings.IbasesSyncScheduleTime;
+        _ibasesBackupEnabled = settings.IbasesBackupEnabled;
+        _ibasesBackupKeepCount = settings.IbasesBackupKeepCount > 0 ? settings.IbasesBackupKeepCount : 5;
+        _ibasesSaveAfterEdit = settings.IbasesSaveAfterEdit;
+        _ibasesLastSyncExportUtc = settings.IbasesLastSyncExportUtc;
+        _profileBackupDirectory = settings.ProfileBackupDirectory ?? string.Empty;
+        _profileRestoreOnStartup = settings.ProfileRestoreOnStartup;
+        _addTimestampToExportFileName = settings.AddTimestampToExportFileName;
+        _exportTimestampFormat = string.IsNullOrWhiteSpace(settings.ExportTimestampFormat)
+            ? "yyyyMMdd_HHmmss"
+            : settings.ExportTimestampFormat;
+        _closeToTray = settings.CloseToTray;
+        _showTrayIcon = settings.ShowTrayIcon;
+        _showSystemNotifications = settings.ShowSystemNotifications;
+        _catchUpMissedTasks = settings.CatchUpMissedTasks;
+        _maintenanceFreeSpaceWarningGb = Math.Max(0, settings.MaintenanceFreeSpaceWarningGb);
+        _escapeToTray = settings.EscapeToTray;
+        // Подтверждение выполнения пользовательских действий (функция 7, 0.3.9.197).
+        _confirmCustomActions = settings.ConfirmCustomActions;
+        _afterLaunchAction = settings.AfterLaunchAction ?? "None";
+        _compactMode = settings.CompactMode;
+        _explorerIntegrationEnabled = settings.ExplorerIntegrationEnabled;
+        // Автозапуск при старте ОС (функция №31) и копия экрана (функция №30, Этап 8).
+        _autoStartEnabled = settings.AutoStartEnabled;
+        _screenshotHotkey = string.IsNullOrWhiteSpace(settings.ScreenshotHotkey)
+            ? "Ctrl+F12"
+            : settings.ScreenshotHotkey.Trim();
+        _screenshotSaveDirectory = settings.ScreenshotSaveDirectory ?? "";
+        _templateCatalogPaths = settings.TemplateCatalogPaths?.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            ?? new List<string>();
+        OneCTemplateService.SetUserTemplatePaths(_templateCatalogPaths);
+        _hotkeyEnterprise = string.IsNullOrWhiteSpace(settings.HotkeyEnterprise) ? "F3" : settings.HotkeyEnterprise.Trim();
+        _hotkeyConfigurator = string.IsNullOrWhiteSpace(settings.HotkeyConfigurator) ? "F4" : settings.HotkeyConfigurator.Trim();
+        _hotkeyCheckUpdate = string.IsNullOrWhiteSpace(settings.HotkeyCheckUpdate) ? "F9" : settings.HotkeyCheckUpdate.Trim();
+        _hotkeyActualReleases = string.IsNullOrWhiteSpace(settings.HotkeyActualReleases) ? "Alt+F9" : settings.HotkeyActualReleases.Trim();
+        _hotkeyPlatformUpdate = string.IsNullOrWhiteSpace(settings.HotkeyPlatformUpdate) ? "Ctrl+F9" : settings.HotkeyPlatformUpdate.Trim();
+        // Учётная запись ИТС (issue #333): выбранная запись справочника its_accounts.json
+        // (пусто — «Основная»); список перечитывается из хранилища при старте.
+        _itsAccountId = settings.ItsAccountId ?? "";
+        RefreshItsAccounts();
+        // Сценарии резервирования (функции №16/№18): выполнение сценария и «Список выгрузок».
+        _hotkeyRunBackup = string.IsNullOrWhiteSpace(settings.HotkeyRunBackup) ? "Ctrl+Shift+F5" : settings.HotkeyRunBackup.Trim();
+        _hotkeyExportsList = string.IsNullOrWhiteSpace(settings.HotkeyExportsList) ? "Ctrl+Shift+F7" : settings.HotkeyExportsList.Trim();
+        // Блокировка сеансов ИБ (функция №20, Ctrl+Alt+L) и временная блокировка приложения (функция №19).
+        _hotkeySessionLock = string.IsNullOrWhiteSpace(settings.HotkeySessionLock) ? "Ctrl+Alt+L" : settings.HotkeySessionLock.Trim();
+        _hotkeyLockApp = settings.HotkeyLockApp?.Trim() ?? "";
+        // Администрирование ИБ (Этап 6, функция №29 + консоль серверов).
+        _hotkeyCheckIntegrity = string.IsNullOrWhiteSpace(settings.HotkeyCheckIntegrity) ? "Ctrl+Alt+Q" : settings.HotkeyCheckIntegrity.Trim();
+        _hotkeyServerConsole = string.IsNullOrWhiteSpace(settings.HotkeyServerConsole) ? "Ctrl+Alt+S" : settings.HotkeyServerConsole.Trim();
+        _appLockPasswordHash = settings.AppLockPasswordHash ?? "";
+        // Активная блокировка восстанавливается только при наличии пароля: флаг без
+        // хэша (сброшен вручную в файле настроек) гасим (issue #294).
+        _appLockActive = settings.AppLockActive && !string.IsNullOrEmpty(_appLockPasswordHash);
+        // Масштаб строк списка и его хоткеи (issue #303).
+        _listZoomFactor = Math.Clamp(settings.ListZoomFactor, 0.5, 3.0);
+        _hotkeyZoomIn = string.IsNullOrWhiteSpace(settings.HotkeyZoomIn) ? "Ctrl+OemPlus" : settings.HotkeyZoomIn.Trim();
+        _hotkeyZoomOut = string.IsNullOrWhiteSpace(settings.HotkeyZoomOut) ? "Ctrl+OemMinus" : settings.HotkeyZoomOut.Trim();
+        _hotkeyZoomReset = string.IsNullOrWhiteSpace(settings.HotkeyZoomReset) ? "Ctrl+D0" : settings.HotkeyZoomReset.Trim();
+        _hotkeyFavorite = settings.HotkeyFavorite?.Trim() ?? "F8";
+        _hotkeyEdit = settings.HotkeyEdit?.Trim() ?? "F2";
+        _hotkeyDelete = settings.HotkeyDelete?.Trim() ?? "Delete";
+        _hotkeyClearCache = settings.HotkeyClearCache?.Trim() ?? "";
+        _hotkeyAdd = settings.HotkeyAdd?.Trim() ?? "Insert";
+        _hotkeyPin = settings.HotkeyPin?.Trim() ?? "";
+        _hotkeyShowAll = settings.HotkeyShowAll?.Trim() ?? "";
+        _hotkeyShowFavorites = settings.HotkeyShowFavorites?.Trim() ?? "";
+        _hotkeyShowRecent = settings.HotkeyShowRecent?.Trim() ?? "";
+        _hotkeyShowRunning = settings.HotkeyShowRunning?.Trim() ?? "";
+        _hotkeyClearSearch = string.IsNullOrWhiteSpace(settings.HotkeyClearSearch)
+            ? "Ctrl+Shift+C"
+            : settings.HotkeyClearSearch.Trim();
+        _hotkeyClearTags = string.IsNullOrWhiteSpace(settings.HotkeyClearTags)
+            ? "Ctrl+Shift+T"
+            : settings.HotkeyClearTags.Trim();
+        _hotkeyRightPanelDetails = settings.HotkeyRightPanelDetails?.Trim() ?? "";
+        _hotkeyFindInList = string.IsNullOrWhiteSpace(settings.HotkeyFindInList)
+            ? "Ctrl+T"
+            : settings.HotkeyFindInList.Trim();
+        _hotkeyCommandPalette = string.IsNullOrWhiteSpace(settings.HotkeyCommandPalette)
+            ? "Ctrl+K"
+            : settings.HotkeyCommandPalette.Trim();
+        // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
+        _hotkeyBookmarksMenu = string.IsNullOrWhiteSpace(settings.HotkeyBookmarksMenu)
+            ? "Ctrl+B"
+            : settings.HotkeyBookmarksMenu.Trim();
+        _hotkeySwitchUser = settings.HotkeySwitchUser?.Trim() ?? "";
+        _sortField = string.IsNullOrWhiteSpace(settings.SortField) ? "Name" : settings.SortField;
+        _sortAscending = settings.SortAscending;
+        _lastSelectedInfobaseId = settings.LastSelectedInfobaseId ?? string.Empty;
+        _lastSelectedGroupPath = settings.LastSelectedGroupPath ?? string.Empty;
+        if (settings.FavoriteHotkeyIds != null)
+        {
+            foreach (var id in settings.FavoriteHotkeyIds.Take(9))
+            {
+                if (!string.IsNullOrEmpty(id))
+                    _favoriteHotkeyIds.Add(id);
+            }
+        }
+        foreach (var groupName in settings.CollapsedGroups)
+        {
+            _collapsedGroups.Add(groupName);
+        }
+
+        // Кеш размеров файловых ИБ из прошлых запусков: позволяет не сканировать диски
+        // заново для каждой базы при старте (см. RefreshFileMetadata / CalculateFileBaseSizeCached).
+        if (settings.FileSizeCache is { Count: > 0 })
+        {
+            foreach (var kv in settings.FileSizeCache)
+                _fileSizeCache[kv.Key] = kv.Value;
+        }
+
+        // Загружаем базы из файла настроек.
+        var saved = _repository.Load();
+        Infobases = new ObservableCollection<Infobase>(saved);
+
+        // Загружаем группы из файла настроек. Стандартные группы из демо-данных не создаются.
+        var loadedGroups = _repository.LoadGroups();
+        Groups = new ObservableCollection<Group>(loadedGroups);
+
+        InfobasesView = CollectionViewSource.GetDefaultView(Infobases);
+        InfobasesView.Filter = FilterInfobase;
+        ApplySortDescriptions();
+
+        // Дерево групп (отображается в виде «группа в группе»).
+        GroupNodes = new ObservableCollection<GroupNodeViewModel>();
+
+        // Смена языка интерфейса: локализованные свойства VM и служебные узлы дерева
+        // обновляются на лету без перезапуска. XAML-привязки {loc:Loc} обновляются сами
+        // через LocalizationManager.Source.NotifyAll(), а здесь обновляем свойства VM,
+        // возвращающие LocalizationManager.T(...), и пересобираем дерево групп.
+        LocalizationManager.Instance.LanguageChanged += OnLanguageChanged;
+        _languageChangedSubscribed = true;
+
+        // Тяжёлая инициализация (построение дерева групп, назначение слотов Alt+1…9,
+        // восстановление последнего выделения, подсчёт размеров файловых баз) выполняется
+        // ПОСЛЕ показа окна в фоне с индикатором прогресса. Так главное окно появляется
+        // мгновенно даже при большом числе баз, а список достраивается без «зависания».
+        // См. CompleteStartupInitializationAsync.
+        IsLoading = true;
+        LoadingMessage = LocalizationManager.T("Main.LoadingInfobases");
+        _ = CompleteStartupInitializationAsync();
+
+        SelectInfobaseCommand = new RelayCommand(SelectInfobase);
+        RefreshCommand = new RelayCommand(Refresh);
+        AddInfobaseCommand = new RelayCommand(AddInfobase);
+        // Узел «Закреплённые» сам по себе группы не имеет, но по горячей клавише правки
+        // открывает редактор оформления узла (цвет и иконка), как для «Без группы».
+        // Исключение — кнопка действия строки конкретной базы внутри узла (параметр — Infobase):
+        // такую базу редактируем как обычно.
+        EditInfobaseCommand = new RelayCommand(EditInfobase,
+            p => (ResolveActionTarget(p) != null || SelectedGroupNode?.Group != null || IsNoGroupNodeSelected() || IsPinnedNodeSelected()));
+        DeleteInfobaseCommand = new RelayCommand(DeleteSelected,
+            p => ResolveActionTarget(p) != null || SelectedGroupNode?.Group != null);
+        // Команда группы: параметр — узел группы или сама группа из строки дерева.
+        // Служебные узлы «Закреплённые» и «Без группы» (без модели Group) открывают
+        // редактор оформления узла только с цветом и иконкой (noGroupMode), а не обычное
+        // окно с вкладкой «Основные» (название и выбор родительской группы, issue #249).
+        EditGroupCommand = new RelayCommand(p =>
+        {
+            if (p is GroupNodeViewModel node && node.Group is null)
+            {
+                if (string.Equals(node.Marker, GroupNodeViewModel.PinnedMarker, StringComparison.Ordinal))
+                {
+                    EditPinnedNode();
+                    return;
+                }
+                if (string.Equals(node.Marker, GroupNodeViewModel.NoGroupMarker, StringComparison.Ordinal))
+                {
+                    EditNoGroupNode();
+                    return;
+                }
+            }
+            var group = ResolveGroup(p);
+            if (group is not null)
+                EditGroup(group);
+        });
+        DeleteGroupCommand = new RelayCommand(p =>
+        {
+            var group = ResolveGroup(p);
+            if (group is not null)
+                DeleteGroup(group);
+        }, p => ResolveGroup(p) != null);
+        ToggleFavoriteCommand = new RelayCommand(ToggleFavorite, _ => SelectedInfobase != null);
+        ToggleFavoriteForCommand = new RelayCommand(ToggleFavoriteFor);
+        LaunchCommand = new RelayCommand(p => Launch(p), _ => SelectedInfobase != null);
+        // Обратная совместимость с XAML: отдельные команды делегируют в единую LaunchCommand.
+        LaunchEnterpriseCommand = new RelayCommand(p => Launch(LaunchKind.Enterprise, false, p as Infobase), p => ResolveActionTarget(p) != null);
+        LaunchConfiguratorCommand = new RelayCommand(p => Launch(LaunchKind.Configurator, false, p as Infobase), p => ResolveActionTarget(p) != null);
+        // Переключение вкладок списка баз (Все / Избранное / Недавние / Запущенные) по горячим клавишам.
+        ShowAllCommand = new RelayCommand(_ => IsListModeAll = true);
+        ShowFavoritesCommand = new RelayCommand(_ => IsListModeFavorites = true);
+        ShowRecentCommand = new RelayCommand(_ => IsListModeRecent = true);
+        // Отбор «Только запущенные» (issue #339): настраиваемый хоткей.
+        ShowRunningCommand = new RelayCommand(_ => IsListModeRunning = true);
+        LaunchEnterpriseThinCommand = new RelayCommand(_ => Launch(LaunchKind.Thin32), _ => SelectedInfobase != null);
+        LaunchEnterpriseThickCommand = new RelayCommand(_ => Launch(LaunchKind.Thick32), _ => SelectedInfobase != null);
+        LaunchEnterpriseThin64Command = new RelayCommand(_ => Launch(LaunchKind.Thin64), _ => SelectedInfobase != null);
+        LaunchEnterpriseThick64Command = new RelayCommand(_ => Launch(LaunchKind.Thick64), _ => SelectedInfobase != null);
+        LaunchEnterpriseAsAdminCommand = new RelayCommand(_ => Launch(LaunchKind.Enterprise, runAsAdmin: true), _ => SelectedInfobase != null);
+        LaunchConfiguratorAsAdminCommand = new RelayCommand(_ => Launch(LaunchKind.Configurator, runAsAdmin: true), _ => SelectedInfobase != null);
+        LaunchEnterpriseWithParamsCommand = new RelayCommand(LaunchEnterpriseWithParams, _ => SelectedInfobase != null);
+        LaunchEnterpriseWithAuthCommand = new RelayCommand(LaunchEnterpriseWithAuth, _ => SelectedInfobase != null);
+        LaunchConfiguratorWithParamsCommand = new RelayCommand(LaunchConfiguratorWithParams, _ => SelectedInfobase != null);
+        LaunchNativeStarterCommand = new RelayCommand(_ => LaunchNativeStarter());
+        ImportFromIbasesV8iCommand = new RelayCommand(ImportFromIbasesV8i);
+        ExportToIbasesV8iCommand = new RelayCommand(_ => ExportToIbases());
+        SynchronizeWithIbasesCommand = new RelayCommand(SynchronizeWithIbasesManual);
+        ToggleRightPanelDetailsCommand = new RelayCommand(_ => ShowRightPanelDetails = !ShowRightPanelDetails);
+        ToggleSessionLaunchPanelCommand = new RelayCommand(_ => ShowSessionLaunchPanel = !ShowSessionLaunchPanel);
+        ExportInfobasesCommand = new RelayCommand(ExportInfobases);
+        ImportInfobasesCommand = new RelayCommand(ImportInfobases);
+        ClearAllInfobasesCommand = new RelayCommand(ClearAllInfobases);
+        TogglePinCommand = new RelayCommand(TogglePin, _ => SelectedInfobase != null);
+        TogglePinForCommand = new RelayCommand(TogglePinFor);
+        CopyConnectionStringCommand = new RelayCommand(CopyConnectionString, _ => SelectedInfobase != null);
+        // Экспорт видимого списка баз в CSV (0.3.9.91): команда не требует выделенной базы.
+        ExportBasesCsvCommand = new RelayCommand(ExportBasesCsv);
+        // Экспорт отчёта по базам в HTML (0.3.9.131): видимые базы + сводка по данным
+        // Центра обслуживания; команда не требует выделенной базы.
+        ExportBasesHtmlCommand = new RelayCommand(ExportBasesHtml);
+        // Экспорт/импорт полного состояния списка баз в JSON (0.3.9.122): команды
+        // не требуют выделенной базы; импорт — добавляющий, дубликаты пропускаются.
+        ExportBasesJsonCommand = new RelayCommand(ExportBasesJson);
+        ImportBasesJsonCommand = new RelayCommand(ImportBasesJson);
+        // Команда очистки кеша верхней панели действует на выбранную базу: если база не
+        // выделена (например, под курсором папка) — окно открывается без предзаполненных
+        // галок, и пользователь сам отмечает нужные базы (issue #196). В колонке
+        // «Действия» строка передаёт свою базу параметром, поэтому там кнопка включена
+        // независимо от глобального выбора.
+        ClearCacheCommand = new RelayCommand(ClearCache,
+            p => p is Infobase ? true : Infobases.Count > 0);
+        ClearProgramCacheCommand = new RelayCommand(_ => OpenCacheClean(OneCCacheKind.Program));
+        ClearUserCacheCommand = new RelayCommand(_ => OpenCacheClean(OneCCacheKind.User));
+        ClearCacheBothCommand = new RelayCommand(_ => OpenCacheClean(OneCCacheKind.All));
+        OpenInfobaseFolderCommand = new RelayCommand(OpenInfobaseFolder,
+            _ => SelectedInfobase?.Connection.Type == ConnectionType.File);
+        CreateDesktopShortcutCommand = new RelayCommand(CreateDesktopShortcut, _ => SelectedInfobase != null);
+        RemoveMissingFileBasesCommand = new RelayCommand(RemoveMissingFileBases);
+        KillOneCProcessesCommand = new RelayCommand(KillOneCProcesses);
+        DumpInfobaseDtCommand = new RelayCommand(DumpInfobaseDt, _ => SelectedInfobase != null);
+        DumpConfigurationCfCommand = new RelayCommand(DumpConfigurationCf, _ => SelectedInfobase != null);
+        TestInfobaseCommand = new RelayCommand(TestInfobase, _ => SelectedInfobase != null);
+        ShowLaunchHistoryCommand = new RelayCommand(ShowLaunchHistory, _ => SelectedInfobase != null);
+        RefreshFileSizesCommand = new RelayCommand(_ => RefreshFileMetadata());
+        AddTagInlineCommand = new RelayCommand(AddTagInline);
+        RemoveTagCommand = new RelayCommand(RemoveTag);
+        SearchByTagCommand = new RelayCommand(SearchByTag);
+        ClearSearchCommand = new RelayCommand(ClearSearch);
+        ClearTagFiltersCommand = new RelayCommand(ClearTagFilters, _ => HasActiveTagFilter);
+        // «Найти в списке»: переход к базе в общем списке «Все базы» (issue #285).
+        // Команда обязательна и на Windows: без инициализации FindInListCommand остаётся
+        // null, и хоткей Ctrl+T с пунктом контекстного меню молча не работают.
+        FindInListCommand = new RelayCommand(ExecuteFindInList, p => ResolveActionTarget(p) != null);
+        CollapseAllGroupsCommand = new RelayCommand(CollapseAllGroups);
+        ExpandAllGroupsCommand = new RelayCommand(ExpandAllGroups);
+        SortGroupsAscendingCommand = new RelayCommand(_ => SortGroups(ascending: true));
+        SortGroupsDescendingCommand = new RelayCommand(_ => SortGroups(ascending: false));
+        ToggleGroupExpandedCommand = new RelayCommand(ToggleGroupExpanded);
+        // Ветки дерева (issue #341): развернуть/свернуть только текущую группу с подгруппами.
+        ExpandBranchCommand = new RelayCommand(_ => ExpandBranchOf(CurrentBranchNode()));
+        CollapseBranchCommand = new RelayCommand(_ => CollapseBranchOf(CurrentBranchNode()));
+        ToggleGroupBranchCommand = new RelayCommand(p => ToggleGroupBranch(p as GroupNodeViewModel));
+        OpenSettingsCommand = new RelayCommand(OpenSettings);
+        OpenInfobaseByLinkCommand = new RelayCommand(OpenInfobaseByLink);
+        RefreshConfigurationInfoCommand = new RelayCommand(RefreshConfigurationInfo, _ => SelectedInfobase != null);
+        CheckAvailabilityCommand = new RelayCommand(_ => CheckAvailability());
+        RegisterComConnectorCommand = new RelayCommand(RegisterComConnector);
+        // Копия экрана по хоткею (функция №30, Этап 8).
+        TakeScreenshotCommand = new RelayCommand(_ => TakeScreenshot());
+
+        // Если список баз пуст — предлагаем загрузить базы из файла ibases.v8i.
+        // Диалог нельзя показывать прямо из конструктора: главное окно ещё не показано,
+        // и модальный MessageBox, открытый до появления окна, зависает (в т.ч. при нажатии
+        // «Выход»/отмены). Откладываем запрос до завершения раскладки и отрисовки первого
+        // кадра, когда окно уже на экране и модальный цикл сообщений работает корректно.
+        if (Infobases.Count == 0)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher is not null)
+            {
+                dispatcher.BeginInvoke(
+                    new Action(PromptImportFromIbasesV8i),
+                    System.Windows.Threading.DispatcherPriority.ContextIdle);
+            }
+            else
+            {
+                PromptImportFromIbasesV8i();
+            }
+        }
+
+        // Периодическое автосохранение состояния раскрытия групп.
+        StartListStateAutoSave();
+
+        // Кэш пользовательских действий контекстного меню (функция 7): загружается при
+        // старте, перечитывается после окна настроек (ReloadCustomActions).
+        ReloadCustomActions();
+    }
+
+    /// <summary>Включено ли автосохранение состояния списка (раскрытые группы).</summary>
+    public bool AutoSaveListState => _autoSaveListState;
+
+    /// <summary>Интервал автосохранения состояния списка в секундах.</summary>
+    public int ListStateAutoSaveIntervalSeconds => _listStateAutoSaveIntervalSeconds;
+
+    /// <summary>
+    /// Запускает периодическое автосохранение состояния списка. Если автосохранение
+    /// выключено — останавливает таймер.
+    /// </summary>
+    private void StartListStateAutoSave()
+    {
+        if (!_autoSaveListState)
+        {
+            _listStateAutoSaveTimer?.Stop();
+            _listStateAutoSaveTimer = null;
+            return;
+        }
+        if (_listStateAutoSaveTimer is not null)
+            return;
+        _listStateAutoSaveTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(Math.Max(1, _listStateAutoSaveIntervalSeconds))
+        };
+        _listStateAutoSaveTimer.Tick += (_, _) => SaveListStateIfDirty();
+        _listStateAutoSaveTimer.Start();
+    }
+
+    /// <summary>Сохраняет состояние списка, если оно менялось после последнего сохранения.</summary>
+    private void SaveListStateIfDirty()
+    {
+        if (!_listStateDirty)
+            return;
+        _listStateDirty = false;
+        ScheduleSaveSettings();
+    }
+
+    /// <summary>Помечает состояние раскрытия групп как изменённое (нуждается в автосохранении).</summary>
+    private void MarkListStateDirty()
+    {
+        _listStateDirty = true;
+    }
+
+    /// <summary>Список информационных баз.</summary>
+    public ObservableCollection<Infobase> Infobases { get; }
+
+    /// <summary>Представление списка баз с группировкой и фильтрацией.</summary>
+    public ICollectionView InfobasesView { get; }
+
+    /// <summary>Идёт фоновая инициализация главного окна после показа (показывается индикатор загрузки).</summary>
+    public bool IsLoading
+    {
+        get => _isLoading;
+        set => SetProperty(ref _isLoading, value);
+    }
+
+    /// <summary>Текст индикатора загрузки на этапе фоновой инициализации.</summary>
+    public string LoadingMessage
+    {
+        get => _loadingMessage;
+        set => SetProperty(ref _loadingMessage, value);
+    }
+
+    /// <summary>
+    /// Приложение заблокировано паролем (функция №19 StartManager, issue #294).
+    /// Пока оно активно, главное окно закрыто оверлеем блокировки, ввод перехватывается,
+    /// а окно разблокировки можно закрыть — блокировка при этом не снимается.
+    /// Состояние сохраняется в настройках (AppLockActive): блокировка переживает
+    /// перезапуск приложения и снимается только верным паролем.
+    /// </summary>
+    public bool IsAppLocked
+    {
+        get => _isAppLocked;
+        private set => SetProperty(ref _isAppLocked, value);
+    }
+    private bool _isAppLocked;
+
+
+    /// <summary>
+    /// Событие завершения фоновой инициализации после показа окна. Позволяет интерфейсу
+    /// восстановить последнее выделение и пересчитать раскладку, когда дерево уже построено.
+    /// </summary>
+    public event EventHandler? StartupInitializationCompleted;
+
+    /// <summary>Узлы дерева групп информационных баз для отображения «группа в группе».</summary>
+    public ObservableCollection<GroupNodeViewModel> GroupNodes { get; private set; }
+
+    /// <summary>Выбранная информационная база.</summary>
+    public Infobase? SelectedInfobase
+    {
+        get => _selectedInfobase;
+        set
+        {
+            if (SetProperty(ref _selectedInfobase, value))
+            {
+                // Запоминаем последнюю выбранную базу для восстановления при следующем запуске.
+                if (value is not null)
+                {
+                    _lastSelectedInfobaseId = value.Id ?? string.Empty;
+                    _lastSelectedGroupPath = string.Empty;
+                    ScheduleSaveSettings();
+
+                    // Размер кеша 1С вычисляется в фоне и отображается в правой панели.
+                    value.RefreshCacheSizeAsync();
+                }
+
+                CommandManager.InvalidateRequerySuggested();
+                OnPropertyChanged(nameof(StatusBarInfo));
+            }
+        }
+    }
+
+    private GroupNodeViewModel? _selectedGroupNode;
+
+    /// <summary>Выбранный узел группы в дереве (null, если выбрана база или ничего).</summary>
+    public GroupNodeViewModel? SelectedGroupNode
+    {
+        get => _selectedGroupNode;
+        set
+        {
+            var previous = _selectedGroupNode;
+            if (SetProperty(ref _selectedGroupNode, value))
+            {
+                // Запоминаем последнюю выбранную группу для восстановления при следующем запуске.
+                if (value?.Group is not null)
+                {
+                    _lastSelectedGroupPath = value.FullPath;
+                    _lastSelectedInfobaseId = string.Empty;
+                    ScheduleSaveSettings();
+                }
+
+                // Сбрасываем подсветку ранее выбранной группы и подсвечиваем новую,
+                // чтобы выделение было видно поверх цвета группы в дереве.
+                if (previous is not null)
+                    previous.IsSelected = false;
+                if (_selectedGroupNode is not null)
+                    _selectedGroupNode.IsSelected = true;
+
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
+
+    /// <summary>Идентификатор последней выбранной базы (для восстановления при запуске).</summary>
+    public string LastSelectedInfobaseId => _lastSelectedInfobaseId;
+
+    /// <summary>Полный путь последней выбранной группы (для восстановления при запуске).</summary>
+    public string LastSelectedGroupPath => _lastSelectedGroupPath;
+
+    /// <summary>
+    /// Рекурсивно ищет узел группы по полному пути в текущем дереве групп.
+    /// </summary>
+    public GroupNodeViewModel? FindGroupNodeByPath(string fullPath)
+    {
+        if (string.IsNullOrEmpty(fullPath))
+            return null;
+        foreach (var root in GroupNodes)
+        {
+            var found = FindGroupNodeIn(root, fullPath);
+            if (found is not null)
+                return found;
+        }
+        return null;
+    }
+
+    private static GroupNodeViewModel? FindGroupNodeIn(GroupNodeViewModel node, string fullPath)
+    {
+        if (node.Group is not null &&
+            string.Equals(node.FullPath, fullPath, StringComparison.OrdinalIgnoreCase))
+            return node;
+        foreach (var child in node.Children)
+        {
+            var found = FindGroupNodeIn(child, fullPath);
+            if (found is not null)
+                return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Раскрывает (в модели) ветку дерева, содержащую последнюю выбранную строку,
+    /// чтобы при запуске её контейнер был сгенерирован и выделение можно было восстановить.
+    /// </summary>
+    private void PrepareLastSelectionExpansion()
+    {
+        string? groupPath = null;
+        if (!string.IsNullOrEmpty(_lastSelectedInfobaseId))
+        {
+            var ib = Infobases.FirstOrDefault(i => string.Equals(i.Id, _lastSelectedInfobaseId, StringComparison.Ordinal));
+            if (ib is not null && !string.IsNullOrEmpty(ib.Group))
+                groupPath = ib.Group;
+        }
+        else if (!string.IsNullOrEmpty(_lastSelectedGroupPath))
+        {
+            groupPath = _lastSelectedGroupPath;
+        }
+
+        if (string.IsNullOrEmpty(groupPath))
+            return;
+
+        var node = FindGroupNodeByPath(groupPath);
+        if (node is null)
+            return;
+
+        var chain = new List<GroupNodeViewModel>();
+        for (var n = node; n is not null; n = n.Parent)
+            chain.Add(n);
+        chain.Reverse();
+        foreach (var n in chain)
+        {
+            n.SetExpandedSilent(true);
+            n.NotifyIsExpanded();
+        }
+    }
+
+    /// <summary>Текст поиска по информационным базам.</summary>
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value))
+                ScheduleRebuildGroupTree();
+        }
+    }
+
+    /// <summary>Показывать только избранные базы.</summary>
+    public bool ShowFavoritesOnly
+    {
+        get => _showFavoritesOnly;
+        set
+        {
+            if (SetProperty(ref _showFavoritesOnly, value))
+            {
+                // Без InfobasesView.Refresh — дерево строится по EnumerateFilteredInfobases,
+                // лишний Refresh на тысячи элементов сильно тормозит UI.
+                RebuildGroupTree();
+                ScheduleSaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Группировать базы по группам.</summary>
+    public bool GroupByGroup
+    {
+        get => _groupByGroup;
+        set
+        {
+            if (SetProperty(ref _groupByGroup, value))
+            {
+                RebuildGroupTree();
+                ScheduleSaveSettings();
+                OnPropertyChanged(nameof(GroupByGroupText));
+                OnPropertyChanged(nameof(ShowExpandCollapseButtons));
+            }
+        }
+    }
+
+    /// <summary>Показывать пустые группы в дереве.</summary>
+    public bool ShowEmptyGroups
+    {
+        get => _showEmptyGroups;
+        set
+        {
+            if (_showEmptyGroups == value) return;
+            _showEmptyGroups = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Цвет фона заголовка узла «Без группы».</summary>
+    public string NoGroupColor
+    {
+        get => _noGroupColor;
+        set
+        {
+            if (_noGroupColor == value) return;
+            _noGroupColor = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Цвет иконки узла «Без группы».</summary>
+    public string NoGroupIconColor
+    {
+        get => _noGroupIconColor;
+        set
+        {
+            if (_noGroupIconColor == value) return;
+            _noGroupIconColor = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Ключ иконки узла «Без группы» (пусто — по умолчанию).</summary>
+    public string NoGroupIcon
+    {
+        get => _noGroupIcon;
+        set
+        {
+            if (_noGroupIcon == value) return;
+            _noGroupIcon = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Цвет фона заголовка узла «Закреплённые».</summary>
+    public string PinnedColor
+    {
+        get => _pinnedColor;
+        set
+        {
+            if (_pinnedColor == value) return;
+            _pinnedColor = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Цвет иконки узла «Закреплённые».</summary>
+    public string PinnedIconColor
+    {
+        get => _pinnedIconColor;
+        set
+        {
+            if (_pinnedIconColor == value) return;
+            _pinnedIconColor = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Ключ иконки узла «Закреплённые» (пусто — по умолчанию).</summary>
+    public string PinnedIcon
+    {
+        get => _pinnedIcon;
+        set
+        {
+            if (_pinnedIcon == value) return;
+            _pinnedIcon = value;
+            OnPropertyChanged();
+            RebuildGroupTree();
+            ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>Текст кнопки переключения отображения групп.</summary>
+    public string GroupByGroupText => _groupByGroup ? LocalizationManager.T("Main.HideGroups") : LocalizationManager.T("Main.ShowGroups");
+
+
+    /// <summary>Список групп информационных баз.</summary>
+    public ObservableCollection<Group> Groups { get; }
+
+    /// <summary>Название сохранённой темы оформления (пусто, если тема не сохранялась).</summary>
+    public string SavedTheme => _savedTheme;
+
+    /// <summary>Активная цветовая схема (тема оформления).</summary>
+    public ColorScheme ActiveColorScheme => _activeColorScheme ?? ColorScheme.CreateLight();
+
+    /// <summary>Семейство шрифта интерфейса.</summary>
+    public string FontFamily => _fontFamily;
+
+    /// <summary>Размер шрифта интерфейса.</summary>
+    public double FontSize => _fontSize;
+
+    /// <summary>Начертание шрифта интерфейса («Normal»/«Bold»).</summary>
+    public string FontWeight => _fontWeight;
+
+    /// <summary>Стиль шрифта интерфейса («Normal»/«Italic»).</summary>
+    public string FontStyle => _fontStyle;
+
+    /// <summary>Индивидуальные настройки шрифта отдельных областей интерфейса.</summary>
+    public IReadOnlyDictionary<string, Models.ElementFontSettings> ElementFonts => _elementFonts;
+
+    /// <summary>Список установленных версий платформы 1С.</summary>
+    public List<string> InstalledPlatformVersions => _installedPlatformVersions;
+
+    /// <summary>
+    /// Дополнительные пути к каталогам установки платформы 1С.
+    /// </summary>
+    public List<string> AdditionalPlatformSearchPaths => _additionalPlatformSearchPaths;
+
+    /// <summary>
+    /// Сохраняет список установленных версий платформы 1С.
+    /// </summary>
+    public void SetInstalledPlatformVersions(IEnumerable<string> versions)
+    {
+        _installedPlatformVersions = new List<string>(versions);
+        SaveSettings();
+    }
+
+    /// <summary>Пользовательские параметры запуска, добавленные в справочник параметров (issue #141).</summary>
+    public IReadOnlyList<string> CustomLaunchParameters => _customLaunchParameters;
+
+    /// <summary>
+    /// Сохраняет список пользовательских параметров запуска (дополняет справочник ключей командной строки).
+    /// </summary>
+    public void SetCustomLaunchParameters(IEnumerable<string> values)
+    {
+        _customLaunchParameters = new List<string>(
+            (values ?? Enumerable.Empty<string>())
+            .Select(v => v.Trim())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+        SaveSettings();
+    }
+
+    /// <summary>Текущее глобальное действие по двойному щелчку на базе (функция №28 StartManager).</summary>
+    public string DefaultDoubleClickAction => _defaultDoubleClickAction;
+
+    /// <summary>
+    /// Устанавливает глобальное действие по двойному щелчку на базе и сохраняет настройки.
+    /// Значение нормализуется к каноническому (<see cref="Models.DoubleClickAction.Normalize"/>).
+    /// </summary>
+    public void SetDefaultDoubleClickAction(string value)
+    {
+        var normalized = Models.DoubleClickAction.Normalize(value);
+        if (string.Equals(_defaultDoubleClickAction, normalized, StringComparison.Ordinal))
+            return;
+        _defaultDoubleClickAction = normalized;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Определяет действие по двойному щелчку для конкретной базы (функция №28 StartManager):
+    /// индивидуальное значение ИБ (Infobase.DoubleClickAction) имеет приоритет; если оно пусто —
+    /// используется глобальная настройка <see cref="DefaultDoubleClickAction"/>.
+    /// Возвращает каноническую строку из <see cref="Models.DoubleClickAction"/>.
+    /// </summary>
+    public string ResolveDoubleClickAction(Infobase? infobase)
+    {
+        var perBase = (infobase?.DoubleClickAction ?? string.Empty).Trim();
+        return string.IsNullOrEmpty(perBase)
+            ? _defaultDoubleClickAction
+            : Models.DoubleClickAction.Normalize(perBase);
+    }
+
+    /// <summary>
+    /// Запускает фоновое сканирование установленных версий платформы 1С (Program Files + доп.
+    /// пути) и обновляет <see cref="InstalledPlatformVersions"/>, когда результат готов. Выполняется
+    /// в фоне, чтобы рекурсивный обход каталогов не задерживал показ главного окна. При сбое или
+    /// пустом результате оставляет текущий (сохранённый из настроек) список.
+    /// </summary>
+    private async System.Threading.Tasks.Task RefreshInstalledPlatformVersionsInBackground()
+    {
+        // Снимок дополнительных путей на момент запуска сканирования.
+        var additionalPaths = _additionalPlatformSearchPaths.ToList();
+        try
+        {
+            var found = await System.Threading.Tasks.Task.Run(
+                () => PlatformVersionService.FindInstalledVersions(additionalPaths));
+            if (found.Count > 0)
+            {
+                _installedPlatformVersions = found;
+                OnPropertyChanged(nameof(InstalledPlatformVersions));
+            }
+        }
+        catch
+        {
+            // Сканирование не должно мешать работе приложения; остаётся сохранённый список.
+        }
+    }
+
+    /// <summary>
+    /// Сохраняет дополнительные пути поиска платформы и применяет их к сервису.
+    /// </summary>
+    public void SetAdditionalPlatformSearchPaths(IEnumerable<string> paths)
+    {
+        _additionalPlatformSearchPaths = paths?
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+        PlatformVersionService.SetAdditionalSearchPaths(_additionalPlatformSearchPaths);
+        SaveSettings();
+    }
+
+    /// <summary>Режим синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncMode IbasesSyncMode => _ibasesSyncMode;
+
+    /// <summary>Путь к файлу ibases.v8i для синхронизации.</summary>
+    public string IbasesSyncFilePath => _ibasesSyncFilePath;
+
+    /// <summary>Момент запуска автоматической синхронизации с файлом ibases.v8i.</summary>
+    public IbasesSyncTrigger IbasesSyncTrigger => _ibasesSyncTrigger;
+
+    /// <summary>Интервал автоматической синхронизации в минутах.</summary>
+    public int IbasesSyncIntervalMinutes => _ibasesSyncIntervalMinutes;
+
+    /// <summary>Время автоматической синхронизации по расписанию (HH:mm).</summary>
+    public string IbasesSyncScheduleTime => _ibasesSyncScheduleTime;
+
+    /// <summary>Создавать резервные копии ibases.v8i перед записью.</summary>
+    public bool IbasesBackupEnabled => _ibasesBackupEnabled;
+
+    /// <summary>Число хранимых резервных копий ibases.v8i.</summary>
+    public int IbasesBackupKeepCount => _ibasesBackupKeepCount;
+
+    /// <summary>«Сохранять после правки» (issue #269): записывать изменения в ibases.v8i сразу.</summary>
+    public bool IbasesSaveAfterEdit => _ibasesSaveAfterEdit;
+
+    /// <summary>
+    /// Добавлять дату-время к имени файла при выгрузке (экспорт списка баз в JSON,
+    /// выгрузка ИБ в .dt, выгрузка конфигурации в .cf).
+    /// </summary>
+    public bool AddTimestampToExportFileName => _addTimestampToExportFileName;
+
+    /// <summary>
+    /// Применяет настройку добавления даты-времени к имени файла при выгрузке.
+    /// </summary>
+    public void ApplyExportFileNameSettings(bool addTimestamp)
+    {
+        if (_addTimestampToExportFileName == addTimestamp)
+            return;
+        _addTimestampToExportFileName = addTimestamp;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Шаблон (формат) отметки даты и времени для имени файла при выгрузке.
+    /// </summary>
+    public string ExportTimestampFormat => _exportTimestampFormat;
+
+    /// <summary>
+    /// Применяет шаблон (формат) даты и времени для имени файла при выгрузке.
+    /// </summary>
+    public void ApplyExportTimestampFormat(string format)
+    {
+        format = string.IsNullOrWhiteSpace(format) ? "yyyyMMdd_HHmmss" : format.Trim();
+        if (string.Equals(_exportTimestampFormat, format, StringComparison.Ordinal))
+            return;
+        _exportTimestampFormat = format;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Текст сообщения о последней выполненной синхронизации с файлом ibases.v8i
+    /// (что было обновлено и в какое время). Выводится в строку состояния главного окна.
+    /// </summary>
+    public string SyncMessage
+    {
+        get => _syncMessage;
+        private set
+        {
+            if (!SetProperty(ref _syncMessage, value))
+                return;
+            ScheduleClearSyncMessage();
+        }
+    }
+
+    /// <summary>
+    /// Показывает сообщение в строке состояния главного окна (issue #366): канал
+    /// уведомления задания по расписанию «Проверить наличие обновления платформы»
+    /// «В главном окне». Вызывается из фоновых сервисов через
+    /// <see cref="Services.IMainWindowNotifier"/>.
+    /// </summary>
+    public void ShowStatusBarMessage(string message)
+    {
+        SyncMessage = message ?? string.Empty;
+    }
+
+    private CancellationTokenSource? _syncMessageCts;
+
+    /// <summary>Сообщение о синхронизации скрывается через 10 секунд.</summary>
+    private void ScheduleClearSyncMessage()
+    {
+        _syncMessageCts?.Cancel();
+        _syncMessageCts?.Dispose();
+        _syncMessageCts = null;
+
+        if (string.IsNullOrEmpty(_syncMessage))
+            return;
+
+        var cts = new CancellationTokenSource();
+        _syncMessageCts = cts;
+        var token = cts.Token;
+        _ = ClearSyncMessageAfterDelayAsync(token);
+    }
+
+    private async Task ClearSyncMessageAfterDelayAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), token).ConfigureAwait(true);
+            if (!token.IsCancellationRequested)
+            {
+                _syncMessage = string.Empty;
+                OnPropertyChanged(nameof(SyncMessage));
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            /* новая синхронизация */
+        }
+    }
+
+    /// <summary>Признак того, что автоматическая синхронизация запущена по интервалу/расписанию.</summary>
+    public bool IsAutoSyncRunning => _syncTimerRunning;
+
+    /// <summary>
+    /// Применяет настройки синхронизации с файлом ibases.v8i, заданные в окне настроек.
+    /// </summary>
+    public void ApplyIbasesSyncSettings(IbasesSyncMode mode, string filePath,
+        IbasesSyncTrigger trigger, int intervalMinutes, string scheduleTime,
+        bool backupEnabled = true, int backupKeepCount = 5, bool saveAfterEdit = true)
+    {
+        _ibasesSyncMode = mode;
+        _ibasesSyncFilePath = filePath ?? string.Empty;
+        _ibasesSyncTrigger = trigger;
+        _ibasesSyncIntervalMinutes = intervalMinutes;
+        _ibasesSyncScheduleTime = scheduleTime ?? string.Empty;
+        _ibasesBackupEnabled = backupEnabled;
+        _ibasesBackupKeepCount = backupKeepCount > 0 ? backupKeepCount : 5;
+        _ibasesSaveAfterEdit = saveAfterEdit;
+        SaveSettings();
+        RestartAutoSync();
+    }
+
+    // ---- Профиль: резервное копирование и восстановление ----
+
+    /// <summary>Каталог резервной копии профиля (настройки, базы, пользователи/пароли, ibases.v8i).</summary>
+    public string ProfileBackupDirectory => _profileBackupDirectory;
+
+    /// <summary>Восстанавливать профиль из каталога резервной копии при каждом запуске.</summary>
+    public bool ProfileRestoreOnStartup => _profileRestoreOnStartup;
+
+    /// <summary>Применяет настройки резервного копирования профиля из окна настроек.</summary>
+    public void ApplyProfileBackupSettings(string backupDirectory, bool restoreOnStartup)
+    {
+        _profileBackupDirectory = backupDirectory?.Trim() ?? string.Empty;
+        _profileRestoreOnStartup = restoreOnStartup;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Сохраняет текущий профиль (настройки, список баз с пользователями и паролями,
+    /// группы, ibases.v8i) в настроенный каталог. Возвращает true при успехе.
+    /// </summary>
+    public bool BackupProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_profileBackupDirectory))
+        {
+            _dialogs.ShowWarning(LocalizationManager.T("Settings.Profile.NoDirectory"));
+            return false;
+        }
+        try
+        {
+            var count = ProfileBackupService.Backup(_profileBackupDirectory, _ibasesSyncFilePath);
+            _logger.Info($"Резервная копия профиля сохранена в {_profileBackupDirectory} ({count} файлов)");
+            _dialogs.ShowInfo(string.Format(LocalizationManager.T("Settings.Profile.BackupDone"), count));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка резервного копирования профиля", ex);
+            _dialogs.ShowError(string.Format(LocalizationManager.T("Settings.Profile.BackupFailed"), ex.Message));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Восстанавливает профиль из настроенного каталога. Файлы копируются на диск;
+    /// для полного применения рекомендуется перезапуск приложения (либо включённое
+    /// восстановление при запуске). Возвращает true при успехе.
+    /// </summary>
+    public bool RestoreProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_profileBackupDirectory))
+        {
+            _dialogs.ShowWarning(LocalizationManager.T("Settings.Profile.NoDirectory"));
+            return false;
+        }
+        if (!ProfileBackupService.HasBackup(_profileBackupDirectory))
+        {
+            _dialogs.ShowWarning(LocalizationManager.T("Settings.Profile.NoBackup"));
+            return false;
+        }
+        try
+        {
+            var count = ProfileBackupService.Restore(_profileBackupDirectory, _ibasesSyncFilePath);
+            _logger.Info($"Профиль восстановлен из {_profileBackupDirectory} ({count} файлов)");
+            _dialogs.ShowInfo(string.Format(LocalizationManager.T("Settings.Profile.RestoreDone"), count));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка восстановления профиля", ex);
+            _dialogs.ShowError(string.Format(LocalizationManager.T("Settings.Profile.RestoreFailed"), ex.Message));
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// После локального изменения базы: выгрузка в ibases.v8i без импорта,
+    /// чтобы не перезатереть только что заданные настройки (режим запуска и т.д.).
+    /// </summary>
+    private void ExportToIbasesAfterLocalChange()
+    {
+        // «Сохранять после правки» (issue #269): выгрузка сразу выполняется только при
+        // включённой настройке; момент автоматической синхронизации при этом не затрагивается.
+        if (!_ibasesSaveAfterEdit)
+            return;
+
+        if (_ibasesSyncMode is not (IbasesSyncMode.Export or IbasesSyncMode.Both))
+            return;
+
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return;
+
+        try
+        {
+            if (_ibasesBackupEnabled && File.Exists(filePath))
+            {
+                try { IbasesBackupService.CreateBackup(filePath, _ibasesBackupKeepCount); }
+                catch { /* не блокируем сохранение */ }
+            }
+
+            var result = _ibasesSync.Export(filePath, Infobases, Groups);
+            // Метка последней выгрузки обновляется только после успешного экспорта (issue #278).
+            _ibasesLastSyncExportUtc = DateTime.UtcNow;
+            SaveSettings();
+            var text = BuildSyncMessage(LocalizationManager.T("Sync.PrefixExported"), result);
+            if (!string.IsNullOrEmpty(text))
+                SyncMessage = $"{DateTime.Now:HH:mm:ss} — {text}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Экспорт ibases после правки: {ex}");
+            SyncMessage = string.Format(LocalizationManager.T("Sync.ExportError"), ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Выполняет синхронизацию с файлом ibases.v8i в соответствии с заданным режимом.
+    /// В режимах с импортом загружает новые базы из файла, в режимах с экспортом —
+    /// выгружает базы приложения в файл. При наличии изменений формирует сообщение
+    /// о том, что было обновлено и в какое время, и выводит его в строку состояния.
+    /// </summary>
+    /// <returns>True, если была выполнена хотя бы одна операция синхронизации.</returns>
+    public bool SynchronizeWithIbases()
+    {
+        if (_ibasesSyncMode == IbasesSyncMode.None)
+            return false;
+
+        var filePath = ResolveIbasesFilePath();
+        if (filePath is null)
+            return false;
+
+        var importPerformed = _ibasesSyncMode is IbasesSyncMode.Import or IbasesSyncMode.Both;
+        var exportPerformed = _ibasesSyncMode is IbasesSyncMode.Export or IbasesSyncMode.Both;
+
+        var message = string.Empty;
+
+        // Порядок операций в двустороннем режиме выбирается по датам (issue #278),
+        // см. блок ниже; сами операции разделены: отказ одной не отменяет другую.
+        void DoExport()
+        {
+            try
+            {
+                if (_ibasesBackupEnabled && File.Exists(filePath))
+                {
+                    try
+                    {
+                        var bak = IbasesBackupService.CreateBackup(filePath, _ibasesBackupKeepCount);
+                        if (bak is not null)
+                            _logger.Info($"Создана резервная копия ibases.v8i: {bak}");
+                    }
+                    catch (Exception bakEx)
+                    {
+                        _logger.Error("Не удалось создать резервную копию ibases.v8i", bakEx);
+                    }
+                }
+
+                // Полная двусторонняя синхронизация удаляет из файла пустые группы,
+                // которых нет в приложении (issue #327); режим Export и ручные выгрузки
+                // группы файла не трогают (прежнее поведение).
+                var result = _ibasesSync.Export(
+                    filePath, Infobases, Groups,
+                    removeMissingGroups: _ibasesSyncMode == IbasesSyncMode.Both);
+                // Метка последней выгрузки обновляется только после успешного экспорта (issue #278).
+                _ibasesLastSyncExportUtc = DateTime.UtcNow;
+                SaveSettings();
+                var exportText = BuildSyncMessage(LocalizationManager.T("Sync.PrefixExported"), result);
+                if (!string.IsNullOrEmpty(exportText))
+                {
+                    message = string.IsNullOrEmpty(message)
+                        ? exportText
+                        : message + "; " + exportText;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Авто-экспорт ibases.v8i: {ex}");
+                var err = string.Format(LocalizationManager.T("Sync.ExportError"), ex.Message);
+                SyncMessage = string.IsNullOrEmpty(SyncMessage) ? err : SyncMessage + "; " + err;
+            }
+        }
+
+        void DoImport()
+        {
+            if (!File.Exists(filePath))
+                return;
+            try
+            {
+                var result = _ibasesSync.Import(filePath, Infobases, Groups, _deletedGroupPaths.Load());
+                InfobasesView.Refresh();
+                Save();
+                SaveGroups();
+                RebuildGroupTree();
+                var importText = BuildSyncMessage(LocalizationManager.T("Sync.PrefixImported"), result);
+                if (!string.IsNullOrEmpty(importText))
+                {
+                    message = string.IsNullOrEmpty(message)
+                        ? importText
+                        : message + "; " + importText;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Авто-импорт ibases.v8i: {ex}");
+                SyncMessage = string.Format(LocalizationManager.T("Sync.ImportError"), ex.Message);
+            }
+        }
+
+        // В двустороннем режиме порядок зависит от того, менялся ли файл внешне после
+        // последней выгрузки приложения (issue #278):
+        // - файл новее метки (например, ручное восстановление) или метки ещё нет
+        //   (первый запуск) — сначала ЗАГРУЗКА из файла, затем выгрузка: имя базы
+        //   возвращается из файла и обратно в файл не записывается;
+        // - иначе — прежний порядок: выгрузка (удаления из приложения попадают в файл),
+        //   затем загрузка (удаления из стартера 1С убираются из приложения).
+        var importFirst = _ibasesSyncMode == IbasesSyncMode.Both
+            && IbasesSyncOrderResolver.ShouldImportFirst(
+                File.Exists(filePath) ? File.GetLastWriteTimeUtc(filePath) : DateTime.MinValue,
+                _ibasesLastSyncExportUtc);
+
+        if (importFirst)
+        {
+            if (importPerformed) DoImport();
+            if (exportPerformed) DoExport();
+        }
+        else
+        {
+            if (exportPerformed) DoExport();
+            if (importPerformed) DoImport();
+        }
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            SyncMessage = $"{DateTime.Now:HH:mm:ss} — {message}";
+        }
+
+        return importPerformed || exportPerformed;
+    }
+
+}
+
+/// <summary>Элемент панели тегов с признаком выбора.</summary>
+public sealed class TagFilterItem
+{
+    public TagFilterItem(string name, bool isSelected)
+    {
+        Name = name;
+        IsSelected = isSelected;
+    }
+
+    public string Name { get; }
+    public bool IsSelected { get; }
+}
+#endif

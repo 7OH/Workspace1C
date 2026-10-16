@@ -1,0 +1,19 @@
+#if LINUX
+using System;
+
+namespace Workspace1C.Services;
+
+/// <summary>
+/// Завершение процесса 1С на Linux: kill через <see cref="LinuxProc"/> с обязательной
+/// сверкой времени старта (/proc/<pid>/stat) — ядро переиспользует номера
+/// процессов, и без сверки можно завершить чужой процесс, занявший тот же PID.
+/// </summary>
+public sealed class OneCProcessKiller : IOneCProcessKiller
+{
+    // Конкретная причина отказа на Linux недоступна (LinuxProc игнорирует детали) —
+    // оставляем null, и ViewModel покажет стандартное объяснение «нет прав / PID изменился».
+    public string? LastError { get; } = null;
+
+    public bool Kill(int pid, string? startTimeToken) => LinuxProc.KillOne(pid, startTimeToken);
+}
+#endif
