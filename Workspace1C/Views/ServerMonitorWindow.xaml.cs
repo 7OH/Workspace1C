@@ -44,10 +44,11 @@ namespace Workspace1C
             // кнопки, теперь обрабатываем вручную (фокус может быть в текстовом поле).
             PreviewKeyDown += OnWindowPreviewKeyDown;
             ProcessesGrid.ItemsSource = _vm.Processes;
-            SessionsGrid.ItemsSource = _vm.Sessions;
-            ConnectionsGrid.ItemsSource = _vm.Connections;
-            LocksGrid.ItemsSource = _vm.Locks;
-            JobsGrid.ItemsSource = _vm.FilteredJobs;
+            // issue #3: таблицы сеансов/соединений/блокировок биндятся на ОТФИЛЬТРОВАННЫЕ
+            // коллекции — выбор базы фильтрует их на клиенте без перезагрузки кластера.
+            SessionsGrid.ItemsSource = _vm.FilteredSessions;
+            ConnectionsGrid.ItemsSource = _vm.FilteredConnections;
+            LocksGrid.ItemsSource = _vm.FilteredLocks;
             InfobasesGrid.ItemsSource = _vm.Infobases;
 
             // Таймер автообновления останавливается при закрытии окна (без утечки).
@@ -89,18 +90,27 @@ namespace Workspace1C
         private void OnDisconnectConnection_Click(object sender, RoutedEventArgs e) =>
             _vm.DisconnectConnectionCommand.Execute(null);
 
-        private void OnPauseJob_Click(object sender, RoutedEventArgs e) =>
-            _vm.PauseJobCommand.Execute(null);
+        /// <summary>
+        /// «Сбросить» фильтр по базе (issue #3): клиентская операция — показываются
+        /// сеансы/соединения/блокировки всех баз кластера, без rac-вызовов.
+        /// </summary>
+        private void OnClearInfobaseFilter_Click(object sender, RoutedEventArgs e) =>
+            _vm.ClearInfobaseFilter();
 
-        private void OnResumeJob_Click(object sender, RoutedEventArgs e) =>
-            _vm.ResumeJobCommand.Execute(null);
-
-        private void OnJobDetails_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Сортировка колонок DataGrid (issue #3): явно управляем индикаторами — стрелка
+        /// показывается у активной колонки, у остальных сбрасывается. Саму сортировку
+        /// выполняет DataGrid (e.Handled = false), направление он переключает сам.
+        /// </summary>
+        private void OnGridSorting(object sender, DataGridSortingEventArgs e)
         {
-            var row = _vm.SelectedJob;
-            if (row is null)
-                return;
-            new JobDetailsWindow(row.DetailsText) { Owner = this }.ShowDialog();
+            var grid = (DataGrid)sender;
+            foreach (var column in grid.Columns)
+            {
+                if (column != e.Column)
+                    column.SortDirection = null;
+            }
+            e.Handled = false;
         }
 
         /// <summary>

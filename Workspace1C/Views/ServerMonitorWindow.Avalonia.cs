@@ -46,7 +46,6 @@ namespace Workspace1C
         private readonly ServerMonitorViewModel _vm;
         private readonly ComboBox _clusterCombo;
         private readonly ListBox _serversList;
-        private TextBlock? _jobsEmptyHint;
         private TextBlock? _infobasesEmptyHint;
 
         public ServerMonitorWindow()
@@ -221,28 +220,52 @@ namespace Workspace1C
             };
 
             // ---- Вкладки данных кластера (заголовки ужаты, issue #3). ----
+            // issue #3: сеансы/соединения/блокировки биндятся на ОТФИЛЬТРОВАННЫЕ коллекции —
+            // выбор базы фильтрует их на клиенте без перезагрузки кластера.
             var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0) };
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Processes"),
                 BuildContent(() => BuildSortableTable(_vm.Processes, ProcessColumns, BuildProcessRow))));
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Sessions"),
                 BuildTabWithAction(
-                    BuildSortableTable(_vm.Sessions, SessionColumns, BuildSessionRow, "SelectedSession"),
+                    BuildSortableTable(_vm.FilteredSessions, SessionColumns, BuildSessionRow, "SelectedSession"),
                     BuildActionButton(LocalizationManager.T("ServerMonitor.TerminateSession"), "✕",
                         () => _vm.TerminateSessionCommand.Execute(null)))));
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Connections"),
                 BuildTabWithAction(
-                    BuildSortableTable(_vm.Connections, ConnectionColumns, BuildConnectionRow, "SelectedConnection"),
+                    BuildSortableTable(_vm.FilteredConnections, ConnectionColumns, BuildConnectionRow, "SelectedConnection"),
                     BuildActionButton(LocalizationManager.T("ServerMonitor.DisconnectConnection"), "⛓",
                         () => _vm.DisconnectConnectionCommand.Execute(null)))));
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Locks"),
-                BuildSortableTable(_vm.Locks, LockColumns, BuildLockRow)));
-            // Регламентные задания кластера (0.3.9.178): фильтр по базе, кнопки
-            // «Приостановить/Возобновить» (подтверждение — в VM) и «Детали».
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Jobs"), BuildJobsTab()));
+                BuildSortableTable(_vm.FilteredLocks, LockColumns, BuildLockRow)));
             // Базы кластера (issue #3): список, добавление/удаление, выбор базы
-            // фильтрует сеансы/соединения/блокировки.
+            // фильтрует сеансы/соединения/блокировки на клиенте.
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Infobases"), BuildInfobasesTab()));
             tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Info"), BuildInfoPane()));
+
+            // Индикатор фильтра по базе (issue #3): виден при выбранной базе, показывает
+            // имя базы и кнопку «Сбросить» (клиентская фильтрация, без rac-вызовов).
+            var filterText = new TextBlock
+            {
+                FontSize = 12,
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+                [!TextBlock.TextProperty] = new Binding("InfobaseFilterText")
+            };
+            var clearFilterButton = BuildActionButton(
+                LocalizationManager.T("ServerMonitor.Infobase.FilterReset"), "✕", _vm.ClearInfobaseFilter);
+            var filterPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Margin = new Thickness(0, 0, 0, 8),
+                IsVisible = _vm.HasInfobaseFilter,
+                Children = { filterText, clearFilterButton }
+            };
+            _vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ServerMonitorViewModel.HasInfobaseFilter))
+                    filterPanel.IsVisible = _vm.HasInfobaseFilter;
+            };
 
             var autoRefreshHint = new TextBlock { FontSize = 11, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
             autoRefreshHint.Bind(TextBlock.TextProperty, new Binding("AutoRefreshText"));
@@ -259,16 +282,18 @@ namespace Workspace1C
                 {
                     new RowDefinition(GridLength.Auto),
                     new RowDefinition(GridLength.Auto),
+                    new RowDefinition(GridLength.Auto),
                     new RowDefinition(GridLength.Star),
                     new RowDefinition(GridLength.Auto)
                 }
             };
             // Слева — справочник «Сервера управления» (issue #3), справа — данные кластера.
-            Place(root, serversPanel, 0, 0, 4);
+            Place(root, serversPanel, 0, 0, 5);
             Place(root, actionPanel, 1, 0);
             Place(root, clusterPanel, 1, 1);
-            Place(root, tabs, 1, 2);
-            Place(root, new StackPanel { Children = { error, autoRefreshHint }, Spacing = 2 }, 1, 3);
+            Place(root, filterPanel, 1, 2);
+            Place(root, tabs, 1, 3);
+            Place(root, new StackPanel { Children = { error, autoRefreshHint }, Spacing = 2 }, 1, 4);
             Content = root;
         }
 
@@ -374,20 +399,40 @@ namespace Workspace1C
             for (var i = 0; i < columns.Count; i++)
             {
                 var col = columns[i];
-                var arrow = new TextBlock { Text = string.Empty, FontSize = 10, Margin = new Thickness(4, 0, 0, 0) };
-                arrows[col] = arrow;
-                var headerText = new StackPanel
+                // Стрелка сортировки (issue #3): акцентный цвет, не переносится и не
+                // «съедается» длинным заголовком — заголовок усекается (TextTrimming),
+                // а стрелка всегда видна справа в отдельной авто-колонке.
+                var arrow = new TextBlock
                 {
-                    Orientation = Orientation.Horizontal,
-                    Children =
+                    Text = string.Empty,
+                    FontSize = 10,
+                    Margin = new Thickness(4, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.NoWrap
+                };
+                ThemeBrushes.Bind(arrow, TextBlock.ForegroundProperty, "AccentBrush");
+                arrows[col] = arrow;
+                var headerText = new TextBlock
+                {
+                    Text = col.Header,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                var headerPanel = new Grid
+                {
+                    ColumnDefinitions =
                     {
-                        new TextBlock { Text = col.Header, VerticalAlignment = VerticalAlignment.Center },
-                        arrow
+                        new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
+                        new ColumnDefinition(GridLength.Auto)
                     }
                 };
+                Grid.SetColumn(headerText, 0);
+                Grid.SetColumn(arrow, 1);
+                headerPanel.Children.Add(headerText);
+                headerPanel.Children.Add(arrow);
                 var button = new Button
                 {
-                    Content = headerText,
+                    Content = headerPanel,
                     Padding = new Thickness(6, 2),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     HorizontalContentAlignment = HorizontalAlignment.Left
@@ -569,21 +614,6 @@ namespace Workspace1C
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Transaction"), "TransactionId", "TransactionId", Star(1.1))
         };
 
-        /// <summary>Колонки вкладки «Регламентные задания».</summary>
-        private static readonly IReadOnlyList<TableColumn> JobColumns = new[]
-        {
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Name"), "Name", "Name", Star(1.4)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Infobase"), "InfobaseName", "InfobaseName", Star(1.1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Method"), "MethodName", "MethodName", Star(1.1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Schedule"), "Schedule", "Schedule", Star(1.1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.State"), "StateText", "State", Px(110)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.NextStart"), "NextStartText", "NextStartText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.LastStart"), "LastStartText", "LastStartText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.LastSuccess"), "LastSuccessText", "LastSuccessText", Px(80)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Result"), "ResultText", "ResultText", Star(1.2)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Job.Predefined"), "PredefinedText", "PredefinedText", Px(90))
-        };
-
         /// <summary>Колонки вкладки «Базы» (issue #3).</summary>
         private static readonly IReadOnlyList<TableColumn> InfobaseColumns = new[]
         {
@@ -673,79 +703,10 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Вкладка «Регламентные задания»: фильтр по базе, кнопки действий и таблица.
-        /// Подсказка пустого списка обновляется в <see cref="OnVmPropertyChanged"/>.
-        /// </summary>
-        private Control BuildJobsTab()
-        {
-            var filterCombo = new ComboBox { Width = 260, VerticalContentAlignment = VerticalAlignment.Center };
-            filterCombo.Styled(ControlThemes.ModernComboBox);
-            filterCombo.ItemsSource = _vm.JobInfobaseFilterRows;
-            filterCombo.ItemTemplate = new FuncDataTemplate<RacJobFilterRow>((row, _) =>
-                new TextBlock { Text = row.DisplayText });
-            filterCombo.SelectionChanged += (_, _) =>
-            {
-                if (filterCombo.SelectedItem is RacJobFilterRow row)
-                    _vm.SelectedJobInfobaseId = row.Id;
-            };
-
-            var pauseButton = BuildActionButton(LocalizationManager.T("ServerMonitor.PauseJob"), "⏸",
-                () => _vm.PauseJobCommand.Execute(null));
-            var resumeButton = BuildActionButton(LocalizationManager.T("ServerMonitor.ResumeJob"), "▶",
-                () => _vm.ResumeJobCommand.Execute(null));
-            var detailsButton = BuildActionButton(LocalizationManager.T("ServerMonitor.JobDetails"), "ℹ",
-                () =>
-                {
-                    if (_vm.SelectedJob is not null)
-                        new JobDetailsWindow(_vm.SelectedJob.DetailsText).ShowDialog(this);
-                });
-
-            // Кнопки действий зависят от состояния выбранного задания (VM уведомляет).
-            pauseButton.Bind(Button.IsEnabledProperty, new Binding("CanPauseSelectedJob"));
-            resumeButton.Bind(Button.IsEnabledProperty, new Binding("CanResumeSelectedJob"));
-
-            _jobsEmptyHint = new TextBlock
-            {
-                Text = LocalizationManager.T("ServerMonitor.Empty.Jobs"),
-                FontSize = 12,
-                Opacity = 0.65,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 6),
-                IsVisible = !_vm.HasJobs
-            };
-
-            var toolbar = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 8,
-                Margin = new Thickness(0, 0, 0, 8),
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = LocalizationManager.T("ServerMonitor.Columns.Job.Infobase"),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    filterCombo,
-                    pauseButton,
-                    resumeButton,
-                    detailsButton
-                }
-            };
-
-            var dock = new DockPanel { LastChildFill = true };
-            DockPanel.SetDock(toolbar, Dock.Top);
-            DockPanel.SetDock(_jobsEmptyHint, Dock.Top);
-            dock.Children.Add(toolbar);
-            dock.Children.Add(_jobsEmptyHint);
-            dock.Children.Add(BuildSortableTable(_vm.FilteredJobs, JobColumns, BuildJobRow, "SelectedJob"));
-            return dock;
-        }
-
-        /// <summary>
         /// Вкладка «Базы» (issue #3): список информационных баз кластера с кнопками
         /// «Добавить базу» (rac «infobase create») и «Удалить базу» (rac «infobase drop»,
-        /// подтверждение — в VM). Выбор базы фильтрует сеансы/соединения/блокировки.
+        /// подтверждение — в VM). Выбор базы фильтрует сеансы/соединения/блокировки
+        /// на клиенте (без rac-вызовов).
         /// </summary>
         private Control BuildInfobasesTab()
         {
@@ -925,38 +886,6 @@ namespace Workspace1C
             return grid;
         }
 
-        private static Control BuildJobRow(object item)
-        {
-            var row = (RacJobRow)item;
-            var grid = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(new GridLength(1.4, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(110)),
-                    new ColumnDefinition(new GridLength(130)),
-                    new ColumnDefinition(new GridLength(130)),
-                    new ColumnDefinition(new GridLength(80)),
-                    new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(90))
-                }
-            };
-            AddCell(grid, CellText("Name", bold: true), 0);
-            AddCell(grid, CellText("InfobaseName"), 1);
-            AddCell(grid, CellText("MethodName"), 2);
-            AddCell(grid, CellText("Schedule"), 3);
-            AddCell(grid, CellText("StateText", colorHex: row.StateColorHex), 4);
-            AddCell(grid, CellText("NextStartText"), 5);
-            AddCell(grid, CellText("LastStartText"), 6);
-            AddCell(grid, CellText("LastSuccessText"), 7);
-            AddCell(grid, CellText("ResultText"), 8);
-            AddCell(grid, CellText("PredefinedText"), 9);
-            return grid;
-        }
-
         private static Control BuildLockRow(object item)
         {
             var row = (RacLockRow)item;
@@ -1022,13 +951,6 @@ namespace Workspace1C
 
         private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(ServerMonitorViewModel.HasJobs) && _jobsEmptyHint is not null)
-            {
-                // Подсказка «заданий нет / нет прав администратора» видна только при пустом списке.
-                _jobsEmptyHint.IsVisible = !_vm.HasJobs;
-                return;
-            }
-
             if (e.PropertyName == nameof(ServerMonitorViewModel.HasInfobases) && _infobasesEmptyHint is not null)
             {
                 // Подсказка «баз нет» видна только при пустом списке.

@@ -270,165 +270,6 @@ public sealed class ServerMonitorViewModelTests
         Assert.NotEmpty(vm.StatusText);
     }
 
-    // ===================== Регламентные задания =====================
-
-    [Fact]
-    public async Task LoadClusterDataAsync_FillsJobsTab_AndInfobaseFilter()
-    {
-        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
-
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        Assert.Equal(2, vm.Jobs.Count);
-        Assert.Equal(2, vm.FilteredJobs.Count);
-        // Фильтр: «Все базы» + база-владелец из маппинга.
-        Assert.Contains(vm.JobInfobaseFilterRows, r => r.Id is null);
-        Assert.Contains(vm.JobInfobaseFilterRows, r => r.Id == FakeRacClient.FirstInfobaseId);
-        // Имя базы подставлено из кэша «infobase summary list»; задание без базы —
-        // помечается ключом-заглушкой (в тестах локализация не инициализирована —
-        // сравнение самосогласовано через тот же ключ).
-        Assert.Equal("Бухгалтерия", vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId).InfobaseName);
-        Assert.Equal(
-            LocalizationManager.T("ServerMonitor.Job.UnknownBase"),
-            vm.Jobs.Single(j => j.Id == FakeRacClient.SecondJobId).InfobaseName);
-    }
-
-    [Fact]
-    public async Task JobFilter_FiltersByInfobase_AndAllRestores()
-    {
-        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJobInfobaseId = FakeRacClient.FirstInfobaseId;
-
-        var row = Assert.Single(vm.FilteredJobs);
-        Assert.Equal(FakeRacClient.FirstJobId, row.Id);
-
-        vm.SelectedJobInfobaseId = null;
-
-        Assert.Equal(2, vm.FilteredJobs.Count);
-    }
-
-    [Fact]
-    public async Task Reload_PreservesJobSelection_AndJobFilter()
-    {
-        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId);
-        vm.SelectedJobInfobaseId = FakeRacClient.FirstInfobaseId;
-
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        Assert.NotNull(vm.SelectedJob);
-        Assert.Equal(FakeRacClient.FirstJobId, vm.SelectedJob!.Id);
-        Assert.Equal(FakeRacClient.FirstInfobaseId, vm.SelectedJobInfobaseId);
-        Assert.Single(vm.FilteredJobs);
-    }
-
-    [Fact]
-    public async Task PauseSelectedJob_Confirm_CallsClient_WithPauseAction()
-    {
-        var client = new FakeRacClient();
-        var dialogs = new RecordingDialogs();
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.ConnectAsync();
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId);
-        await vm.PauseSelectedJobAsync();
-
-        Assert.Single(dialogs.Confirms);
-        Assert.Empty(dialogs.Warnings);
-        var call = Assert.Single(client.StateCalls);
-        Assert.Equal((FakeRacClient.FirstClusterId, FakeRacClient.FirstJobId, RacJobAction.Pause), call);
-        Assert.NotEmpty(vm.StatusText);
-    }
-
-    [Fact]
-    public async Task PauseSelectedJob_Cancelled_DoesNotCallClient()
-    {
-        var client = new FakeRacClient();
-        var dialogs = new RecordingDialogs { ConfirmResult = false };
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.ConnectAsync();
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId);
-        await vm.PauseSelectedJobAsync();
-
-        Assert.Single(dialogs.Confirms);
-        Assert.Empty(client.StateCalls);
-    }
-
-    [Fact]
-    public async Task PauseSelectedJob_NotAllowedForPausedJob_DoesNothing()
-    {
-        var client = new FakeRacClient();
-        var dialogs = new RecordingDialogs();
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        // Второе задание в фейке имеет состояние «paused» — приостановить нельзя.
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.SecondJobId);
-        await vm.PauseSelectedJobAsync();
-
-        Assert.Empty(client.StateCalls);
-        Assert.Empty(dialogs.Confirms);
-    }
-
-    [Fact]
-    public async Task ResumeSelectedJob_Confirm_CallsClient_WithResumeAction()
-    {
-        var client = new FakeRacClient();
-        var dialogs = new RecordingDialogs();
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.ConnectAsync();
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.SecondJobId);
-        await vm.ResumeSelectedJobAsync();
-
-        var call = Assert.Single(client.StateCalls);
-        Assert.Equal((FakeRacClient.FirstClusterId, FakeRacClient.SecondJobId, RacJobAction.Resume), call);
-        Assert.NotEmpty(vm.StatusText);
-    }
-
-    [Fact]
-    public async Task PauseSelectedJob_ClientReturnsFalse_ShowsWarning_WithDetail()
-    {
-        var client = new FakeRacClient(actionFails: true);
-        var dialogs = new RecordingDialogs();
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.ConnectAsync();
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId);
-        await vm.PauseSelectedJobAsync();
-
-        Assert.Single(client.StateCalls);
-        var warning = Assert.Single(dialogs.Warnings);
-        Assert.Contains("нет прав", warning.message);
-        Assert.NotEmpty(vm.StatusText);
-    }
-
-    [Fact]
-    public async Task PauseSelectedJob_ClientThrows_ShowsWarning_DoesNotCrash()
-    {
-        var client = new FakeRacClient(throwOnAction: true);
-        var dialogs = new RecordingDialogs();
-        var vm = new ServerMonitorViewModel(client, dialogs);
-        await vm.ConnectAsync();
-        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
-
-        vm.SelectedJob = vm.Jobs.Single(j => j.Id == FakeRacClient.FirstJobId);
-        await vm.PauseSelectedJobAsync();
-
-        Assert.Single(dialogs.Warnings);
-        Assert.NotEmpty(vm.StatusText);
-        Assert.False(vm.IsBusy);
-    }
-
     // ===================== Автообновление =====================
 
     [Fact]
@@ -642,7 +483,6 @@ public sealed class ServerMonitorViewModelTests
         Assert.NotEmpty(vm.Processes);        // остальные заполнены
         Assert.NotEmpty(vm.Connections);
         Assert.NotEmpty(vm.Locks);
-        Assert.NotEmpty(vm.Jobs);
         Assert.NotNull(vm.ClusterInfo);
         // Сбойная вкладка названа в ошибке: текст исключения fake-клиента упоминает
         // команду session list (культуро-независимый фрагмент — не локализация).
@@ -997,29 +837,85 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
-    public async Task SelectInfobase_ReloadsSessionsConnectionsLocks_WithFilter()
+    public async Task SelectInfobase_FiltersSessionsConnectionsLocks_OnClient_WithoutReload()
     {
+        // issue #3: выбор базы НЕ перезагружает кластер (rac «--infobase=...» на платформе
+        // пользователя не работает и вызывает зависание) — сеансы/соединения/блокировки
+        // фильтруются на клиенте по уже загруженному снимку, без rac-вызовов и IsBusy.
         var client = new FakeRacClient();
         var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
         await vm.ConnectAsync();
         await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
 
-        // Без выбора базы данные кластера запрашиваются целиком.
+        // Данные кластера запрашиваются целиком — rac-фильтр по базе не передаётся.
         Assert.Null(client.LastSessionsInfobaseId);
         Assert.Null(client.LastConnectionsInfobaseId);
         Assert.Null(client.LastLocksInfobaseId);
         Assert.Single(vm.Sessions);
+        Assert.Single(vm.Connections);
         Assert.Single(vm.Locks);
+        Assert.Single(vm.FilteredSessions);
+        Assert.Single(vm.FilteredConnections);
+        Assert.Single(vm.FilteredLocks);
+        var processCallsBefore = client.ProcessCalls;
 
-        // Выбираем базу — сеансы/соединения/блокировки перечитываются в разрезе базы.
+        // Выбираем базу — фильтрация МГНОВЕННАЯ, без rac-вызовов и без IsBusy.
         vm.SelectedInfobase = vm.Infobases.Single();
         Assert.Equal(FakeRacClient.FirstInfobaseId, vm.SelectedInfobaseId);
+        Assert.True(vm.HasInfobaseFilter);
+        Assert.False(vm.IsBusy);
 
-        await WaitUntilAsync(() => client.LastSessionsInfobaseId == FakeRacClient.FirstInfobaseId);
-        Assert.Equal(FakeRacClient.FirstInfobaseId, client.LastConnectionsInfobaseId);
-        Assert.Equal(FakeRacClient.FirstInfobaseId, client.LastLocksInfobaseId);
-        Assert.Single(vm.Sessions);
-        Assert.Single(vm.Locks);
+        // Сеанс принадлежит выбранной базе; соединение сопоставлено через SessionId
+        // сеанса; блокировка — по InfobaseId строки.
+        Assert.Single(vm.FilteredSessions);
+        Assert.Single(vm.FilteredConnections);
+        Assert.Single(vm.FilteredLocks);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, vm.FilteredSessions[0].InfobaseId);
+
+        // Перезагрузки кластера не было: rac-команды не вызывались повторно.
+        Assert.Equal(processCallsBefore, client.ProcessCalls);
+        Assert.Null(client.LastSessionsInfobaseId);
+        Assert.Null(client.LastConnectionsInfobaseId);
+        Assert.Null(client.LastLocksInfobaseId);
+    }
+
+    [Fact]
+    public async Task ClearInfobaseFilter_ShowsAllData_WithoutReload()
+    {
+        // issue #3: «Сбросить» снимает клиентский фильтр — снова видны все базы кластера.
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.SelectedInfobase = vm.Infobases.Single();
+        Assert.True(vm.HasInfobaseFilter);
+        Assert.Single(vm.FilteredSessions);
+
+        var processCallsBefore = client.ProcessCalls;
+        vm.ClearInfobaseFilter();
+
+        Assert.Null(vm.SelectedInfobaseId);
+        Assert.False(vm.HasInfobaseFilter);
+        Assert.Empty(vm.InfobaseFilterText);
+        Assert.Single(vm.FilteredSessions);
+        Assert.Single(vm.FilteredConnections);
+        Assert.Single(vm.FilteredLocks);
+        // Клиентская операция — rac не вызывался.
+        Assert.Equal(processCallsBefore, client.ProcessCalls);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task LoadClusterDataAsync_DoesNotCallGetJobsAsync()
+    {
+        // issue #3: вкладка «Регламентные задания» удалена — rac «job list» не вызывается.
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        Assert.Equal(0, client.JobCalls);
     }
 
     [Fact]
@@ -1102,15 +998,6 @@ public sealed class ServerMonitorViewModelTests
         Assert.Empty(client.DropInfobaseCalls);
     }
 
-    /// <summary>Ждёт наступления условия (с таймаутом) — для fire-and-forget загрузки кластера.</summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
-    {
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        while (!condition() && stopwatch.ElapsedMilliseconds < timeoutMs)
-            await Task.Delay(10);
-        Assert.True(condition(), "Условие не наступило в течение " + timeoutMs + " мс.");
-    }
-
     // ===================== Fakes =====================
 
     /// <summary>Fake-клиент rac для тестов: два кластера, по одной строке данных.</summary>
@@ -1127,6 +1014,9 @@ public sealed class ServerMonitorViewModelTests
 
         /// <summary>Идентификатор информационной базы-владельца первого задания.</summary>
         public static readonly System.Guid FirstInfobaseId = System.Guid.Parse("cccccccc-1111-2222-3333-444455556666");
+
+        /// <summary>Идентификатор сеанса (детерминированный — соединение ссылается на него).</summary>
+        public static readonly System.Guid FirstSessionId = System.Guid.Parse("dddddddd-1111-2222-3333-444455556666");
 
         private readonly bool _throwOnClusters;
         private readonly bool _throwOnAction;
@@ -1271,7 +1161,7 @@ public sealed class ServerMonitorViewModelTests
             {
                 new RacSessionInfo
                 {
-                    Id = System.Guid.NewGuid(),
+                    Id = FirstSessionId,
                     // issue #324, C2: infobase-id сеанса маппится на имя из «infobase summary list».
                     InfobaseId = FirstInfobaseId,
                     User = "Иванов",
@@ -1296,7 +1186,9 @@ public sealed class ServerMonitorViewModelTests
                 new RacConnectionInfo
                 {
                     Id = System.Guid.NewGuid(),
-                    SessionId = System.Guid.NewGuid(),
+                    // issue #3: SessionId соединения указывает на сеанс — по нему
+                    // клиентская фильтрация определяет базу соединения.
+                    SessionId = FirstSessionId,
                     Connector = "1CV8",
                     Host = "client1",
                     Port = 52000,

@@ -30,6 +30,12 @@ public sealed class RacSessionRow
     /// </summary>
     public string InfobaseName { get; }
 
+    /// <summary>
+    /// Идентификатор информационной базы сеанса (issue #3): используется для
+    /// КЛИЕНТСКОЙ фильтрации сеансов по выбранной базе; null — база не указана.
+    /// </summary>
+    public System.Guid? InfobaseId => _info.InfobaseId;
+
     /// <summary>Идентификатор информационной базы сеанса (пусто — не указана).</summary>
     public string InfobaseIdText => _info.InfobaseId?.ToString() ?? string.Empty;
 
