@@ -46,6 +46,74 @@ public static class UtilitiesMenuResolver
         return result;
     }
 
+    /// <summary>
+    /// Гарантирует наличие группы «Новинки программы» в компоновке (issue #4): если
+    /// в каталоге есть пункты с признаком «новинка», отсутствующие в компоновке, они
+    /// добавляются в группу <see cref="UtilitiesMenuCatalog.GroupNewItems"/>. Группа
+    /// создаётся в конце корня, если её нет в компоновке; если она уже есть — используется
+    /// её текущее местоположение (пользователь может менять только его). Видимость группы
+    /// всегда принудительно включается: скрытие в редакторе не влияет на отображение
+    /// при работе.
+    /// </summary>
+    public static UtilitiesMenuLayout? EnsureNewItemsGroup(UtilitiesMenuLayout? layout)
+    {
+        if (layout is null)
+            return null;
+        var newItems = CollectNewItems(layout);
+        if (newItems.Count == 0)
+            return layout;
+
+        var existing = FindGroup(layout.Root, UtilitiesMenuCatalog.GroupNewItems);
+        if (existing is not null)
+        {
+            // Группа уже есть (пользователь мог её переместить) — добавляем в неё
+            // отсутствующие пункты и принудительно включаем видимость.
+            existing.Visible = true;
+            var present = new HashSet<string>();
+            CollectItemIds(existing.Children, present);
+            foreach (var item in newItems)
+            {
+                if (!present.Contains(item.Id))
+                    existing.Children.Add(new UtilitiesMenuNode { Kind = "item", ItemId = item.Id });
+            }
+            return layout;
+        }
+
+        // Группы нет — создаём в конце корня с разделителем перед ней (как в меню).
+        var group = new UtilitiesMenuNode
+        {
+            Kind = "group",
+            GroupId = UtilitiesMenuCatalog.GroupNewItems,
+            Visible = true,
+            SeparatorBefore = true,
+        };
+        foreach (var item in newItems)
+            group.Children.Add(new UtilitiesMenuNode { Kind = "item", ItemId = item.Id });
+        layout.Root.Add(group);
+        return layout;
+    }
+
+    /// <summary>Ищет группу с указанным <c>GroupId</c> в дереве (рекурсивно, включая вложенные).</summary>
+    private static UtilitiesMenuNode? FindGroup(IEnumerable<UtilitiesMenuNode>? nodes, string groupId)
+    {
+        if (nodes is null)
+            return null;
+        foreach (var node in nodes)
+        {
+            if (node is null)
+                continue;
+            if (string.Equals(node.Kind, "group", StringComparison.Ordinal) &&
+                string.Equals(node.GroupId, groupId, StringComparison.Ordinal))
+            {
+                return node;
+            }
+            var found = FindGroup(node.Children, groupId);
+            if (found is not null)
+                return found;
+        }
+        return null;
+    }
+
     /// <summary>Собирает все ItemId узлов дерева (включая вложенные группы).</summary>
     public static void CollectItemIds(IEnumerable<UtilitiesMenuNode>? nodes, HashSet<string> target)
     {

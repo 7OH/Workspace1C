@@ -26,6 +26,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private readonly IRacClient _rac;
     private readonly IDialogService _dialogs;
     private readonly Action<Action>? _dispatchToUi;
+    private readonly IServerListStore? _serverListStore;
     private Timer? _autoRefreshTimer;
     private int _busy;
 
@@ -33,6 +34,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private int _serverPort = IRacClient.DefaultPort;
     private string _userName = string.Empty;
     private string _password = string.Empty;
+    private ManagementServer? _selectedServer;
     private Guid? _selectedClusterId;
     private string _statusText = string.Empty;
     private string _errorMessage = string.Empty;
@@ -72,14 +74,19 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// Доставка применения результатов в UI-поток (передаёт окно); null — результаты
     /// применяются прямо из рабочего потока (тесты).
     /// </param>
+    /// <param name="serverListStore">Хранилище справочника «Сервера управления» (issue #3);
+    /// null — справочник недоступен (тесты без хранилища).</param>
     public ServerMonitorViewModel(
         IRacClient rac,
         IDialogService dialogs,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        IServerListStore? serverListStore = null)
     {
         _rac = rac ?? throw new ArgumentNullException(nameof(rac));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _dispatchToUi = dispatchToUi;
+        _serverListStore = serverListStore;
+        LoadServers();
     }
 
     // ===================== Подключение =====================
@@ -122,6 +129,106 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     {
         get => _password;
         set => SetProperty(ref _password, value ?? string.Empty);
+    }
+
+    // ===================== Справочник «Сервера управления» (issue #3) =====================
+
+    /// <summary>
+    /// Список серверов справочника «Сервера управления» (issue #3): в окне выводится
+    /// слева отдельным списком (только <see cref="ManagementServer.Description"/>);
+    /// при активации строки выполняется подключение к кластеру. Хранится в файле
+    /// <c>server_list.json</c> через <see cref="IServerListStore"/>.
+    /// </summary>
+    public ObservableCollection<ManagementServer> Servers { get; } = new();
+
+    /// <summary>Выбранный сервер справочника (строка слева).</summary>
+    public ManagementServer? SelectedServer
+    {
+        get => _selectedServer;
+        set => SetProperty(ref _selectedServer, value);
+    }
+
+    /// <summary>Есть ли хотя бы один сервер в справочнике (для подсказки пустого списка).</summary>
+    public bool HasServers => Servers.Count > 0;
+
+    /// <summary>Перечитывает список серверов из хранилища (при открытии окна).</summary>
+    public void LoadServers()
+    {
+        Servers.Clear();
+        if (_serverListStore is null)
+        {
+            OnPropertyChanged(nameof(HasServers));
+            return;
+        }
+        foreach (var server in _serverListStore.Load())
+            Servers.Add(server);
+        OnPropertyChanged(nameof(HasServers));
+    }
+
+    /// <summary>Добавляет сервер в справочник и сохраняет файл.</summary>
+    public void AddServer(ManagementServer server)
+    {
+        if (server is null || _serverListStore is null)
+            return;
+        if (string.IsNullOrWhiteSpace(server.Id))
+            server.Id = Guid.NewGuid().ToString("N");
+        Servers.Add(server);
+        _serverListStore.Save(Servers.ToList());
+        OnPropertyChanged(nameof(HasServers));
+    }
+
+    /// <summary>Обновляет запись справочника (правка) и сохраняет файл.</summary>
+    public void UpdateServer(ManagementServer server)
+    {
+        if (server is null || _serverListStore is null)
+            return;
+        var index = Servers.ToList().FindIndex(s => s.Id == server.Id);
+        if (index >= 0)
+            Servers[index] = server;
+        _serverListStore.Save(Servers.ToList());
+    }
+
+    /// <summary>Удаляет сервер из справочника и сохраняет файл.</summary>
+    public void RemoveServer(ManagementServer server)
+    {
+        if (server is null || _serverListStore is null)
+            return;
+        Servers.Remove(server);
+        if (ReferenceEquals(SelectedServer, server))
+            SelectedServer = null;
+        _serverListStore.Save(Servers.ToList());
+        OnPropertyChanged(nameof(HasServers));
+    }
+
+    /// <summary>
+    /// Подключение к кластеру выбранного сервера справочника (issue #3): адрес/порт/
+    /// логин/пароль берутся из записи, затем выполняется обычное подключение
+    /// (<see cref="ConnectAsync"/>). Вызывается окном при активации строки списка.
+    /// В статус-строке указывается имя сервера (описание), чтобы было видно,
+    /// к какому кластеру идёт подключение.
+    /// </summary>
+    public async Task ConnectToServerAsync(ManagementServer server)
+    {
+        if (server is null)
+            return;
+        ServerAddress = server.Address;
+        ServerPort = server.Port;
+        UserName = server.User;
+        Password = server.Password;
+
+        var (host, port) = RacConnectionAddress.Split(server.Address, server.Port);
+        StatusText = string.Format(
+            LocalizationManager.T("ServerMonitor.Servers.ConnectingFormat"),
+            server.Description, host, port);
+
+        await ConnectAsync();
+
+        if (!HasConnected)
+        {
+            StatusText = string.Format(
+                LocalizationManager.T("ServerMonitor.Servers.ConnectFailedFormat"),
+                server.Description);
+        }
     }
 
     // ===================== Кластеры =====================

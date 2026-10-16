@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.1</Version>
-    <AssemblyVersion>1.0.0.1</AssemblyVersion>
-    <FileVersion>1.0.0.1</FileVersion>
-    <InformationalVersion>1.0.0.1</InformationalVersion>
+    <Version>1.0.0.2</Version>
+    <AssemblyVersion>1.0.0.2</AssemblyVersion>
+    <FileVersion>1.0.0.2</FileVersion>
+    <InformationalVersion>1.0.0.2</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -259,6 +259,10 @@
     <!-- Окно «Серверы 1С» (0.3.9.124): WPF code-behind исключается, Avalonia-версия
          (ServerMonitorWindow.Avalonia.cs) подключается глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\ServerMonitorWindow.xaml.cs" />
+    <!-- Окно редактирования сервера справочника «Сервера управления» (issue #3):
+         WPF code-behind исключается, Avalonia-версия (ServerEditWindow.Avalonia.cs)
+         подключается глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\ServerEditWindow.xaml.cs" />
     <!-- Окно «Диагностика подключения» (0.3.9.232, функция 12): WPF code-behind
          исключается, Avalonia-версия (NetworkDiagnosticsWindow.Avalonia.cs)
          подключается глобом *Window.Avalonia.cs ниже. -->

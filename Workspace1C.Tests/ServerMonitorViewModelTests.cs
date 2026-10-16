@@ -846,6 +846,141 @@ public sealed class ServerMonitorViewModelTests
         Assert.NotEmpty(vm.StatusText);
     }
 
+    // ===================== Справочник «Сервера управления» (issue #3) =====================
+
+    [Fact]
+    public void Constructor_LoadsServersFromStore()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        store.Save(new[]
+        {
+            new ManagementServer { Id = "srv-1", Description = "Основной", Address = "srv1", Port = 1540 },
+            new ManagementServer { Id = "srv-2", Description = "Резервный", Address = "srv2", Port = 1545 }
+        });
+
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+
+        Assert.Equal(2, vm.Servers.Count);
+        Assert.Equal("Основной", vm.Servers[0].Description);
+        Assert.Equal("Резервный", vm.Servers[1].Description);
+    }
+
+    [Fact]
+    public void AddServer_AddsToCollection_AndPersistsToStore()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+
+        vm.AddServer(new ManagementServer { Description = "Новый", Address = "srv-new", Port = 1540 });
+
+        Assert.Single(vm.Servers);
+        Assert.Equal("Новый", vm.Servers[0].Description);
+        // Запись сохранена в файл: новое хранилище на том же каталоге читает её.
+        var reloaded = new ServerListStore(directoryOverride: tmp.Path).Load();
+        Assert.Single(reloaded);
+        Assert.Equal("srv-new", reloaded[0].Address);
+    }
+
+    [Fact]
+    public void RemoveServer_RemovesFromCollection_AndPersists()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var server = new ManagementServer { Id = "srv-1", Description = "Сервер", Address = "srv1" };
+        vm.AddServer(server);
+
+        vm.RemoveServer(server);
+
+        Assert.Empty(vm.Servers);
+        Assert.Null(vm.SelectedServer);
+        Assert.Empty(new ServerListStore(directoryOverride: tmp.Path).Load());
+    }
+
+    [Fact]
+    public void UpdateServer_ReplacesEntry_AndPersists()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var server = new ManagementServer { Id = "srv-1", Description = "Старое имя", Address = "srv1" };
+        vm.AddServer(server);
+
+        vm.UpdateServer(new ManagementServer
+        {
+            Id = "srv-1",
+            Description = "Новое имя",
+            Address = "srv1-updated",
+            Port = 1545,
+            User = "admin",
+            Password = "pwd"
+        });
+
+        Assert.Single(vm.Servers);
+        Assert.Equal("Новое имя", vm.Servers[0].Description);
+        Assert.Equal("srv1-updated", vm.Servers[0].Address);
+        var reloaded = new ServerListStore(directoryOverride: tmp.Path).Load();
+        Assert.Equal("Новое имя", reloaded[0].Description);
+        Assert.Equal("pwd", reloaded[0].Password);
+    }
+
+    [Fact]
+    public async Task ConnectToServerAsync_SetsParamsFromServer_AndConnects()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        var server = new ManagementServer
+        {
+            Id = "srv-1",
+            Description = "Основной",
+            Address = "srv1c:27545",
+            Port = 1540,
+            User = "admin",
+            Password = "secret"
+        };
+
+        await vm.ConnectToServerAsync(server);
+
+        Assert.True(vm.HasConnected);
+        // Поле адреса хранит исходное значение записи (включая «host:port»).
+        Assert.Equal("srv1c:27545", vm.ServerAddress);
+        Assert.Equal(1540, vm.ServerPort);
+        Assert.Equal("admin", vm.UserName);
+        Assert.Equal("secret", vm.Password);
+        // Параметры переданы клиенту rac: порт из адреса приоритетнее поля.
+        Assert.NotNull(client.LastParams);
+        Assert.Equal("srv1c", client.LastParams!.Address);
+        Assert.Equal(27545, client.LastParams.Port);
+        Assert.Equal("admin", client.LastParams.User);
+        Assert.Equal("secret", client.LastParams.Password);
+    }
+
+    [Fact]
+    public async Task ConnectToServerAsync_OnClientFailure_ReportsError()
+    {
+        var vm = new ServerMonitorViewModel(new FakeRacClient(throwOnClusters: true), new RecordingDialogs());
+        var server = new ManagementServer { Id = "srv-1", Description = "Сервер", Address = "srv1", Port = 1540 };
+
+        await vm.ConnectToServerAsync(server);
+
+        Assert.False(vm.HasConnected);
+        Assert.NotEmpty(vm.ErrorMessage);
+        Assert.Equal("srv1", vm.ServerAddress);
+    }
+
+    [Fact]
+    public void SelectedServer_IsSettable()
+    {
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+        var server = new ManagementServer { Id = "srv-1", Description = "Сервер", Address = "srv1" };
+
+        vm.SelectedServer = server;
+
+        Assert.Same(server, vm.SelectedServer);
+    }
+
     // ===================== Fakes =====================
 
     /// <summary>Fake-клиент rac для тестов: два кластера, по одной строке данных.</summary>
@@ -1166,5 +1301,18 @@ public sealed class ServerMonitorViewModelTests
         public string? OpenFileDialog(string title = "", string filter = "", string? initialDirectory = null) => null;
         public string? SaveFileDialog(string title = "", string defaultFileName = "", string filter = "", string? initialDirectory = null) => null;
         public string? OpenFolderDialog(string title = "", string? initialDirectory = null) => null;
+    }
+
+    /// <summary>Временный каталог для изоляции хранилища справочника (issue #3).</summary>
+    private static TempDirectory TempDir() => new();
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"cm_sm_{Guid.NewGuid():N}");
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); } catch { /* не критично */ }
+        }
     }
 }

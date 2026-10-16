@@ -373,7 +373,9 @@ public sealed class ScheduledTaskEditWindow : ModalWindowBase
         _cfgPanel.IsVisible = kind is ScheduledTaskKind.UpdateConfig or ScheduledTaskKind.BackupThenUpdateConfig;
         _platformPanel.IsVisible = kind is ScheduledTaskKind.PlatformUpdateCheck;
         _configPanel.IsVisible = kind is ScheduledTaskKind.ConfigurationUpdateCheck;
-        _repeatPanel.IsVisible = kind is ScheduledTaskKind.PlatformUpdateCheck or ScheduledTaskKind.ConfigurationUpdateCheck;
+        // Повтор с интервалом (issue #366/#367/#5): для заданий-проверок и «Обновить
+        // приложение» (issue #5) — единый источник истины в ViewModel.
+        _repeatPanel.IsVisible = _vm.NeedsRepeat;
     }
 
     private void BrowseCfgFile()

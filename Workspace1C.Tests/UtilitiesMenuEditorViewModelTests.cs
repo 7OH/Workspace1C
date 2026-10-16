@@ -585,6 +585,64 @@ public sealed class UtilitiesMenuEditorViewModelTests
         Assert.Contains(reloaded.Roots, n => string.Equals(n.Node.Kind, "separator", StringComparison.Ordinal));
     }
 
+    // ---- «Новинки программы» в структуре (issue #4) ----
+
+    [Fact]
+    public void Editor_WithMissingNewItem_ShowsNewItemsGroup()
+    {
+        // Пользовательская компоновка без пункта-новинки: группа «Новинки программы»
+        // автоматически появляется в структуре, даже если её нет в файле.
+        var store = new MemoryLayoutStore();
+        store.Save(new UtilitiesMenuLayout
+        {
+            Root = new System.Collections.Generic.List<UtilitiesMenuNode>
+            {
+                UtilitiesMenuLayouts.Item("CommandPalette")
+            }
+        });
+
+        var vm = new UtilitiesMenuEditorViewModel(store);
+
+        var group = vm.Roots.FirstOrDefault(n =>
+            string.Equals(n.Node.Kind, "group", StringComparison.Ordinal) &&
+            string.Equals(n.Node.GroupId, UtilitiesMenuCatalog.GroupNewItems, StringComparison.Ordinal));
+        Assert.NotNull(group);
+        Assert.Contains(group!.Children,
+            c => string.Equals(c.Node.ItemId, "NotificationChannels", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NewItemsGroup_VisibilityIsLocked()
+    {
+        // Видимость группы «Новинки программы» зафиксирована: скрытие в настройках
+        // не влияет на отображение при работе — менять можно только местоположение.
+        var store = new MemoryLayoutStore();
+        store.Save(new UtilitiesMenuLayout
+        {
+            Root = new System.Collections.Generic.List<UtilitiesMenuNode>
+            {
+                UtilitiesMenuLayouts.Item("CommandPalette")
+            }
+        });
+        var vm = new UtilitiesMenuEditorViewModel(store);
+
+        var group = vm.Roots.First(n =>
+            string.Equals(n.Node.Kind, "group", StringComparison.Ordinal) &&
+            string.Equals(n.Node.GroupId, UtilitiesMenuCatalog.GroupNewItems, StringComparison.Ordinal));
+        Assert.False(group.CanToggleVisibility);
+        Assert.True(group.IsVisible);
+
+        // Попытка скрыть группу игнорируется.
+        group.IsVisible = false;
+        Assert.True(group.Node.Visible);
+
+        // Обычные узлы видимость менять могут.
+        var item = vm.Roots.First(n => string.Equals(n.Node.Kind, "item", StringComparison.Ordinal));
+        Assert.True(item.CanToggleVisibility);
+        item.IsVisible = false;
+        Assert.False(item.Node.Visible);
+    }
+
     /// <summary>Хранилище-заглушка для тестов (без файла на диске).</summary>
     private sealed class MemoryLayoutStore : IUtilitiesMenuLayoutStore
     {

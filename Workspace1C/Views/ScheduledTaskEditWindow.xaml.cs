@@ -219,9 +219,9 @@ public partial class ScheduledTaskEditWindow : Window
         CfgPanel.Visibility = needsCfg ? Visibility.Visible : Visibility.Collapsed;
         PlatformPanel.Visibility = needsPlatformCheck ? Visibility.Visible : Visibility.Collapsed;
         ConfigPanel.Visibility = needsConfigCheck ? Visibility.Visible : Visibility.Collapsed;
-        RepeatPanel.Visibility = needsPlatformCheck || needsConfigCheck
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        // Повтор с интервалом (issue #366/#367/#5): для заданий-проверок и «Обновить
+        // приложение» (issue #5) — единый источник истины в ViewModel.
+        RepeatPanel.Visibility = _vm.NeedsRepeat ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void KindCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

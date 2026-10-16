@@ -120,4 +120,32 @@ public sealed class ScheduledTaskEditViewModelTests
         Assert.NotNull(found);
         Assert.True(options.Contains(found!));
     }
+
+    // ---- Панель повтора с интервалом (issue #5) ----
+
+    [Theory]
+    [InlineData(ScheduledTaskKind.UpdateApp)]
+    [InlineData(ScheduledTaskKind.PlatformUpdateCheck)]
+    [InlineData(ScheduledTaskKind.ConfigurationUpdateCheck)]
+    public void NeedsRepeat_True_ForRepeatableKinds(ScheduledTaskKind kind)
+    {
+        // issue #5: «Обновить приложение» получает повтор, как задания-проверки (#366/#367).
+        var vm = new ScheduledTaskEditViewModel(null, new List<BackupScenario>(), new List<Infobase>());
+        vm.Kind = kind;
+
+        Assert.True(vm.NeedsRepeat);
+    }
+
+    [Theory]
+    [InlineData(ScheduledTaskKind.Backup)]
+    [InlineData(ScheduledTaskKind.UpdateConfig)]
+    [InlineData(ScheduledTaskKind.BackupThenUpdateConfig)]
+    [InlineData(ScheduledTaskKind.CheckIntegrity)]
+    public void NeedsRepeat_False_ForNonRepeatableKinds(ScheduledTaskKind kind)
+    {
+        var vm = new ScheduledTaskEditViewModel(null, new List<BackupScenario>(), new List<Infobase>());
+        vm.Kind = kind;
+
+        Assert.False(vm.NeedsRepeat);
+    }
 }

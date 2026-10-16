@@ -126,6 +126,10 @@ namespace Workspace1C
                 return new TextBlock { Text = string.Empty };
             var check = new CheckBox().Styled(ControlThemes.CacheCleanCheckBox);
             check.Bind(ToggleButton.IsCheckedProperty, new Binding("IsVisible"));
+            // issue #4: у группы «Новинки программы» видимость зафиксирована
+            // (CanToggleVisibility=false) — чекбокс отключён, менять можно только
+            // местоположение.
+            check.Bind(CheckBox.IsEnabledProperty, new Binding("CanToggleVisibility"));
             var icon = IconHelper.MakeIcon(node.DisplayIconKey, 16, "TextPrimaryBrush");
             if (icon is not null)
             {

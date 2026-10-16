@@ -27,7 +27,11 @@
         <!-- Шаблон узла дерева: чекбокс видимости + иконка + заголовок + пометка вида -->
         <HierarchicalDataTemplate x:Key="MenuNodeTemplate" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal">
-                <CheckBox IsChecked="{Binding IsVisible}" VerticalAlignment="Center"
+                <!-- issue #4: у группы «Новинки программы» видимость зафиксирована
+                     (CanToggleVisibility=false) — чекбокс отключён, менять можно
+                     только местоположение. -->
+                <CheckBox IsChecked="{Binding IsVisible}" IsEnabled="{Binding CanToggleVisibility}"
+                          VerticalAlignment="Center"
                           ToolTip="{loc:Loc Utilities.Editor.VisibleTooltip}"/>
                 <materialDesign:PackIcon Kind="{Binding DisplayIconKey, Converter={StaticResource PackIconKindConverter}}"
                                          Width="16" Height="16" Margin="4,0,0,0" VerticalAlignment="Center"

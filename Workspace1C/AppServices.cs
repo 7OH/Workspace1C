@@ -98,6 +98,10 @@ public static class AppServices
         // server_ports.json рядом с настройками — порт на каждый сервис (кластер,
         // rac/монитор, хранилище) в разрезе сервера. Чистый сервис — без UI-зависимостей.
         services.AddSingleton<IServerPortsStore, ServerPortsStore>();
+        // Справочник «Сервера управления» (issue #3): список серверов 1С для встроенного
+        // монитора (rac) — server_list.json рядом с настройками (описание, адрес и порт,
+        // логин и пароль). Чистый сервис — без UI-зависимостей.
+        services.AddSingleton<IServerListStore, ServerListStore>();
         // Компоновка меню «Утилиты» (issue #374): пользовательская структура меню —
         // utilities_menu_layout.json рядом с настройками, по образцу CustomActionsStore.
         // Чистый сервис — без UI-зависимостей.

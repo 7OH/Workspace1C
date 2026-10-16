@@ -41,37 +41,14 @@ public partial class MainWindow
         var store = AppServices.TryGetService<IUtilitiesMenuLayoutStore>();
         var settings = new AppSettings();
         settings.UtilitiesMenuEditingEnabled = _viewModel.UtilitiesMenuEditingEnabled;
-        var layout = UtilitiesMenuResolver.Resolve(settings, store);
+        // «Новинки программы» (issue #4): группа автоматически добавляется в компоновку
+        // (даже если её нет в файле), в неё попадают пункты, отсутствующие в файле.
+        // Видимость группы зафиксирована — скрытие в редакторе не влияет на отображение.
+        var layout = UtilitiesMenuResolver.EnsureNewItemsGroup(UtilitiesMenuResolver.Resolve(settings, store));
         if (layout is null)
             return menu;
 
         AppendNodes(menu.Items, layout.Root);
-
-        // «Новинки программы» (issue #374): пункты каталога с признаком «новинка»,
-        // отсутствующие в компоновке, автоматически попадают в подменю в конце меню,
-        // пока пользователь не разместит их в редакторе структуры.
-        var newItems = UtilitiesMenuResolver.CollectNewItems(layout);
-        if (newItems.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            var newMenu = new MenuItem
-            {
-                Header = LocalizationManager.T("Utilities.Submenu.NewItems"),
-                Style = TryFindResource("ModernMenuItem") as Style,
-            };
-            newMenu.Icon = CreateMenuIcon(
-                UtilitiesMenuCatalog.GroupWpfIconKind(UtilitiesMenuCatalog.GroupNewItems),
-                UtilitiesMenuCatalog.ResolveGroupIconColor(
-                    UtilitiesMenuCatalog.GroupNewItems, ActiveScheme, IsDarkTheme));
-            foreach (var catalogItem in newItems)
-            {
-                var node = new UtilitiesMenuNode { Kind = "item", ItemId = catalogItem.Id };
-                var item = CreateItem(node);
-                if (item is not null)
-                    newMenu.Items.Add(item);
-            }
-            menu.Items.Add(newMenu);
-        }
 
         return menu;
     }

@@ -14,6 +14,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Workspace1C.Controls;
 using Workspace1C.Localization;
+using Workspace1C.Models;
 using Workspace1C.Services;
 using Workspace1C.Themes;
 using Workspace1C.ViewModels;
@@ -22,12 +23,13 @@ namespace Workspace1C
 {
     /// <summary>
     /// Окно «Серверы 1С» (0.3.9.124, Avalonia/Linux): встроенный монитор серверов 1С
-    /// через утилиту rac — панель подключения (адрес/порт/логин/пароль), выбор
-    /// кластера, вкладки «Рабочие процессы / Сеансы / Соединения / Блокировки /
+    /// через утилиту rac. Слева — справочник «Сервера управления» (issue #3): список
+    /// серверов (только Описание) с кнопками «Добавить/Изменить/Удалить»; при активации
+    /// строки выполняется подключение к кластеру. Справа — выбор кластера, вкладки
+    /// «Рабочие процессы / Сеансы / Соединения / Блокировки / Регламентные задания /
     /// Информация о кластере» и статус-строка. Вся логика — в чистой ViewModel
-    /// <see cref="ServerMonitorViewModel"/>. Пароль не сохраняется на диск
-    /// (решение планирования): PasswordBox не биндится, значение передаётся
-    /// в VM при подключении.
+    /// <see cref="ServerMonitorViewModel"/>. Адрес/порт/логин/пароль хранятся в
+    /// справочнике (server_list.json) и на форме не показываются.
     /// </summary>
     public sealed class ServerMonitorWindow : ModalWindowBase
     {
@@ -37,6 +39,7 @@ namespace Workspace1C
 
         private readonly ServerMonitorViewModel _vm;
         private readonly ComboBox _clusterCombo;
+        private readonly ListBox _serversList;
         private TextBlock? _jobsEmptyHint;
 
         public ServerMonitorWindow()
@@ -51,52 +54,80 @@ namespace Workspace1C
 
             var rac = AppServices.GetRequiredService<IRacClient>();
             var dialogs = AppServices.GetRequiredService<IDialogService>();
+            var serverListStore = AppServices.GetRequiredService<IServerListStore>();
 
             _vm = new ServerMonitorViewModel(
                 rac,
                 dialogs,
-                action => Dispatcher.UIThread.Post(action));
-
-            // Начальные адрес/порт/логин — из настроек приложения (пароль НЕ сохраняется).
-            LoadSavedConnectionSettings();
+                action => Dispatcher.UIThread.Post(action),
+                serverListStore);
 
             DataContext = _vm;
             _vm.PropertyChanged += OnVmPropertyChanged;
             Closed += (_, _) => _vm.Dispose();
 
-            // ---- Панель подключения: адрес, порт, логин, пароль, кнопки. ----
-            var addressBox = Tb("ServerAddress", 150);
-            var portBox = Tb("ServerPort", 60);
-
-            // Поля префиллятся из настроек последнего успешного подключения (issue #324):
-            // подсказка объясняет источник значения, чтобы оно не выглядело «подменой ввода».
-            ToolTip.SetTip(addressBox, LocalizationManager.T("ServerMonitor.SavedConnectionTooltip"));
-            var userBox = Tb("UserName", 120);
-            var passwordBox = new PasswordBox().Styled(ControlThemes.ModernPasswordBox);
-
-            // Подсказка про порт (issue #324): rac подключается к АГЕНТУ сервера (1540),
-            // порт кластера (1541) указывать не нужно — он виден в списке кластеров.
-            ToolTip.SetTip(portBox, LocalizationManager.T("ServerMonitor.PortTooltip"));
-
-            var connectButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Connect"), "🔌", () =>
+            // ---- Справочник «Сервера управления» (issue #3): список слева. ----
+            _serversList = new ListBox
             {
-                _vm.Password = passwordBox.Password ?? string.Empty;
-                _ = ConnectAndSaveAsync();
+                ItemTemplate = new FuncDataTemplate<ManagementServer>((server, _) =>
+                    new TextBlock { Text = server.Description, TextTrimming = TextTrimming.CharacterEllipsis })
+            };
+            _serversList.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
+            {
+                Setters =
+                {
+                    new Setter(ListBoxItem.MinHeightProperty, 36d),
+                    new Setter(ListBoxItem.VerticalContentAlignmentProperty, VerticalAlignment.Center)
+                }
             });
-            var refreshButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Refresh"), "⟳", _vm.Refresh);
+            _serversList.Bind(ListBox.ItemsSourceProperty, new Binding("Servers"));
+            _serversList.Bind(ListBox.SelectedItemProperty, new Binding("SelectedServer", BindingMode.TwoWay));
+            // Активация строки → подключение к кластеру (issue #3).
+            _serversList.SelectionChanged += (_, _) =>
+            {
+                if (_serversList.SelectedItem is ManagementServer server)
+                    _ = _vm.ConnectToServerAsync(server);
+            };
 
-            var fields = new StackPanel
+            var addServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Add"), "＋", OnAddServer);
+            var editServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Edit"), "✎", OnEditServer);
+            var deleteServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Delete"), "🗑", OnDeleteServer);
+
+            var serverButtons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 8,
-                Children =
-                {
-                    Labeled("ServerMonitor.Address", addressBox),
-                    Labeled("ServerMonitor.Port", portBox),
-                    Labeled("ServerMonitor.User", userBox),
-                    Labeled("ServerMonitor.Password", passwordBox)
-                }
+                Spacing = 6,
+                Margin = new Thickness(0, 8, 0, 0),
+                Children = { addServerButton, editServerButton, deleteServerButton }
             };
+
+            var serversPanel = new DockPanel { LastChildFill = true };
+            var serversTitle = new TextBlock
+            {
+                Text = LocalizationManager.T("ServerMonitor.Servers.Title"),
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            // Подсказка при пустом списке (issue #3): добавьте сервер и выберите его.
+            var serversEmptyHint = new TextBlock
+            {
+                Text = LocalizationManager.T("ServerMonitor.Servers.Empty"),
+                FontSize = 12,
+                Opacity = 0.65,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6),
+                [!IsVisibleProperty] = new Binding("!HasServers")
+            };
+            DockPanel.SetDock(serversTitle, Dock.Top);
+            DockPanel.SetDock(serversEmptyHint, Dock.Top);
+            DockPanel.SetDock(serverButtons, Dock.Bottom);
+            serversPanel.Children.Add(serversTitle);
+            serversPanel.Children.Add(serversEmptyHint);
+            serversPanel.Children.Add(serverButtons);
+            serversPanel.Children.Add(_serversList);
+
+            // ---- Панель кластера: выбор кластера, автообновление, кнопки. ----
+            var refreshButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Refresh"), "⟳", _vm.Refresh);
 
             // «Диагностика сети…» (0.3.9.232, функция 12): DNS/ICMP/TCP-проверка
             // адреса:порт монитора и стандартных портов 1С. Работает до подключения rac.
@@ -125,19 +156,8 @@ namespace Workspace1C
                     _vm.AutoRefreshIntervalSeconds = seconds;
             };
 
-            // Автообновление и интервал (issue #324) перенесены в панель кластера,
-            // чтобы строка подключения не выходила за ширину окна.
-            var buttons = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 8,
-                Margin = new Thickness(0, 10, 0, 0),
-                Children = { connectButton, refreshButton, diagnosticsButton }
-            };
-
             // ---- Выбор кластера + статус. ----
-            _clusterCombo = new ComboBox { Width = 380, VerticalContentAlignment = VerticalAlignment.Center };
+            _clusterCombo = new ComboBox { Width = 300, VerticalContentAlignment = VerticalAlignment.Center };
             _clusterCombo.Styled(ControlThemes.ModernComboBox);
             _clusterCombo.ItemsSource = _vm.ClusterRows;
             _clusterCombo.ItemTemplate = new FuncDataTemplate<RacClusterRow>((row, _) => new TextBlock { Text = row.DisplayText });
@@ -156,7 +176,7 @@ namespace Workspace1C
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 10,
-                Margin = new Thickness(0, 10, 0, 0),
+                Margin = new Thickness(0, 0, 0, 0),
                 Children =
                 {
                     new TextBlock { Text = LocalizationManager.T("ServerMonitor.Cluster"), VerticalAlignment = VerticalAlignment.Center },
@@ -165,6 +185,8 @@ namespace Workspace1C
                     autoRefreshCheck,
                     intervalLabel,
                     intervalBox,
+                    refreshButton,
+                    diagnosticsButton,
                     status
                 }
             };
@@ -216,28 +238,26 @@ namespace Workspace1C
             var root = new Grid
             {
                 Margin = new Thickness(16),
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(new GridLength(280, GridUnitType.Pixel)),
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star))
+                },
                 RowDefinitions =
                 {
                     new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto),
                     new RowDefinition(GridLength.Star),
+                    new RowDefinition(GridLength.Auto),
+                    new RowDefinition(GridLength.Auto),
                     new RowDefinition(GridLength.Auto)
                 }
             };
-            Place(root, fields, 0);
-            Place(root, buttons, 1);
-            Place(root, clusterPanel, 2);
-            Place(root, tabs, 3);
-            Place(root, new StackPanel { Children = { status, error, autoRefreshHint }, Spacing = 2 }, 4);
+            // Слева — справочник «Сервера управления» (issue #3), справа — данные кластера.
+            Place(root, serversPanel, 0, 0, 5);
+            Place(root, clusterPanel, 1, 0);
+            Place(root, tabs, 1, 1);
+            Place(root, new StackPanel { Children = { status, error, autoRefreshHint }, Spacing = 2 }, 1, 2);
             Content = root;
-        }
-
-        private async System.Threading.Tasks.Task ConnectAndSaveAsync()
-        {
-            await _vm.ConnectAsync();
-            if (_vm.HasConnected)
-                SaveRacSettings();
         }
 
         /// <summary>
@@ -257,39 +277,13 @@ namespace Workspace1C
 
         // ===================== Построители =====================
 
-        private static void Place(Grid grid, Control control, int row)
+        private static void Place(Grid grid, Control control, int column, int row, int rowSpan = 1)
         {
+            Grid.SetColumn(control, column);
             Grid.SetRow(control, row);
+            if (rowSpan > 1)
+                Grid.SetRowSpan(control, rowSpan);
             grid.Children.Add(control);
-        }
-
-        private static Control Labeled(string textKey, Control input)
-        {
-            var panel = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children =
-                {
-                    new TextBlock { Text = LocalizationManager.T(textKey), VerticalAlignment = VerticalAlignment.Center },
-                    input
-                }
-            };
-            return panel;
-        }
-
-        private static TextBox Tb(string property, double width)
-        {
-            var tb = new TextBox
-            {
-                Width = width,
-                Padding = new Thickness(6, 3),
-                VerticalContentAlignment = VerticalAlignment.Center
-            };
-            tb.Styled(ControlThemes.ModernTextBox);
-            tb.Bind(TextBox.TextProperty, new Binding(property, BindingMode.TwoWay));
-            return tb;
         }
 
         private static ListBox BuildList(string binding, Func<object, Control> rowFactory, string? selectedBinding = null)
@@ -716,43 +710,50 @@ namespace Workspace1C
             }
         }
 
-        // ===================== Настройки =====================
+        // ===================== Справочник «Сервера управления» (issue #3) =====================
 
-        /// <summary>Сохраняет адрес/порт/логин после успешного подключения (без пароля).</summary>
-        private void SaveRacSettings()
+        /// <summary>«Добавить»: модальный редактор новой записи → добавление в справочник.</summary>
+        private void OnAddServer()
         {
-            try
-            {
-                var repository = AppServices.GetRequiredService<IInfobaseRepository>();
-                var settings = repository.LoadSettings();
-                settings.RacServerAddress = _vm.ServerAddress;
-                settings.RacServerPort = _vm.ServerPort;
-                settings.RacUserName = _vm.UserName;
-                repository.SaveSettings(settings);
-            }
-            catch
-            {
-                // Сохранение настроек не критично для работы окна.
-            }
+            var edit = new ServerEditWindow();
+            if (!edit.ShowSync(this) || edit.Result is not { } created)
+                return;
+            _vm.AddServer(created);
         }
 
-        private void LoadSavedConnectionSettings()
+        /// <summary>«Изменить»: модальный редактор выбранной записи (правка на копии).</summary>
+        private void OnEditServer()
         {
-            try
-            {
-                var settings = AppServices.GetRequiredService<IInfobaseRepository>().LoadSettings();
-                _vm.ServerAddress = string.IsNullOrWhiteSpace(settings.RacServerAddress)
-                    ? "localhost"
-                    : settings.RacServerAddress;
-                if (settings.RacServerPort > 0)
-                    _vm.ServerPort = settings.RacServerPort;
-                _vm.UserName = settings.RacUserName ?? string.Empty;
-            }
-            catch
-            {
-                // Без сохранённых настроек остаются дефолты VM.
-            }
+            if (_serversList.SelectedItem is not ManagementServer server)
+                return;
+            var edit = new ServerEditWindow(CloneServer(server));
+            if (!edit.ShowSync(this) || edit.Result is not { } updated)
+                return; // Отмена — модель не изменялась.
+            _vm.UpdateServer(updated);
         }
+
+        /// <summary>«Удалить»: подтверждение → удаление записи из справочника.</summary>
+        private void OnDeleteServer()
+        {
+            if (_serversList.SelectedItem is not ManagementServer server)
+                return;
+            if (!AppServices.GetRequiredService<IDialogService>().Confirm(
+                    string.Format(LocalizationManager.T("ServerMonitor.Servers.ConfirmDelete"), server.Description),
+                    LocalizationManager.T("ServerMonitor.Servers.Title")))
+                return;
+            _vm.RemoveServer(server);
+        }
+
+        /// <summary>Глубокая копия записи (для правки без мутации исходного экземпляра).</summary>
+        private static ManagementServer CloneServer(ManagementServer source) => new()
+        {
+            Id = source.Id,
+            Description = source.Description,
+            Address = source.Address,
+            Port = source.Port,
+            User = source.User,
+            Password = source.Password,
+        };
     }
 }
 #endif

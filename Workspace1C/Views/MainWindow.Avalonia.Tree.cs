@@ -1715,38 +1715,14 @@ namespace Workspace1C
             // структуры (обратная совместимость) или пользовательская из
             // utilities_menu_layout.json при включённой (UtilitiesMenuEditingEnabled).
             var store = AppServices.TryGetService<IUtilitiesMenuLayoutStore>();
-            var layout = UtilitiesMenuResolver.Resolve(vm.Settings, store);
+            // «Новинки программы» (issue #4): группа автоматически добавляется в компоновку
+            // (даже если её нет в файле), в неё попадают пункты, отсутствующие в файле.
+            // Видимость группы зафиксирована — скрытие в редакторе не влияет на отображение.
+            var layout = UtilitiesMenuResolver.EnsureNewItemsGroup(UtilitiesMenuResolver.Resolve(vm.Settings, store));
             if (layout is null)
                 return menu;
 
             AppendAvaloniaNodes(menu.Items, layout.Root);
-
-            // «Новинки программы» (issue #374): пункты каталога с признаком «новинка»,
-            // отсутствующие в компоновке, автоматически попадают в подменю в конце меню,
-            // пока пользователь не разместит их в редакторе структуры.
-            var newItems = UtilitiesMenuResolver.CollectNewItems(layout);
-            if (newItems.Count > 0)
-            {
-                menu.Items.Add(MenuSeparator());
-                var newMenu = new MenuItem
-                {
-                    Header = LocalizationManager.T("Utilities.Submenu.NewItems"),
-                    Icon = MenuIcon(
-                        UtilitiesMenuCatalog.GroupAvaloniaIconKey(UtilitiesMenuCatalog.GroupNewItems),
-                        UtilitiesMenuCatalog.ResolveGroupIconColor(
-                            UtilitiesMenuCatalog.GroupNewItems, ThemeManager.CurrentScheme,
-                            ThemeManager.CurrentTheme == ThemeManager.DarkThemeName))
-                };
-                newMenu.Styled(Themes.ControlThemes.ModernMenuItem);
-                foreach (var catalogItem in newItems)
-                {
-                    var node = new UtilitiesMenuNode { Kind = "item", ItemId = catalogItem.Id };
-                    var item = CreateAvaloniaItem(node);
-                    if (item is not null)
-                        newMenu.Items.Add(item);
-                }
-                menu.Items.Add(newMenu);
-            }
 
             // Меню строится один раз при старте (в отличие от WPF, где оно пересобирается
             // при каждом открытии), поэтому динамическую доступность «Отменить последнюю

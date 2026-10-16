@@ -44,7 +44,9 @@ public class UtilitiesMenuEditorViewModel : ViewModelBase
     {
         _store = store;
         var loaded = store?.Load();
-        _layout = loaded ?? UtilitiesMenuLayouts.Default();
+        // «Новинки программы» (issue #4): группа автоматически добавляется в структуру,
+        // даже если её нет в файле; в неё попадают пункты, отсутствующие в файле.
+        _layout = UtilitiesMenuResolver.EnsureNewItemsGroup(loaded ?? UtilitiesMenuLayouts.Default())!;
         Roots = BuildTree(_layout.Root, null);
 
         MoveUpCommand = new RelayCommand(_ => MoveSelected(-1), _ => CanMoveSelected(-1));
@@ -416,7 +418,9 @@ public class UtilitiesMenuEditorViewModel : ViewModelBase
 
     private void ResetToDefault()
     {
-        _layout = UtilitiesMenuLayouts.Default();
+        // «Новинки программы» (issue #4): после сброса группа тоже добавляется
+        // автоматически, если в каталоге есть неразмещённые пункты-новинки.
+        _layout = UtilitiesMenuResolver.EnsureNewItemsGroup(UtilitiesMenuLayouts.Default())!;
         Roots.Clear();
         Groups.Clear();
         foreach (var item in BuildTree(_layout.Root, null))
@@ -466,7 +470,9 @@ public class UtilitiesMenuEditorViewModel : ViewModelBase
         var loaded = _store?.Load();
         if (loaded is null)
             return;
-        _layout = loaded;
+        // «Новинки программы» (issue #4): группа добавляется в структуру автоматически,
+        // даже если её нет в файле.
+        _layout = UtilitiesMenuResolver.EnsureNewItemsGroup(loaded)!;
         Roots.Clear();
         Groups.Clear();
         foreach (var item in BuildTree(_layout.Root, null))
@@ -579,10 +585,21 @@ public sealed class UtilitiesMenuNodeItem : ViewModelBase
         get => Node.Visible;
         set
         {
+            // «Новинки программы» (issue #4): видимость группы зафиксирована — скрытие
+            // в настройках не влияет на отображение при работе, менять можно только
+            // местоположение.
+            if (!CanToggleVisibility)
+                return;
             Node.Visible = value;
             OnPropertyChanged();
         }
     }
+
+    /// <summary>Можно ли менять видимость узла: false — группа «Новинки программы»
+    /// (её видимость зафиксирована, изменить можно только местоположение) — issue #4.</summary>
+    public bool CanToggleVisibility =>
+        !(string.Equals(Node.Kind, "group", StringComparison.Ordinal) &&
+          string.Equals(Node.GroupId, UtilitiesMenuCatalog.GroupNewItems, StringComparison.Ordinal));
 
     /// <summary>Строка для списка групп: заголовок.</summary>
     public string GroupLabel => Title;

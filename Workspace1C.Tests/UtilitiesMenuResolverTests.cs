@@ -87,10 +87,13 @@ public sealed class UtilitiesMenuResolverTests
     }
 
     [Fact]
-    public void CollectNewItems_NullLayout_ReturnsEmpty()
+    public void CollectNewItems_NullLayout_ReturnsAllNewItems()
     {
+        // null-компоновка = «ничего не размещено»: возвращаются все пункты каталога
+        // с признаком «новинка» (сейчас это «Уведомления: Telegram и email», 0.3.12.69).
         var newItems = UtilitiesMenuResolver.CollectNewItems(null);
-        Assert.Empty(newItems);
+
+        Assert.Contains(newItems, i => i.Id == "NotificationChannels");
     }
 
     [Fact]
@@ -108,6 +111,103 @@ public sealed class UtilitiesMenuResolverTests
         Assert.Contains("SessionLock", ids);
         // Идентификаторы не дублируются: HashSet.
         Assert.True(ids.Count > 10);
+    }
+
+    // ---- «Новинки программы» в структуре (issue #4) ----
+
+    [Fact]
+    public void EnsureNewItemsGroup_NoNewItems_ReturnsSameLayout()
+    {
+        // Стандартная компоновка содержит все пункты каталога — «Новинки» не добавляются.
+        var layout = UtilitiesMenuLayouts.Default();
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.Same(layout, result);
+        Assert.NotNull(result);
+        Assert.DoesNotContain(result.Root,
+            n => string.Equals(n.GroupId, UtilitiesMenuCatalog.GroupNewItems, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EnsureNewItemsGroup_AddsGroupWithNewItemsAtEnd()
+    {
+        // Пользовательская компоновка без пункта-новинки: группа создаётся в конце корня
+        // с разделителем перед ней и принудительно видимой.
+        var layout = new UtilitiesMenuLayout
+        {
+            Root = new System.Collections.Generic.List<UtilitiesMenuNode>
+            {
+                UtilitiesMenuLayouts.Item("CommandPalette")
+            }
+        };
+
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.NotNull(result);
+        var group = result.Root[^1];
+        Assert.Equal("group", group.Kind);
+        Assert.Equal(UtilitiesMenuCatalog.GroupNewItems, group.GroupId);
+        Assert.True(group.Visible);
+        Assert.True(group.SeparatorBefore);
+        Assert.Contains(group.Children, c => c.ItemId == "NotificationChannels");
+    }
+
+    [Fact]
+    public void EnsureNewItemsGroup_ExistingGroup_AddsMissingItems()
+    {
+        // Группа уже есть в компоновке (пользователь мог её переместить) — пункты
+        // добавляются в неё, а не в новую группу в конце корня.
+        var group = new UtilitiesMenuNode
+        {
+            Kind = "group",
+            GroupId = UtilitiesMenuCatalog.GroupNewItems,
+            Visible = true,
+            Children = new System.Collections.Generic.List<UtilitiesMenuNode>()
+        };
+        var layout = new UtilitiesMenuLayout
+        {
+            Root = new System.Collections.Generic.List<UtilitiesMenuNode>
+            {
+                UtilitiesMenuLayouts.Item("CommandPalette"),
+                group
+            }
+        };
+
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.NotNull(result);
+        Assert.Same(group, result.Root[1]);
+        Assert.Contains(group.Children, c => c.ItemId == "NotificationChannels");
+    }
+
+    [Fact]
+    public void EnsureNewItemsGroup_ExistingHiddenGroup_ForcesVisible()
+    {
+        // Скрытие группы в файле не влияет на отображение при работе: видимость
+        // принудительно включается (issue #4).
+        var group = new UtilitiesMenuNode
+        {
+            Kind = "group",
+            GroupId = UtilitiesMenuCatalog.GroupNewItems,
+            Visible = false,
+            Children = new System.Collections.Generic.List<UtilitiesMenuNode>()
+        };
+        var layout = new UtilitiesMenuLayout
+        {
+            Root = new System.Collections.Generic.List<UtilitiesMenuNode> { group }
+        };
+
+        var result = UtilitiesMenuResolver.EnsureNewItemsGroup(layout);
+
+        Assert.NotNull(result);
+        Assert.True(result.Root[0].Visible);
+        Assert.Contains(result.Root[0].Children, c => c.ItemId == "NotificationChannels");
+    }
+
+    [Fact]
+    public void EnsureNewItemsGroup_NullLayout_ReturnsNull()
+    {
+        Assert.Null(UtilitiesMenuResolver.EnsureNewItemsGroup(null));
     }
 
     /// <summary>Хранилище-заглушка для тестов (без файла на диске).</summary>

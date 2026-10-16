@@ -35,8 +35,11 @@
     </Window.Resources>
 
     <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -44,59 +47,65 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Панель подключения: адрес, порт, логин, пароль, кнопки. -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="{loc:Loc ServerMonitor.Address}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <TextBox Width="140" Style="{StaticResource ModernTextBox}" Padding="6,3"
-                     ToolTip="{loc:Loc ServerMonitor.SavedConnectionTooltip}"
-                     Text="{Binding ServerAddress, UpdateSourceTrigger=PropertyChanged}"/>
-            <TextBlock Text="{loc:Loc ServerMonitor.Port}" VerticalAlignment="Center" Margin="10,0,6,0"/>
-            <!-- Подсказка про порт (issue #324): rac подключается к АГЕНТУ сервера (1540),
-                 порт кластера (1541) указывать не нужно — он виден в списке кластеров. -->
-            <TextBox Width="60" Style="{StaticResource ModernTextBox}" Padding="6,3"
-                     ToolTip="{loc:Loc ServerMonitor.PortTooltip}"
-                     Text="{Binding ServerPort, UpdateSourceTrigger=PropertyChanged}"/>
-            <TextBlock Text="{loc:Loc ServerMonitor.User}" VerticalAlignment="Center" Margin="10,0,6,0"/>
-            <TextBox Width="120" Style="{StaticResource ModernTextBox}" Padding="6,3"
-                     Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}"/>
-            <TextBlock Text="{loc:Loc ServerMonitor.Password}" VerticalAlignment="Center" Margin="10,0,6,0"/>
-            <PasswordBox x:Name="PasswordBox" Width="120" Padding="6,3"/>
+        <!-- Справочник «Сервера управления» (issue #3): список серверов слева, в списке
+             выводится только Описание; при активации строки — подключение к кластеру.
+             Адрес/порт/логин/пароль переехали в справочник и на форме не показываются. -->
+        <DockPanel Grid.Column="0" Grid.Row="0" Grid.RowSpan="5" Margin="0,0,16,0">
+            <TextBlock DockPanel.Dock="Top" Text="{loc:Loc ServerMonitor.Servers.Title}"
+                       FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <!-- Подсказка при пустом списке (issue #3): добавьте сервер и выберите его. -->
+            <TextBlock DockPanel.Dock="Top" Margin="0,0,0,6" FontSize="12"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       Text="{loc:Loc ServerMonitor.Servers.Empty}" TextWrapping="Wrap">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasServers}" Value="False">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="AddServerButton" Style="{StaticResource ModernButton}"
+                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                        Click="OnAddServer_Click">
+                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Add}" VerticalAlignment="Center"/>
+                </Button>
+                <Button x:Name="EditServerButton" Style="{StaticResource ModernButton}"
+                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                        Click="OnEditServer_Click">
+                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Edit}" VerticalAlignment="Center"/>
+                </Button>
+                <Button x:Name="DeleteServerButton" Style="{StaticResource ModernButton}"
+                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5"
+                        Click="OnDeleteServer_Click">
+                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Delete}" VerticalAlignment="Center"/>
+                </Button>
+            </StackPanel>
+            <ListBox x:Name="ServersList" ItemsSource="{Binding Servers}"
+                     SelectedItem="{Binding SelectedServer}"
+                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                     Background="{DynamicResource CardBackgroundBrush}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Description}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
 
-            <Button x:Name="ConnectButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="14,0,8,0"
-                    Click="OnConnect_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🔌" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ServerMonitor.Connect}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <Button x:Name="RefreshButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="0,0,8,0"
-                    Click="OnRefresh_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⟳" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ServerMonitor.Refresh}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-            <!-- Диагностика сети до сервера 1С (функция 12): DNS/ICMP/TCP-проверка адреса:порт
-                 монитора и стандартных портов 1540/1541/1545. Работает до подключения rac. -->
-            <Button x:Name="DiagnosticsButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="0,0,8,0"
-                    Click="OnDiagnostics_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🛜" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <TextBlock Text="{loc:Loc ServerMonitor.NetworkDiagnostics}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Button>
-        </StackPanel>
-
-        <!-- Выбор кластера -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+        <!-- Панель кластера: выбор кластера, автообновление, кнопки «Обновить» и
+             «Диагностика сети…» (поля подключения переехали в справочник, issue #3). -->
+        <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="{loc:Loc ServerMonitor.Cluster}" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <!-- issue #324: явный ItemTemplate вместо DisplayMemberPath — с шаблоном
                  ModernComboBox закрытый ComboBox в ряде случаев показывал ToString()
                  выбранного элемента («Workspace1C…» вместо имени кластера). -->
-            <ComboBox x:Name="ClusterCombo" Width="360" Style="{StaticResource ModernComboBox}"
+            <ComboBox x:Name="ClusterCombo" Width="300" Style="{StaticResource ModernComboBox}"
                       ItemsSource="{Binding ClusterRows}"
                       SelectedValuePath="Id" SelectedValue="{Binding SelectedClusterId}"
                       VerticalContentAlignment="Center" Padding="6,2">
@@ -106,11 +115,10 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <!-- Автообновление (issue #324): перенесено из панели кнопок строки 0,
-                 чтобы строка подключения не выходила за ширину окна. -->
+            <!-- Автообновление (issue #324): переключатель и интервал рядом с кластером. -->
             <CheckBox x:Name="AutoRefreshCheckBox" Content="{loc:Loc ServerMonitor.AutoRefreshToggle}"
                       IsChecked="{Binding IsAutoRefreshEnabled, Mode=TwoWay}"
-                      VerticalAlignment="Center" Margin="14,0,8,0"/>
+                      VerticalAlignment="Center" Margin="10,0,8,0"/>
             <TextBlock Text="{loc:Loc ServerMonitor.AutoRefreshInterval}" VerticalAlignment="Center" Margin="0,0,4,0"/>
             <ComboBox x:Name="AutoRefreshIntervalCombo" Width="64" Style="{StaticResource ModernComboBox}"
                       SelectedValuePath="Tag" SelectedValue="{Binding AutoRefreshIntervalSeconds, Mode=TwoWay}"
@@ -121,13 +129,31 @@
                 <ComboBoxItem Content="30" Tag="30"/>
                 <ComboBoxItem Content="60" Tag="60"/>
             </ComboBox>
-            <TextBlock x:Name="StatusSummary" VerticalAlignment="Center" Margin="14,0,0,0"
+            <Button x:Name="RefreshButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="10,0,6,0"
+                    Click="OnRefresh_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⟳" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.Refresh}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <!-- Диагностика сети до сервера 1С (функция 12): DNS/ICMP/TCP-проверка адреса:порт
+                 монитора и стандартных портов 1540/1541/1545. Работает до подключения rac. -->
+            <Button x:Name="DiagnosticsButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                    Click="OnDiagnostics_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🛜" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.NetworkDiagnostics}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <TextBlock x:Name="StatusSummary" VerticalAlignment="Center" Margin="10,0,0,0"
                        FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
                        Text="{Binding StatusText}"/>
         </StackPanel>
 
         <!-- Вкладки данных кластера -->
-        <TabControl Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}"
+        <TabControl Grid.Column="1" Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
             <!-- Рабочие процессы -->
             <TabItem Header="{loc:Loc ServerMonitor.Tabs.Processes}">
@@ -542,13 +568,13 @@
         </TabControl>
 
         <!-- Строка состояния и ошибки (пустой ErrorMessage ничего не показывает) -->
-        <TextBlock Grid.Row="3" Margin="0,10,0,0" FontSize="12"
+        <TextBlock Grid.Column="1" Grid.Row="2" Margin="0,10,0,0" FontSize="12"
                    Foreground="{DynamicResource TextSecondaryBrush}" Text="{Binding StatusText}"/>
-        <TextBlock Grid.Row="4" Margin="0,4,0,0" FontSize="12"
+        <TextBlock Grid.Column="1" Grid.Row="3" Margin="0,4,0,0" FontSize="12"
                    Foreground="#DC2626" Text="{Binding ErrorMessage}"
                    TextWrapping="Wrap"/>
         <!-- Подсказка про автообновление (по образцу ProcessInspectorWindow.Hint). -->
-        <TextBlock Grid.Row="5" Margin="0,8,0,0" FontSize="11"
+        <TextBlock Grid.Column="1" Grid.Row="4" Margin="0,8,0,0" FontSize="11"
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    Text="{Binding AutoRefreshText}"/>
     </Grid>

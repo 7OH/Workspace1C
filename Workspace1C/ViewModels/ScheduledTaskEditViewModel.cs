@@ -219,6 +219,16 @@ public class ScheduledTaskEditViewModel : ViewModelBase
     public bool NeedsConfigCheck => Kind is ScheduledTaskKind.ConfigurationUpdateCheck;
 
     /// <summary>
+    /// Нужна ли панель повтора с интервалом (issue #366/#367/#5): для заданий-проверок
+    /// и «Обновить приложение» (issue #5) — повтор доступен, для остальных типов
+    /// (резервная копия, обновление конфигурации, проверка целостности) — нет.
+    /// Единый источник истины для окон WPF и Avalonia.
+    /// </summary>
+    public bool NeedsRepeat => Kind is ScheduledTaskKind.PlatformUpdateCheck
+        or ScheduledTaskKind.ConfigurationUpdateCheck
+        or ScheduledTaskKind.UpdateApp;
+
+    /// <summary>
     /// Валидация полей формы. Возвращает ключ локализации ошибки либо <c>null</c>,
     /// если всё корректно.
     /// </summary>

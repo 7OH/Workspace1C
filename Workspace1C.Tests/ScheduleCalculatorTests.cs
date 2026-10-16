@@ -168,6 +168,23 @@ public sealed class ScheduleCalculatorTests
     }
 
     [Fact]
+    public void RepeatEnabled_UpdateAppKind_ComputesSeries()
+    {
+        // issue #5: «Обновить приложение» с включённым повтором считается как серия —
+        // планировщик не зависит от типа задания, но тест фиксирует поведение.
+        var task = NewTask("02:00");
+        task.Kind = ScheduledTaskKind.UpdateApp;
+        task.RepeatEnabled = true;
+        task.RepeatIntervalValue = 30;
+        task.RepeatIntervalUnit = ScheduledTaskRepeatUnit.Minutes;
+        var from = new DateTime(2026, 9, 24, 2, 45, 0); // между шагами 02:30 и 03:00
+
+        var next = ScheduleCalculator.ComputeNextRun(task, from);
+
+        Assert.Equal(new DateTime(2026, 9, 24, 3, 0, 0), next);
+    }
+
+    [Fact]
     public void GetRepeatInterval_ConvertsUnits()
     {
         Assert.Equal(TimeSpan.FromMinutes(60), ScheduledTask.GetRepeatInterval(1, ScheduledTaskRepeatUnit.Hours));
