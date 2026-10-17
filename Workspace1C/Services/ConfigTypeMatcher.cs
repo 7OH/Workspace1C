@@ -202,6 +202,36 @@ public static class ConfigTypeMatcher
     /// </summary>
     public static OneCConfigType? FindByCode(IReadOnlyList<OneCConfigType>? configs, string? code)
     {
+        return FindByCodeCore(configs, code);
+    }
+
+    /// <summary>
+    /// Типовая конфигурация базы — единое правило для окна F9, планировщика и выбора учётной
+    /// записи ИТС (issue #13): явная связь по коду (<c>Infobase.UpdateConfigCode</c>), иначе
+    /// автоподбор по имени конфигурации базы (<see cref="FindByInfobaseName"/>, issue #323).
+    /// Раньше адрес каталога строился по автоподбору, а учётная запись бралась только по явной
+    /// связи — для базы без связи использовалась «Основная» вместо назначенной конфигурации.
+    /// </summary>
+    public static OneCConfigType? ResolveForInfobase(
+        IReadOnlyList<OneCConfigType>? configs, string? updateConfigCode, string? configurationName)
+    {
+        if (configs is null || configs.Count == 0)
+            return null;
+        return FindByCodeCore(configs, updateConfigCode)
+            ?? (string.IsNullOrWhiteSpace(configurationName)
+                ? null
+                : FindByInfobaseName(configs, configurationName));
+    }
+
+    /// <summary>
+    /// Учётная запись ИТС для запросов по конфигурации (issue #13): назначенная конфигурации,
+    /// либо <c>null</c> — тогда сервис берёт выбранную в настройках или «Основную».
+    /// </summary>
+    public static string? AccountIdFor(OneCConfigType? config) =>
+        string.IsNullOrWhiteSpace(config?.AccountId) ? null : config!.AccountId;
+
+    private static OneCConfigType? FindByCodeCore(IReadOnlyList<OneCConfigType>? configs, string? code)
+    {
         if (configs is null || configs.Count == 0)
             return null;
 

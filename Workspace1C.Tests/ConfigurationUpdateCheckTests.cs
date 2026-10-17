@@ -390,6 +390,63 @@ public sealed class ConfigurationUpdateCheckTests
     }
 
 
+    [Fact]
+    public async Task RunNow_ConfigMatchedByName_UsesConfigAccount()
+    {
+        // issue #13: база не связана с типовой явно (UpdateConfigCode пуст), конфигурация
+        // подобрана по имени — запрос каталога идёт под учётной записью этой конфигурации,
+        // а не под «Основной».
+        var updates = new StubUpdates(
+            new ConfigUpdateCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new List<PlatformRelease> { new() { Version = "3.0.83.1234" } }
+            });
+        var configTypes = new FakeConfigTypes();
+        configTypes.Types.Add(new OneCConfigType
+        {
+            Code = "BP_PROF",
+            Name = ConfigName,
+            Nick = "Accounting",
+            AccountId = "acc-prof",
+            Editions = { new OneCConfigEdition { Name = "3.0", Red = "3.0" } },
+        });
+        var notifier = new FakeMainWindowNotifier();
+        var store = new FakeTaskStore();
+        var task = NewConfigCheckTask();
+        store.Tasks.Add(task);
+
+        using var scheduler = CreateScheduler(store, updates, notifier, configTypes);
+        var result = await scheduler.RunNowAsync(task);
+
+        Assert.True(result!.Success);
+        Assert.Equal("acc-prof", updates.LastCatalogAccountId);
+    }
+
+    [Fact]
+    public async Task RunNow_ConfigWithoutAccount_PassesNullAccount()
+    {
+        // Конфигурация без назначенной учётной записи — сервис сам возьмёт выбранную в
+        // настройках или «Основную».
+        var updates = new StubUpdates(
+            new ConfigUpdateCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new List<PlatformRelease> { new() { Version = "3.0.83.1234" } }
+            });
+        var configTypes = new FakeConfigTypes();
+        configTypes.Types.Add(new OneCConfigType { Code = "BP", Name = ConfigName, Nick = "Accounting" });
+        var notifier = new FakeMainWindowNotifier();
+        var store = new FakeTaskStore();
+        var task = NewConfigCheckTask();
+        store.Tasks.Add(task);
+
+        using var scheduler = CreateScheduler(store, updates, notifier, configTypes);
+        await scheduler.RunNowAsync(task);
+
+        Assert.Null(updates.LastCatalogAccountId);
+    }
+
     // ---- Вспомогательные ----
 
     private static ScheduledTask NewConfigCheckTask() => new()
@@ -401,7 +458,8 @@ public sealed class ConfigurationUpdateCheckTests
     };
 
     private static SchedulerService CreateScheduler(
-        FakeTaskStore store, StubUpdates updates, FakeMainWindowNotifier notifier) => new(
+        FakeTaskStore store, StubUpdates updates, FakeMainWindowNotifier notifier,
+        FakeConfigTypes? configTypes = null) => new(
         store,
         new FakeScenarios(),
         new FakeRepository(),
@@ -414,7 +472,7 @@ public sealed class ConfigurationUpdateCheckTests
         new FakePlatformUpdateService(),
         new FakePlatformVersions(),
         updates,
-        new FakeConfigTypes(),
+        configTypes ?? new FakeConfigTypes(),
         notifier);
 
     /// <summary>Фейковое хранилище заданий в памяти (без файловой системы).</summary>
@@ -466,12 +524,16 @@ public sealed class ConfigurationUpdateCheckTests
         /// <summary>Последний адрес каталога, запрошенный планировщиком.</summary>
         public string? LastCatalogUrl { get; private set; }
 
+        /// <summary>Учётная запись ИТС последнего запроса каталога (issue #13).</summary>
+        public string? LastCatalogAccountId { get; private set; }
+
         public string BuildUpdateUrl(OneCConfigType? config, OneCConfigEdition? edition, string? urlOverride, string? urlSegment = null)
             => BuildUpdateUrlResult;
 
         public Task<ConfigUpdateCatalogResult> GetUpdateCatalogAsync(string url, CancellationToken ct = default, string? accountId = null)
         {
             LastCatalogUrl = url;
+            LastCatalogAccountId = accountId;
             return Task.FromResult(_catalog);
         }
 
@@ -498,10 +560,11 @@ public sealed class ConfigurationUpdateCheckTests
     /// <summary>Фейк хранилища типовых конфигураций: типовых нет, используется переопределённая ссылка базы.</summary>
     private sealed class FakeConfigTypes : ICustomConfigTypesStore
     {
+        public List<OneCConfigType> Types { get; } = new();
         public string FilePath => "";
-        public IReadOnlyList<OneCConfigType> Load() => Array.Empty<OneCConfigType>();
+        public IReadOnlyList<OneCConfigType> Load() => Types;
         public void Save(IReadOnlyCollection<OneCConfigType> types) { }
-        public IReadOnlyList<OneCConfigType> LoadAll() => Array.Empty<OneCConfigType>();
+        public IReadOnlyList<OneCConfigType> LoadAll() => Types;
         public void RestoreDefaults() { }
     }
 

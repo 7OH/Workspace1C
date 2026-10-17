@@ -403,4 +403,66 @@ public sealed class ConfigTypeMatcherTests
         Assert.Null(ConfigTypeMatcher.FindByCode(new List<OneCConfigType>(), "BP"));
         Assert.Null(ConfigTypeMatcher.FindByCode(null, "BP"));
     }
+
+    // ---- issue #13: единое правило «конфигурация базы» для каталога и учётной записи ИТС ----
+
+    [Fact]
+    public void ResolveForInfobase_ExplicitCode_WinsOverName()
+    {
+        var configs = new List<OneCConfigType>
+        {
+            Config("BP", "Бухгалтерия предприятия"),
+            Config("ZUP", "Зарплата и управление персоналом"),
+        };
+
+        var config = ConfigTypeMatcher.ResolveForInfobase(configs, "zup", "Бухгалтерия предприятия");
+
+        Assert.Equal("ZUP", config?.Code);
+    }
+
+    [Fact]
+    public void ResolveForInfobase_NoCode_FallsBackToName()
+    {
+        var configs = new List<OneCConfigType>
+        {
+            Config("BP", "Бухгалтерия предприятия"),
+            Config("ZUP", "Зарплата и управление персоналом"),
+        };
+
+        var config = ConfigTypeMatcher.ResolveForInfobase(configs, "", "Зарплата и управление персоналом");
+
+        Assert.Equal("ZUP", config?.Code);
+    }
+
+    [Fact]
+    public void ResolveForInfobase_UnknownCode_FallsBackToName()
+    {
+        var configs = new List<OneCConfigType> { Config("BP", "Бухгалтерия предприятия") };
+
+        var config = ConfigTypeMatcher.ResolveForInfobase(configs, "DELETED", "Бухгалтерия предприятия");
+
+        Assert.Equal("BP", config?.Code);
+    }
+
+    [Fact]
+    public void ResolveForInfobase_NothingMatches_ReturnsNull()
+    {
+        var configs = new List<OneCConfigType> { Config("BP", "Бухгалтерия предприятия") };
+
+        Assert.Null(ConfigTypeMatcher.ResolveForInfobase(configs, null, null));
+        Assert.Null(ConfigTypeMatcher.ResolveForInfobase(null, "BP", "Бухгалтерия предприятия"));
+    }
+
+    [Fact]
+    public void AccountIdFor_ReturnsAssignedOrNull()
+    {
+        var withAccount = Config("BP", "Бухгалтерия предприятия");
+        withAccount.AccountId = "acc-1";
+        var withoutAccount = Config("ZUP", "ЗУП");
+        withoutAccount.AccountId = "  ";
+
+        Assert.Equal("acc-1", ConfigTypeMatcher.AccountIdFor(withAccount));
+        Assert.Null(ConfigTypeMatcher.AccountIdFor(withoutAccount));
+        Assert.Null(ConfigTypeMatcher.AccountIdFor(null));
+    }
 }

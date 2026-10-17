@@ -97,12 +97,10 @@ public partial class UpdateCheckWindow : Window
 
         try
         {
-            var config = FindLinkedConfig();
             // Явное связывание (UpdateConfigCode) — приоритет. Если связи нет, но свойства
             // конфигурации базы определены (вкладка «Платформа»), строим каталог релизов из них:
             // типовая конфигурация подбирается автоматически по имени (issue #323).
-            if (config is null && !string.IsNullOrWhiteSpace(_infobase.ConfigurationName))
-                config = ConfigTypeMatcher.FindByInfobaseName(_store.LoadAll(), _infobase.ConfigurationName);
+            var config = FindEffectiveConfig();
 
             // Редакция по версии базы («3.1.38.92» → «3.1»), иначе первая редакция по умолчанию
             // (issue #346: в F9 раньше всегда бралась DefaultEdition, версия не учитывалась).
@@ -168,7 +166,17 @@ public partial class UpdateCheckWindow : Window
     /// <summary>Учётная запись ИТС, назначенная связанной конфигурации (issue #371): передаётся
     /// сервису для запросов к сайту 1С (проверка/каталог/файлы релиза). Пусто — сервис использует
     /// «Основную» запись справочника либо выбранную в настройках (issue #333).</summary>
-    private string? ResolveAccountId() => FindLinkedConfig()?.AccountId;
+    private string? ResolveAccountId() => ConfigTypeMatcher.AccountIdFor(FindEffectiveConfig());
+
+    /// <summary>
+    /// Типовая конфигурация базы для каталога релизов И учётной записи ИТС (issue #13): явная
+    /// связь, иначе автоподбор по имени конфигурации базы. Раньше учётная запись бралась только
+    /// по явной связи — для базы без связи использовалась «Основная», хотя адрес каталога
+    /// строился по подобранной конфигурации с другой назначенной учётной записью.
+    /// </summary>
+    private OneCConfigType? FindEffectiveConfig() =>
+        ConfigTypeMatcher.ResolveForInfobase(_store.LoadAll(), _infobase.UpdateConfigCode,
+            _infobase.ConfigurationName);
 
     /// <summary>Обновляет блок статуса, ошибок и деталей (версия/URL/кнопка «Скачать») после проверки.</summary>
     private void UpdateStatusDisplay()

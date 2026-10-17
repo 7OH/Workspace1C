@@ -548,8 +548,11 @@ public class SchedulerService : IDisposable
         }
 
         // Полный список версий: параметр allUpdates=true, как в окне F9 (issue #352).
+        // Учётная запись ИТС, назначенная конфигурации (issue #13): раньше планировщик её не
+        // передавал, и запрос всегда шёл под «Основной» записью.
         var catalog = await _updates.GetUpdateCatalogAsync(
-            OneCUpdatesService.BuildAllUpdatesCatalogUrl(url)).ConfigureAwait(false);
+            OneCUpdatesService.BuildAllUpdatesCatalogUrl(url), default,
+            ConfigTypeMatcher.AccountIdFor(config)).ConfigureAwait(false);
         if (catalog.Status != PortalFetchStatus.Ok)
         {
             result.Success = false;

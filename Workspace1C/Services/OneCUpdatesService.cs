@@ -317,6 +317,9 @@ public class OneCUpdatesService : IOneCUpdatesService
         }
 
         _logger.Info($"[Updates] Проверка: config='{configName}', url={url}");
+        // Под какой учётной записью идёт запрос и почему (issue #13) — только имя записи.
+        if (UpdatesTraceEnabled)
+            _logger.Info($"[Updates] Учётная запись ИТС: {DescribeAccountForLog(accountId)}");
 
         try
         {
@@ -377,6 +380,7 @@ public class OneCUpdatesService : IOneCUpdatesService
             if (LooksLikeLoginForm(body))
             {
                 _logger.Warn($"[Updates] Получена страница входа вместо содержимого каталога ({url}).");
+                LogBodyPreviewIfTraced(body);
                 result.Status = ConfigUpdateStatus.Failed;
                 result.Error = AuthErrorKey(authFailed);
                 return result;
@@ -389,6 +393,9 @@ public class OneCUpdatesService : IOneCUpdatesService
             if (LooksLikeAccessDeniedPage(body))
             {
                 _logger.Warn($"[Updates] Получена страница «нет доступа» вместо содержимого каталога ({url}).");
+                // Превью и при отказе (issue #13): раньше оно писалось только для успешного
+                // ответа, и по журналу было не видно, что именно вернул сайт.
+                LogBodyPreviewIfTraced(body);
                 result.Status = ConfigUpdateStatus.Failed;
                 result.Error = "Updates.NoAccess";
                 return result;
@@ -650,6 +657,41 @@ public class OneCUpdatesService : IOneCUpdatesService
             return string.Empty;
         var text = body.Length > maxLength ? body.Substring(0, maxLength) : body;
         return Regex.Replace(text, @"[\r\n\t]+", " ");
+    }
+
+    /// <summary>Превью HTML ответа в журнал при включённой диагностике CM_UPDATES (issue #13).</summary>
+    private void LogBodyPreviewIfTraced(string body)
+    {
+        if (!UpdatesTraceEnabled)
+            return;
+        _logger.Info($"[Updates] Превью HTML (первые {UpdatesPreviewLength} символов): " +
+                     $"{BuildBodyPreview(body, UpdatesPreviewLength)}");
+    }
+
+    /// <summary>
+    /// Описание выбора учётной записи ИТС для журнала CM_UPDATES (issue #13): имя записи и
+    /// источник — назначенная конфигурации, выбранная в настройках или «Основная».
+    /// Логин и пароль в журнал не пишутся.
+    /// </summary>
+    internal string DescribeAccountForLog(string? accountId)
+    {
+        try
+        {
+            var settings = _repository.LoadSettings();
+            var source = !string.IsNullOrWhiteSpace(accountId)
+                ? "назначена конфигурации"
+                : !string.IsNullOrWhiteSpace(settings.ItsAccountId) ? "из настроек" : "основная";
+            var account = _itsAccounts?.Resolve(
+                !string.IsNullOrWhiteSpace(accountId) ? accountId : settings.ItsAccountId);
+            var name = account?.Name;
+            if (string.IsNullOrWhiteSpace(name))
+                name = string.IsNullOrWhiteSpace(settings.UpdatesLogin) ? "<не задана>" : "<устаревшие поля настроек>";
+            return $"«{name}» ({source})";
+        }
+        catch (Exception ex)
+        {
+            return $"<ошибка определения: {ex.Message}>";
+        }
     }
 
     /// <summary>Включена ли детальная диагностика проверки обновлений (CM_UPDATES, issue #371).</summary>
@@ -1364,7 +1406,7 @@ public class OneCUpdatesService : IOneCUpdatesService
             //    (SendWithAuthAsync + ReadAsStream) — тот же прогресс и удаление файла
             //    при ошибке/отмене.
             _logger.Info("[Platform] Многопоточная загрузка недоступна (мал файл/нет Range/сбой) — однопоточная.");
-            return await DownloadUpdateAsync(effectiveUrl, targetPath, progress, ct).ConfigureAwait(false);
+            return await DownloadUpdateAsync(effectiveUrl, targetPath, progress, ct, accountId).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
