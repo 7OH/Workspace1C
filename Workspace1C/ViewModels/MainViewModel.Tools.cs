@@ -2437,6 +2437,8 @@ public partial class MainViewModel : ViewModelBase
         string? hotkeyLockApp = null,
         string? hotkeyCheckIntegrity = null,
         string? hotkeyServerConsole = null,
+        // Управление службами (issue #11): настраиваемый хоткей, по умолчанию Ctrl+Shift+S.
+        string? hotkeyServices = null,
         string? hotkeyZoomIn = null,
         string? hotkeyZoomOut = null,
         string? hotkeyZoomReset = null,
@@ -2478,6 +2480,8 @@ public partial class MainViewModel : ViewModelBase
         if (hotkeyLockApp != null) _hotkeyLockApp = hotkeyLockApp.Trim();
         if (hotkeyCheckIntegrity != null) _hotkeyCheckIntegrity = hotkeyCheckIntegrity.Trim();
         if (hotkeyServerConsole != null) _hotkeyServerConsole = hotkeyServerConsole.Trim();
+        // Управление службами (issue #11): применяем хоткей из окна настроек.
+        if (hotkeyServices != null) HotkeyServices = hotkeyServices.Trim();
         // Масштаб строк списка (issue #303): сочетания Ctrl++ / Ctrl+- / Ctrl+0.
         if (hotkeyZoomIn != null) HotkeyZoomIn = hotkeyZoomIn.Trim();
         if (hotkeyZoomOut != null) HotkeyZoomOut = hotkeyZoomOut.Trim();
@@ -2516,6 +2520,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeySwitchUser));
         OnPropertyChanged(nameof(HotkeyCheckIntegrity));
         OnPropertyChanged(nameof(HotkeyServerConsole));
+        OnPropertyChanged(nameof(HotkeyServices));
         OnPropertyChanged(nameof(RememberWindowLayout));
         SaveSettings();
     }

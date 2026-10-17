@@ -460,6 +460,8 @@ public partial class MainViewModel : ViewModelBase
         // Администрирование ИБ (Этап 6, функция №29 + консоль серверов).
         _hotkeyCheckIntegrity = string.IsNullOrWhiteSpace(settings.HotkeyCheckIntegrity) ? "Ctrl+Alt+Q" : settings.HotkeyCheckIntegrity.Trim();
         _hotkeyServerConsole = string.IsNullOrWhiteSpace(settings.HotkeyServerConsole) ? "Ctrl+Alt+S" : settings.HotkeyServerConsole.Trim();
+        // Управление службами (issue #11): хоткей по умолчанию Ctrl+Shift+S.
+        _hotkeyServices = string.IsNullOrWhiteSpace(settings.HotkeyServices) ? "Ctrl+Shift+S" : settings.HotkeyServices.Trim();
         _appLockPasswordHash = settings.AppLockPasswordHash ?? "";
         // Активная блокировка восстанавливается только при наличии пароля: флаг без
         // хэша (сброшен вручную в файле настроек) гасим (issue #294).

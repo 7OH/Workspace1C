@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.9</Version>
-    <AssemblyVersion>1.0.0.9</AssemblyVersion>
-    <FileVersion>1.0.0.9</FileVersion>
-    <InformationalVersion>1.0.0.9</InformationalVersion>
+    <Version>1.0.0.10</Version>
+    <AssemblyVersion>1.0.0.10</AssemblyVersion>
+    <FileVersion>1.0.0.10</FileVersion>
+    <InformationalVersion>1.0.0.10</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -148,6 +148,10 @@
     <!-- Для чтения командной строки процессов 1cv8.exe (Win32_Process) при проверке
          блокировки запуска конфигуратора перед выгрузкой .dt / .cf. -->
     <PackageReference Include="System.Management" Version="8.0.0" />
+    <!-- Управление службами (issue #11): System.ServiceProcess.ServiceController
+         (список/статус/запуск/остановка служб Windows). Пакет фреймворка Windows,
+         на Linux не подключается (там — systemctl). -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
   </ItemGroup>
 
   <!-- Разметку Avalonia окна грузят сами, вызовом AvaloniaXamlLoader.Load(this)
@@ -259,6 +263,11 @@
     <!-- Окно «Серверы 1С» (0.3.9.124): WPF code-behind исключается, Avalonia-версия
          (ServerMonitorWindow.Avalonia.cs) подключается глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\ServerMonitorWindow.xaml.cs" />
+    <!-- Окно «Управление службами» и его диалог «Настроить» (issue #11): WPF code-behind
+         исключается, Avalonia-версии (ServicesWindow.Avalonia.cs / ServicesPickerWindow.Avalonia.cs)
+         подключаются глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\ServicesWindow.xaml.cs" />
+    <Compile Remove="Views\ServicesPickerWindow.xaml.cs" />
     <!-- Диалог создания информационной базы в кластере (issue #3): WPF code-behind
          исключается, Avalonia-версия (RacInfobaseCreateWindow.Avalonia.cs) подключается
          глобом *Window.Avalonia.cs ниже. -->
@@ -461,6 +470,15 @@
          подключаются явно (имена не совпадают с глобом *.Avalonia.cs). -->
     <Compile Include="ViewModels\ProcessInspectorViewModel.cs" />
     <Compile Include="ViewModels\ProcessRowViewModel.cs" />
+    <!-- ViewModels окна «Управление службами» (issue #11): чистый .NET без
+         платформенных зависимостей, используются обеими платформами — на Linux
+         подключаются явно (имена не совпадают с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\ServicesWindowViewModel.cs" />
+    <Compile Include="ViewModels\ServicesPickerViewModel.cs" />
+    <!-- Команда «Управление службами» MainViewModel (Avalonia/Linux): имя
+         «MainViewModel.Avalonia.*.cs» не совпадает с глобом *.Avalonia.cs,
+         добавляется явно (как MainViewModel.Avalonia.Admin.cs). -->
+    <Compile Include="ViewModels\MainViewModel.Avalonia.Services.cs" />
     <!-- ViewModels окна «Серверы 1С» (0.3.9.124, цикл 0.3.9.123–126): чистый .NET
          без платформенных зависимостей, используются обеими платформами — на Linux
          подключаются явно (имена не совпадают с глобом *.Avalonia.cs). -->

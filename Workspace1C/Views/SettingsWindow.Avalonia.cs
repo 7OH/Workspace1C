@@ -2840,6 +2840,8 @@ namespace Workspace1C
             // Администрирование ИБ (Этап 6, функция №29 + консоль серверов).
             var hotkeyCheckIntegrity = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.CheckIntegrity"), _viewModel.HotkeyCheckIntegrity);
             var hotkeyServerConsole = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.ServerConsole"), _viewModel.HotkeyServerConsole);
+            // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
+            var hotkeyServices = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.Services"), _viewModel.HotkeyServices);
             // Сохранение копии экрана (функция №30 StartManager).
             var hotkeyScreenshot = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.Screenshot"), _viewModel.ScreenshotHotkey);
             // У автора последняя строка идёт без нижнего поля, а весь блок строк
@@ -3199,6 +3201,7 @@ namespace Workspace1C
                     hotkeyClearSearch.Value, hotkeyClearTags.Value, hotkeyRightPanelDetails.Value,
                     hotkeySwitchUser.Value, hotkeyFindInList.Value, hotkeySessionLock.Value, hotkeyLockApp.Value,
                     hotkeyCheckIntegrity.Value, hotkeyServerConsole.Value,
+                    hotkeyServices.Value,
                     hotkeyZoomIn.Value, hotkeyZoomOut.Value, hotkeyZoomReset.Value,
                     hotkeyCommandPalette.Value, hotkeyPlatformUpdate.Value,
                     hotkeyShowRunning.Value,

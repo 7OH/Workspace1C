@@ -24,6 +24,9 @@ public enum UtilitiesMenuCommandKind
     /// <summary>Встроенный монитор серверов 1С.</summary>
     ServerMonitor,
 
+    /// <summary>Управление службами (Windows/Linux, issue #11).</summary>
+    Services,
+
     /// <summary>Внешняя консоль администрирования серверов.</summary>
     OpenServerConsole,
 
@@ -368,6 +371,9 @@ public static class UtilitiesMenuCatalog
                 "Download", "IconCloudDownload", "#22C55E", UtilitiesMenuCommandKind.ShowPlatformDownload),
             new("ServerMonitor", "ServerMonitor.Title", GroupTopLevel,
                 "ServerNetwork", "IconServer", "#14B8A6", UtilitiesMenuCommandKind.ServerMonitor, "HotkeyServerConsole"),
+            // Управление службами (issue #11): сразу после «Серверы 1С», до внешней консоли.
+            new("Services", "Services.MenuItem", GroupTopLevel,
+                "Cog", "IconSettings", "#06B6D4", UtilitiesMenuCommandKind.Services, "HotkeyServices", isNew: true),
             new("ServerConsoleExternal", "Admin.ServerConsoleExternal", GroupTopLevel,
                 "Server", "IconServer", "#64748B", UtilitiesMenuCommandKind.OpenServerConsole),
 
@@ -463,6 +469,8 @@ public static class UtilitiesMenuLayouts
             Item("PlatformUpdate"),
             Item("PlatformDownload"),
             Item("ServerMonitor"),
+            // Управление службами (issue #11): под «Серверы 1С», как в каталоге.
+            Item("Services"),
             Item("ServerConsoleExternal"),
             Separator(),
             Item("AppLock"),

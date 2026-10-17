@@ -27,9 +27,10 @@ public sealed class UtilitiesMenuLayoutTests
     {
         var layout = UtilitiesMenuLayouts.Default();
 
-        // Корень: 16 узлов — 11 пунктов/групп + 5 узлов-разделителей (issue #374):
+        // Корень: 17 узлов — 12 пунктов/групп + 5 узлов-разделителей (issue #374):
         // перед «Актуальные релизы», «Блокировка приложения», «Информация», «Операции», «Проверить обновления».
-        Assert.Equal(16, layout.Root.Count);
+        // «Управление службами» (issue #11) стоит сразу после «Серверы 1С».
+        Assert.Equal(17, layout.Root.Count);
 
         // ---- Верхний уровень ----
         AssertItem(layout.Root[0], "CommandPalette");
@@ -38,15 +39,16 @@ public sealed class UtilitiesMenuLayoutTests
         AssertItem(layout.Root[3], "PlatformUpdate");
         AssertItem(layout.Root[4], "PlatformDownload");
         AssertItem(layout.Root[5], "ServerMonitor");
-        AssertItem(layout.Root[6], "ServerConsoleExternal");
-        AssertSeparator(layout.Root[7]);
+        AssertItem(layout.Root[6], "Services");
+        AssertItem(layout.Root[7], "ServerConsoleExternal");
+        AssertSeparator(layout.Root[8]);
 
         // «Блокировка приложения» на верхнем уровне, перед подменю (issue #294).
-        AssertItem(layout.Root[8], "AppLock");
+        AssertItem(layout.Root[9], "AppLock");
 
         // ---- Подменю «Опции блокировки» ----
-        AssertGroup(layout.Root[9], UtilitiesMenuCatalog.GroupLockOptions);
-        var lockChildren = layout.Root[9].Children;
+        AssertGroup(layout.Root[10], UtilitiesMenuCatalog.GroupLockOptions);
+        var lockChildren = layout.Root[10].Children;
         Assert.Equal(4, lockChildren.Count);
         AssertItem(lockChildren[0], "UnlockPrivateBases");
         AssertItem(lockChildren[1], "ChangeAppLock");
@@ -54,9 +56,9 @@ public sealed class UtilitiesMenuLayoutTests
         AssertItem(lockChildren[3], "RunBackupScenario");
 
         // ---- Подменю «Информация» ----
-        AssertSeparator(layout.Root[10]);
-        AssertGroup(layout.Root[11], UtilitiesMenuCatalog.GroupInformation);
-        var infoChildren = layout.Root[11].Children;
+        AssertSeparator(layout.Root[11]);
+        AssertGroup(layout.Root[12], UtilitiesMenuCatalog.GroupInformation);
+        var infoChildren = layout.Root[12].Children;
         Assert.Equal(11, infoChildren.Count);
         AssertItem(infoChildren[0], "MaintenanceCenter");
         AssertSeparator(infoChildren[1]);
@@ -72,9 +74,9 @@ public sealed class UtilitiesMenuLayoutTests
         AssertItem(infoChildren[10], "UsageStatistics");
 
         // ---- Подменю «Операции» ----
-        AssertSeparator(layout.Root[12]);
-        AssertGroup(layout.Root[13], UtilitiesMenuCatalog.GroupOperations);
-        var opsChildren = layout.Root[13].Children;
+        AssertSeparator(layout.Root[13]);
+        AssertGroup(layout.Root[14], UtilitiesMenuCatalog.GroupOperations);
+        var opsChildren = layout.Root[14].Children;
         Assert.Equal(21, opsChildren.Count);
         AssertItem(opsChildren[0], "ConfigDiff");
         AssertItem(opsChildren[1], "MetadataExplorer");
@@ -102,8 +104,8 @@ public sealed class UtilitiesMenuLayoutTests
         AssertItem(opsChildren[20], "RemoveMissingFileBases");
 
         // ---- «Проверить обновления» в конце, с разделителем ----
-        AssertSeparator(layout.Root[14]);
-        AssertItem(layout.Root[15], "CheckForUpdates");
+        AssertSeparator(layout.Root[15]);
+        AssertItem(layout.Root[16], "CheckForUpdates");
     }
 
     /// <summary>Каталог содержит все пункты стандартной компоновки (ни один ItemId не теряется).</summary>

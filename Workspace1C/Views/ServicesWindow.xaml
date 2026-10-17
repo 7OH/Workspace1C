@@ -1,0 +1,167 @@
+<Window x:Class="Workspace1C.ServicesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        xmlns:local="clr-namespace:Workspace1C"
+        Icon="{StaticResource AppIcon}"
+        Height="560" Width="640" MinHeight="460" MinWidth="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="True"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <!-- Строка статуса: цвет кружка из #RRGGBB модели строки. -->
+        <local:BrushFromHexConverter x:Key="BrushFromHex"/>
+        <!-- Кнопка «Системный диалог» видна только на Windows. -->
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+
+        <!-- Кнопка-иконка строки действий (issue #11): без текста, узкая, с подсказкой. -->
+        <Style x:Key="IconOnlyButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+    </Window.Resources>
+
+    <!-- Порядок: сверху кнопки/заголовок/строки, внизу статус, последний — список
+         (LastChildFill): он занимает всё оставшееся место (~15 строк). -->
+    <DockPanel Margin="16" LastChildFill="True">
+        <!-- Первая строка: «Настроить» и «Системный диалог» (только Windows; на Linux
+             кнопка скрывается по CanOpenSystemDialog). -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="ConfigureButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="0,0,6,0"
+                    Click="OnConfigure_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⚙" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc Services.Configure}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <Button x:Name="SystemDialogButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                    Visibility="{Binding CanOpenSystemDialog, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    Click="OnSystemDialog_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🗔" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="{loc:Loc Services.SystemDialog}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!-- Заголовок списка «Службы». -->
+        <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" Margin="0,0,0,8"
+                   Text="{loc:Loc Services.ListTitle}"/>
+
+        <!-- Строка кнопок-иконок над списком (issue #11). Группы («Добавить группу /
+             Изменить группу / Удалить группу / Переместить выше / ниже») скрыты —
+             место зарезервировано комментарием (итерация 2 issue #11). -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+            <!-- Группы (issue #11, итерация 2): кнопки группы и перемещения скрыты до
+                 реализации групп; правый блок действий начинается с разделителя. -->
+            <Button x:Name="RefreshButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Refresh}" Click="OnRefresh_Click">
+                <TextBlock Text="⟳" VerticalAlignment="Center"/>
+            </Button>
+            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
+            <Button x:Name="StartButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Start}" IsEnabled="{Binding CanStart}"
+                    Click="OnStart_Click">
+                <TextBlock Text="▶" VerticalAlignment="Center"/>
+            </Button>
+            <Button x:Name="StopButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Stop}" IsEnabled="{Binding CanStop}"
+                    Click="OnStop_Click">
+                <TextBlock Text="⏹" VerticalAlignment="Center"/>
+            </Button>
+            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
+            <Button x:Name="PauseButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Pause}" IsEnabled="{Binding CanPause}"
+                    Click="OnPause_Click">
+                <TextBlock Text="⏸" VerticalAlignment="Center"/>
+            </Button>
+            <Button x:Name="ContinueButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Continue}" IsEnabled="{Binding CanContinue}"
+                    Click="OnContinue_Click">
+                <TextBlock Text="⏵" VerticalAlignment="Center"/>
+            </Button>
+            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
+            <Button x:Name="RestartButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.Restart}" IsEnabled="{Binding CanRestart}"
+                    Click="OnRestart_Click">
+                <TextBlock Text="🔄" VerticalAlignment="Center"/>
+            </Button>
+            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
+            <!-- Подменю «Все сервисы» (Запустить / Остановить / Перезапустить). -->
+            <Button x:Name="AllServicesButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                    Click="OnAllServices_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{loc:Loc Services.AllServices}" VerticalAlignment="Center"/>
+                    <TextBlock Text=" ▾" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!-- Подсказка при пустом списке (issue #11): ничего в сам ListBox не добавляем. -->
+        <TextBlock DockPanel.Dock="Top" Margin="0,0,0,6" FontSize="12"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   Text="{loc:Loc Services.Empty}" TextWrapping="Wrap">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasRows}" Value="False">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <!-- Статус-строка окна (ошибки, «недоступно на этой системе»). -->
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" FontSize="12"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   Text="{Binding StatusText}" TextWrapping="Wrap"/>
+
+        <!-- Список служб (заполняет остаток, ~15 строк; кружок зелёный = запущена). -->
+        <ListBox x:Name="ServicesList" ItemsSource="{Binding Rows}"
+                 SelectedItem="{Binding SelectedRow}"
+                 ContextMenuOpening="OnServicesList_ContextMenuOpening"
+                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                 Background="{DynamicResource CardBackgroundBrush}">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="MinHeight" Value="26"/>
+                    <Setter Property="FontSize" Value="13"/>
+                    <Setter Property="Padding" Value="8,2"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,8,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding StatusColorHex, Converter={StaticResource BrushFromHex}}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Column="2" Text="{Binding StatusText}"
+                                   VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Margin="12,0,0,0"/>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>

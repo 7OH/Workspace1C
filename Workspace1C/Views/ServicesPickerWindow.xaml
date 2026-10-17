@@ -1,0 +1,81 @@
+<Window x:Class="Workspace1C.ServicesPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        Icon="{StaticResource AppIcon}"
+        Height="560" Width="520" MinHeight="360" MinWidth="420"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="16" LastChildFill="True">
+        <!-- Поиск и кнопки «Выбрать все / Сбросить». -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="{loc:Loc Services.Picker.Search}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="SearchBox" Width="220" Height="30" VerticalContentAlignment="Center"
+                     Style="{StaticResource ModernTextBox}"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+            <Button x:Name="SelectAllButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="12,0,6,0"
+                    Command="{Binding SelectAllCommand}">
+                <TextBlock Text="{loc:Loc Services.Picker.SelectAll}" VerticalAlignment="Center"/>
+            </Button>
+            <Button x:Name="SelectNoneButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="10,5"
+                    Command="{Binding SelectNoneCommand}">
+                <TextBlock Text="{loc:Loc Services.Picker.SelectNone}" VerticalAlignment="Center"/>
+            </Button>
+        </StackPanel>
+
+        <!-- Сводка «Выбрано: N из M». -->
+        <TextBlock DockPanel.Dock="Top" FontSize="12"
+                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,6"
+                   Text="{Binding CountText}"/>
+
+        <!-- Список всех служб с галочками. -->
+        <ListBox x:Name="ServicesList" ItemsSource="{Binding FilteredServices}"
+                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                 Background="{DynamicResource CardBackgroundBrush}"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="MinHeight" Value="26"/>
+                    <Setter Property="FontSize" Value="13"/>
+                    <Setter Property="Padding" Value="8,2"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox VerticalAlignment="Center"
+                                  IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding ServiceName}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Кнопки OK / Отмена. -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="OkButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" Margin="0,0,8,0"
+                    MinWidth="90">
+                <TextBlock Text="{loc:Loc Common.Ok}" VerticalAlignment="Center"/>
+            </Button>
+            <Button x:Name="CancelButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" MinWidth="90">
+                <TextBlock Text="{loc:Loc Common.Cancel}" VerticalAlignment="Center"/>
+            </Button>
+        </StackPanel>
+    </DockPanel>
+</Window>

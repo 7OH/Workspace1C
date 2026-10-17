@@ -183,6 +183,8 @@ namespace Workspace1C
             // проверка целостности файловой ИБ (chdbfl) и консоль администрирования серверов 1С.
             AddHotkey(_vm.HotkeyCheckIntegrity, _vm.CheckIntegrityCommand);
             AddHotkey(_vm.HotkeyServerConsole, _vm.OpenServerConsoleCommand);
+            // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
+            AddHotkey(_vm.HotkeyServices, _vm.ShowServicesCommand);
             // Сохранение копии экрана (функция №30 StartManager): сочетание настраивается в настройках.
             AddHotkey(_vm.ScreenshotHotkey, _vm.TakeScreenshotCommand);
             // Ctrl+Shift+Plus / Ctrl+Shift+Minus — развернуть/свернуть все узлы дерева.

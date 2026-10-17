@@ -57,9 +57,19 @@ public sealed class UtilitiesMenuLayoutStoreTests : IDisposable
         Assert.Equal("CommandPalette", restored.Root[0].ItemId);
         // Разделители сохраняются как самостоятельные узлы (issue #374).
         Assert.Equal("separator", restored.Root[1].Kind);
-        Assert.Equal("group", restored.Root[9].Kind);
-        Assert.Equal(UtilitiesMenuCatalog.GroupLockOptions, restored.Root[9].GroupId);
-        Assert.Equal(4, restored.Root[9].Children.Count);
+        // «Управление службами» (issue #11) добавлено после «Серверы 1С» — группа
+        // «Опции блокировки» сдвинулась на индекс 10.
+        AssertItem(restored.Root[6], "Services");
+        Assert.Equal("group", restored.Root[10].Kind);
+        Assert.Equal(UtilitiesMenuCatalog.GroupLockOptions, restored.Root[10].GroupId);
+        Assert.Equal(4, restored.Root[10].Children.Count);
+    }
+
+    private static void AssertItem(UtilitiesMenuNode node, string itemId)
+    {
+        Assert.NotNull(node);
+        Assert.Equal("item", node.Kind);
+        Assert.Equal(itemId, node.ItemId);
     }
 
     [Fact]

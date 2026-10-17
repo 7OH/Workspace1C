@@ -462,6 +462,8 @@ public partial class MainViewModel : ViewModelBase
         string clearSearch, string clearTags, string rightPanelDetails, string switchUser,
         string findInList = "", string sessionLock = "", string lockApp = "",
         string checkIntegrity = "", string serverConsole = "",
+        // Управление службами (issue #11): настраиваемый хоткей, по умолчанию Ctrl+Shift+S.
+        string hotkeyServices = "",
         string zoomIn = "", string zoomOut = "", string zoomReset = "",
         string commandPalette = "", string platformUpdate = "",
         string showRunning = "",
@@ -496,6 +498,8 @@ public partial class MainViewModel : ViewModelBase
         // Администрирование ИБ (Этап 6, функция №29 + консоль серверов).
         _settings.HotkeyCheckIntegrity = checkIntegrity ?? string.Empty;
         _settings.HotkeyServerConsole = serverConsole ?? string.Empty;
+        // Управление службами (issue #11).
+        _settings.HotkeyServices = hotkeyServices ?? string.Empty;
         // Масштаб строк списка (issue #303): Ctrl++ / Ctrl+- / Ctrl+0.
         _settings.HotkeyZoomIn = zoomIn ?? string.Empty;
         _settings.HotkeyZoomOut = zoomOut ?? string.Empty;
@@ -529,6 +533,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyLockApp));
         OnPropertyChanged(nameof(HotkeyCheckIntegrity));
         OnPropertyChanged(nameof(HotkeyServerConsole));
+        OnPropertyChanged(nameof(HotkeyServices));
         // Масштаб строк списка (issue #303).
         OnPropertyChanged(nameof(HotkeyZoomIn));
         OnPropertyChanged(nameof(HotkeyZoomOut));

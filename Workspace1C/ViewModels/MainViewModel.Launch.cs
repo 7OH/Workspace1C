@@ -716,6 +716,8 @@ public partial class MainViewModel : ViewModelBase
         // Администрирование ИБ (Этап 6, функция №29 + консоль серверов).
         s.HotkeyCheckIntegrity = _hotkeyCheckIntegrity;
         s.HotkeyServerConsole = _hotkeyServerConsole;
+        // Управление службами (issue #11): хоткей по умолчанию Ctrl+Shift+S.
+        s.HotkeyServices = _hotkeyServices;
         s.AppLockPasswordHash = _appLockPasswordHash;
         // Активная блокировка переживает перезапуск приложения (issue #294).
         s.AppLockActive = _appLockActive;

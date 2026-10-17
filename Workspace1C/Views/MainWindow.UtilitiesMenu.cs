@@ -220,6 +220,7 @@ public partial class MainWindow
             case "HotkeyActualReleases": return _viewModel.HotkeyActualReleases;
             case "HotkeyPlatformUpdate": return _viewModel.HotkeyPlatformUpdate;
             case "HotkeyServerConsole": return _viewModel.HotkeyServerConsole;
+            case "HotkeyServices": return _viewModel.HotkeyServices;
             case "HotkeyLockApp": return _viewModel.HotkeyLockApp;
             case "HotkeyRunBackup": return _viewModel.HotkeyRunBackup;
             case "HotkeySessionLock": return _viewModel.HotkeySessionLock;
@@ -242,6 +243,8 @@ public partial class MainWindow
                 item.Command = _viewModel.ShowPlatformDownloadCommand; break;
             case UtilitiesMenuCommandKind.ServerMonitor:
                 item.Command = _viewModel.ServerMonitorCommand; break;
+            case UtilitiesMenuCommandKind.Services:
+                item.Command = _viewModel.ShowServicesCommand; break;
             case UtilitiesMenuCommandKind.OpenServerConsole:
                 item.Command = _viewModel.OpenServerConsoleCommand; break;
             case UtilitiesMenuCommandKind.LockApp:

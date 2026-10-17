@@ -132,6 +132,9 @@ namespace Workspace1C
                 HotkeyCheckIntegrityBox.Value = viewModel.HotkeyCheckIntegrity;
             if (HotkeyServerConsoleBox != null)
                 HotkeyServerConsoleBox.Value = viewModel.HotkeyServerConsole;
+            // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
+            if (HotkeyServicesBox != null)
+                HotkeyServicesBox.Value = viewModel.HotkeyServices;
             // Масштаб строк списка (issue #303): Ctrl++ / Ctrl+- / Ctrl+0.
             if (HotkeyZoomInBox != null)
                 HotkeyZoomInBox.Value = viewModel.HotkeyZoomIn;
@@ -497,6 +500,7 @@ namespace Workspace1C
             var hkLockApp = ReadHotkeyBox(HotkeyLockAppBox);
             var hkCheckIntegrity = ReadHotkeyBox(HotkeyCheckIntegrityBox);
             var hkServerConsole = ReadHotkeyBox(HotkeyServerConsoleBox);
+            var hkServices = ReadHotkeyBox(HotkeyServicesBox);
             // Копия экрана по хоткею (функция №30, Этап 8).
             var hkScreenshot = ReadHotkeyBox(HotkeyScreenshotBox);
             // Масштаб строк списка (issue #303).
@@ -531,6 +535,7 @@ namespace Workspace1C
                 (LocalizationManager.T("AppLock.LockTitle"), hkLockApp),
                 (LocalizationManager.T("Admin.CheckIntegrityTitle"), hkCheckIntegrity),
                 (LocalizationManager.T("Admin.ServerConsoleTitle"), hkServerConsole),
+                (LocalizationManager.T("Services.MenuItem"), hkServices),
                 (LocalizationManager.T("Settings.Screenshot.Title"), hkScreenshot),
                 (LocalizationManager.T("Settings.Hotkeys.ZoomIn"), hkZoomIn),
                 (LocalizationManager.T("Settings.Hotkeys.ZoomOut"), hkZoomOut),
@@ -599,6 +604,7 @@ namespace Workspace1C
                 hotkeyLockApp: hkLockApp,
                 hotkeyCheckIntegrity: hkCheckIntegrity,
                 hotkeyServerConsole: hkServerConsole,
+                hotkeyServices: hkServices,
                 hotkeyZoomIn: hkZoomIn,
                 hotkeyZoomOut: hkZoomOut,
                 hotkeyZoomReset: hkZoomReset,

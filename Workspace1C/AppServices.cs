@@ -102,6 +102,12 @@ public static class AppServices
         // монитора (rac) — server_list.json рядом с настройками (описание, адрес и порт,
         // логин и пароль). Чистый сервис — без UI-зависимостей.
         services.AddSingleton<IServerListStore, ServerListStore>();
+        // Управление службами (issue #11): список выбранных служб — services.json рядом
+        // с настройками (имена служб), по образцу ServerListStore. Чистый сервис — без
+        // UI-зависимостей; сам контроллер служб — один тип, реализация выбирается
+        // символами условной компиляции (#if WINDOWS / #if LINUX).
+        services.AddSingleton<IServicesStore, ServicesStore>();
+        services.AddSingleton<IServiceControllerService, ServiceControllerService>();
         // Компоновка меню «Утилиты» (issue #374): пользовательская структура меню —
         // utilities_menu_layout.json рядом с настройками, по образцу CustomActionsStore.
         // Чистый сервис — без UI-зависимостей.

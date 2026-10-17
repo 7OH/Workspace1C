@@ -120,6 +120,8 @@ namespace Workspace1C
             // проверка целостности файловой ИБ (chdbfl) и консоль администрирования серверов 1С.
             Add(_viewModel.HotkeyCheckIntegrity, _viewModel.CheckIntegrityCommand);
             Add(_viewModel.HotkeyServerConsole, _viewModel.OpenServerConsoleCommand);
+            // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
+            Add(_viewModel.HotkeyServices, _viewModel.ShowServicesCommand);
             // Сохранение копии экрана (функция №30 StartManager): сочетание настраивается в настройках.
             Add(_viewModel.ScreenshotHotkey, _viewModel.TakeScreenshotCommand);
 

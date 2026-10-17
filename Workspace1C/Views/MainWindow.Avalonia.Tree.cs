@@ -1864,6 +1864,7 @@ namespace Workspace1C
                 case "HotkeyActualReleases": return _vm?.HotkeyActualReleases;
                 case "HotkeyPlatformUpdate": return _vm?.HotkeyPlatformUpdate;
                 case "HotkeyServerConsole": return _vm?.HotkeyServerConsole;
+                case "HotkeyServices": return _vm?.HotkeyServices;
                 case "HotkeyLockApp": return _vm?.HotkeyLockApp;
                 case "HotkeyRunBackup": return _vm?.HotkeyRunBackup;
                 case "HotkeySessionLock": return _vm?.HotkeySessionLock;
@@ -1886,6 +1887,8 @@ namespace Workspace1C
                     item.Command = _vm!.ShowPlatformDownloadCommand; break;
                 case UtilitiesMenuCommandKind.ServerMonitor:
                     item.Command = _vm!.ServerMonitorCommand; break;
+                case UtilitiesMenuCommandKind.Services:
+                    item.Command = _vm!.ShowServicesCommand; break;
                 case UtilitiesMenuCommandKind.OpenServerConsole:
                     item.Command = _vm!.OpenServerConsoleCommand; break;
                 case UtilitiesMenuCommandKind.LockApp:

@@ -1411,56 +1411,62 @@
                             <controls:HotkeyBox x:Name="HotkeyServerConsoleBox" Grid.Row="18" Grid.Column="1"
                                                 Height="34" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
-                            <!-- Сохранение копии экрана (функция №30 StartManager) -->
-                            <TextBlock Grid.Row="19" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.Screenshot}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <!-- Управление службами (issue #11): Ctrl+Shift+S по умолчанию. -->
+                            <TextBlock Grid.Row="19" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.Services}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyScreenshotBox" Grid.Row="19" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyServicesBox" Grid.Row="19" Grid.Column="1"
+                                                Height="34" Margin="0,6,0,6" FontSize="13"
+                                                Style="{StaticResource ModernTextBox}"/>
+                            <!-- Сохранение копии экрана (функция №30 StartManager) -->
+                            <TextBlock Grid.Row="20" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.Screenshot}" VerticalAlignment="Center" Margin="0,6,0,6"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <controls:HotkeyBox x:Name="HotkeyScreenshotBox" Grid.Row="20" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- «Найти в списке» — переход к базе в общем списке (issue #285). -->
-                            <TextBlock Grid.Row="20" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.FindInList}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="21" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.FindInList}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyFindInListBox" Grid.Row="20" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyFindInListBox" Grid.Row="21" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- Масштаб строк списка (issue #303): Ctrl++ / Ctrl+- / Ctrl+0. -->
-                            <TextBlock Grid.Row="21" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomIn}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="22" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomIn}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyZoomInBox" Grid.Row="21" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyZoomInBox" Grid.Row="22" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
-                            <TextBlock Grid.Row="22" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomOut}" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="23" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomOut}" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyZoomOutBox" Grid.Row="22" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyZoomOutBox" Grid.Row="23" Grid.Column="1"
                                                 Height="34" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
-                            <TextBlock Grid.Row="23" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomReset}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="24" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ZoomReset}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyZoomResetBox" Grid.Row="23" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyZoomResetBox" Grid.Row="24" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- Командная палитра (Ctrl+K): быстрый поиск баз и команд. -->
-                            <TextBlock Grid.Row="24" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.CommandPalette}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="25" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.CommandPalette}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyCommandPaletteBox" Grid.Row="24" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyCommandPaletteBox" Grid.Row="25" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- Автообновление платформы 1С (функция 9, этап 0.3.9.214): Ctrl+F9. -->
-                            <TextBlock Grid.Row="25" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.PlatformUpdate}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="26" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.PlatformUpdate}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyPlatformUpdateBox" Grid.Row="25" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyPlatformUpdateBox" Grid.Row="26" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- Отбор «Только запущенные» (issue #339): настраиваемая горячая клавиша. -->
-                            <TextBlock Grid.Row="26" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ShowRunning}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="27" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.ShowRunning}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyShowRunningBox" Grid.Row="26" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyShowRunningBox" Grid.Row="27" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                             <!-- Меню закладок (issue #356): настраиваемая горячая клавиша, по умолчанию Ctrl+B. -->
-                            <TextBlock Grid.Row="27" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.BookmarksMenu}" VerticalAlignment="Center" Margin="0,6,0,6"
+                            <TextBlock Grid.Row="28" Grid.Column="0" Text="{loc:Loc Settings.Hotkeys.BookmarksMenu}" VerticalAlignment="Center" Margin="0,6,0,6"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <controls:HotkeyBox x:Name="HotkeyBookmarksMenuBox" Grid.Row="27" Grid.Column="1"
+                            <controls:HotkeyBox x:Name="HotkeyBookmarksMenuBox" Grid.Row="28" Grid.Column="1"
                                                 Height="34" Margin="0,6,0,6" FontSize="13"
                                                 Style="{StaticResource ModernTextBox}"/>
                         </Grid>
