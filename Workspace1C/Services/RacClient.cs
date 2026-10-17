@@ -500,6 +500,52 @@ public sealed class RacClient : IRacClient
     }
 
     /// <summary>
+    /// Аргументы команды «infobase update» (issue #3, кнопка «Изменить»):
+    /// <c>infobase update --cluster=<uuid> --infobase=<uuid> --name=... --dbms=...
+    /// --db-server=... --db-name=...</c> + необязательные параметры. Пароль СУБД
+    /// остаётся одним токеном (ArgumentList без shell); в журнале он маскируется.
+    /// Internal — для юнит-тестов сборки аргументов без запуска rac.
+    /// </summary>
+    internal static string[] InfobaseUpdateArgs(
+        Guid clusterId, Guid infobaseId, RacInfobaseUpdateRequest? request)
+    {
+        if (request is null)
+            throw new ArgumentNullException(nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Не указано имя информационной базы.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.Dbms))
+            throw new ArgumentException("Не указан тип СУБД.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.DbServer))
+            throw new ArgumentException("Не указан сервер СУБД.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.DbName))
+            throw new ArgumentException("Не указано имя базы данных.", nameof(request));
+
+        var args = new List<string>(16)
+        {
+            "infobase", "update",
+            $"--cluster={clusterId}",
+            $"--infobase={infobaseId}"
+        };
+        args.Add($"--name={request.Name}");
+        if (!string.IsNullOrWhiteSpace(request.Description))
+            args.Add($"--desc={request.Description}");
+        args.Add($"--dbms={request.Dbms}");
+        args.Add($"--db-server={request.DbServer}");
+        args.Add($"--db-name={request.DbName}");
+        if (!string.IsNullOrWhiteSpace(request.DbUser))
+            args.Add($"--db-user={request.DbUser}");
+        if (!string.IsNullOrEmpty(request.DbPassword))
+            args.Add($"--db-pwd={request.DbPassword}");
+        if (!string.IsNullOrWhiteSpace(request.Locale))
+            args.Add($"--locale={request.Locale}");
+        if (request.SecurityLevel is { } level)
+            args.Add($"--security-level={level.ToString(CultureInfo.InvariantCulture)}");
+        if (request.ScheduledJobsDeny)
+            args.Add("--scheduled-jobs-deny");
+        return args.ToArray();
+    }
+
+    /// <summary>
     /// Нераспознанный вывод rac (issue #324): rac завершился с кодом 0 и вернул НЕпустой вывод,
     /// но ни табличный разбор, ни формат блоков «ключ : значение» не дали ни одной строки
     /// данных — вероятно, новая версия формата. Бросаем <see cref="RacOutputParseException"/>,
@@ -608,6 +654,13 @@ public sealed class RacClient : IRacClient
         RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,
         CancellationToken cancellationToken = default) =>
         RunActionAsync(parameters, cancellationToken, InfobaseCreateArgs(clusterId, request));
+
+    /// <inheritdoc />
+    public Task<bool> UpdateInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        RacInfobaseUpdateRequest request, CancellationToken cancellationToken = default) =>
+        RunActionAsync(parameters, cancellationToken,
+            InfobaseUpdateArgs(clusterId, infobaseId, request));
 
     /// <inheritdoc />
     public Task<bool> DropInfobaseAsync(

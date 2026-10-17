@@ -1600,6 +1600,14 @@ public partial class MainViewModel : ViewModelBase
 
     // ======================= Монитор серверов 1С (0.3.9.124) =======================
 
+    /// <summary>
+    /// Открытое окно «Серверы 1С» (issue #3, комментарий 7OH от 2026-10-17): окно
+    /// НЕ модальное, но при повторном запуске команды активируется уже открытое.
+    /// Static — MainViewModel регистрируется как transient (по окну), а окно монитора
+    /// должно жить независимо от пересоздания ViewModel.
+    /// </summary>
+    private static Workspace1C.ServerMonitorWindow? _serverMonitorWindow;
+
     private System.Windows.Input.ICommand? _serverMonitorCommand;
 
     /// <summary>
@@ -1613,10 +1621,32 @@ public partial class MainViewModel : ViewModelBase
     public System.Windows.Input.ICommand ServerMonitorCommand =>
         _serverMonitorCommand ??= new RelayCommand(_ => ExecuteServerMonitor());
 
+    /// <summary>
+    /// Показывает окно монитора НЕМОДАЛЬНО (issue #3): главное окно остаётся доступным.
+    /// При повторном вызове команды активируется уже открытое окно (в т.ч. свёрнутое),
+    /// новое окно не создаётся. Состояние окна (максимизировано) запоминается самим окном.
+    /// </summary>
     private void ExecuteServerMonitor()
     {
+        var existing = _serverMonitorWindow;
+        if (existing is { IsVisible: true })
+        {
+            if (existing.WindowState == Avalonia.Controls.WindowState.Minimized)
+                existing.WindowState = Avalonia.Controls.WindowState.Normal;
+            existing.Activate();
+            existing.Topmost = true;
+            existing.Topmost = false;
+            return;
+        }
+
         var window = new Workspace1C.ServerMonitorWindow();
-        window.ShowDialogSync(OwnerWindow());
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_serverMonitorWindow, window))
+                _serverMonitorWindow = null;
+        };
+        _serverMonitorWindow = window;
+        window.Show();
     }
 
     // ================== Диагностика сети до сервера 1С (0.3.9.232, функция 12) ==================

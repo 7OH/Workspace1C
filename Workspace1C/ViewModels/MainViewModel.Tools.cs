@@ -2660,16 +2660,55 @@ public partial class MainViewModel : ViewModelBase
     /// сохраняется на диск (решение планирования). Активна всегда — сервер 1С
     /// не привязан к конкретной базе списка.
     /// </summary>
+    /// <summary>
+    /// Открытое окно «Серверы 1С» (issue #3, комментарий 7OH от 2026-10-17): окно
+    /// НЕ модальное, но при повторном запуске команды активируется уже открытое.
+    /// Static — MainViewModel регистрируется как transient (по окну), а окно монитора
+    /// должно жить независимо от пересоздания ViewModel.
+    /// </summary>
+    private static ServerMonitorWindow? _serverMonitorWindow;
+
+    /// <summary>
+    /// Команда «Серверы 1С…»: встроенный монитор серверов 1С через утилиту rac
+    /// (0.3.9.124, цикл 0.3.9.123–0.3.9.126) — подключение к серверу (адрес/порт/
+    /// логин/пароль), просмотр кластеров, рабочих процессов, сеансов, соединений,
+    /// блокировок и информации о кластере. Пароль администратора кластера не
+    /// сохраняется на диск (решение планирования). Активна всегда — сервер 1С
+    /// не привязан к конкретной базе списка.
+    /// </summary>
     public ICommand ServerMonitorCommand =>
         _serverMonitorCommand ??= new RelayCommand(_ => ExecuteServerMonitor());
 
+    /// <summary>
+    /// Показывает окно монитора НЕМОДАЛЬНО (issue #3): главное окно остаётся доступным.
+    /// При повторном вызове команды активируется уже открытое окно (в т.ч. свёрнутое),
+    /// новое окно не создаётся. Состояние окна (максимизировано) запоминается самим окном.
+    /// </summary>
     private void ExecuteServerMonitor()
     {
+        var existing = _serverMonitorWindow;
+        if (existing is { IsLoaded: true })
+        {
+            if (existing.WindowState == System.Windows.WindowState.Minimized)
+                existing.WindowState = System.Windows.WindowState.Normal;
+            existing.Activate();
+            existing.Topmost = true;
+            existing.Topmost = false;
+            existing.Focus();
+            return;
+        }
+
         var window = new ServerMonitorWindow
         {
             Owner = System.Windows.Application.Current.MainWindow
         };
-        window.ShowDialog();
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_serverMonitorWindow, window))
+                _serverMonitorWindow = null;
+        };
+        _serverMonitorWindow = window;
+        window.Show();
     }
 
     // ================== Диагностика сети до сервера 1С (0.3.9.232, функция 12) ==================

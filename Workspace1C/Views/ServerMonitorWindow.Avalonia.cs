@@ -46,17 +46,24 @@ namespace Workspace1C
         private readonly ServerMonitorViewModel _vm;
         private readonly ComboBox _clusterCombo;
         private readonly ListBox _serversList;
+        private ListBox _infobasesList = new();
         private TextBlock? _infobasesEmptyHint;
+        private TextBlock? _infobasesTitle;
+
+        /// <summary>Заголовки вкладок с количеством строк (обновляются по PropertyChanged).</summary>
+        private readonly List<(TabItem Tab, string Property)> _dynamicTabHeaders = new();
 
         public ServerMonitorWindow()
         {
             Title = LocalizationManager.T("ServerMonitor.Title");
-            Width = 1280;
+            Width = 1400;
             Height = 760;
-            MinWidth = 980;
+            MinWidth = 1120;
             MinHeight = 560;
             FontSize = 13;
             CanResize = true;
+            // Монитор — немодальное рабочее окно (issue #3), в панели задач ему быть.
+            ShowInTaskbar = true;
 
             var rac = AppServices.GetRequiredService<IRacClient>();
             var dialogs = AppServices.GetRequiredService<IDialogService>();
@@ -70,7 +77,33 @@ namespace Workspace1C
 
             DataContext = _vm;
             _vm.PropertyChanged += OnVmPropertyChanged;
-            Closed += (_, _) => _vm.Dispose();
+
+            // Состояние окна запоминается (issue #3, комментарий 7OH): максимизировано или нет.
+            try
+            {
+                var settings = AppServices.GetRequiredService<IInfobaseRepository>().LoadSettings();
+                if (settings.ServerMonitorMaximized)
+                    WindowState = WindowState.Maximized;
+            }
+            catch
+            {
+                // Запоминание состояния — вспомогательная возможность, сбой не важен.
+            }
+
+            Closed += (_, _) =>
+            {
+                _vm.Dispose();
+                try
+                {
+                    var settings = AppServices.GetRequiredService<IInfobaseRepository>().LoadSettings();
+                    settings.ServerMonitorMaximized = WindowState == WindowState.Maximized;
+                    AppServices.GetRequiredService<IInfobaseRepository>().SaveSettings(settings);
+                }
+                catch
+                {
+                    // Запоминание состояния — вспомогательная возможность, сбой не важен.
+                }
+            };
 
             // ---- Справочник «Сервера управления» (issue #3): список слева. ----
             _serversList = new ListBox
@@ -110,13 +143,17 @@ namespace Workspace1C
 
             var addServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Add"), "＋", OnAddServer);
             var editServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Edit"), "✎", OnEditServer);
-            var deleteServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Delete"), "🗑", OnDeleteServer);
+            // Кнопке «Удалить» — красная надпись (issue #3, комментарий 7OH).
+            var deleteServerButton = BuildActionButton(
+                LocalizationManager.T("ServerMonitor.Servers.Delete"), "🗑", OnDeleteServer,
+                red: true);
 
+            // Кнопки управления серверами НАД списком (issue #3): между заголовком и списком.
             var serverButtons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
-                Margin = new Thickness(0, 8, 0, 0),
+                Margin = new Thickness(0, 0, 0, 6),
                 Children = { addServerButton, editServerButton, deleteServerButton }
             };
 
@@ -138,12 +175,17 @@ namespace Workspace1C
                 [!IsVisibleProperty] = new Binding("!HasServers")
             };
             DockPanel.SetDock(serversTitle, Dock.Top);
+            DockPanel.SetDock(serverButtons, Dock.Top);
             DockPanel.SetDock(serversEmptyHint, Dock.Top);
-            DockPanel.SetDock(serverButtons, Dock.Bottom);
             serversPanel.Children.Add(serversTitle);
-            serversPanel.Children.Add(serversEmptyHint);
             serversPanel.Children.Add(serverButtons);
+            serversPanel.Children.Add(serversEmptyHint);
             serversPanel.Children.Add(_serversList);
+
+            // ---- Список информационных баз кластера (issue #3, 7OH от 2026-10-17):
+            // НЕ вкладка, а отдельный список слева от вкладок, на одной горизонтали с ними.
+            // Клик по строке включает фильтр; три кнопки управления — иконками в одну строку. ----
+            var infobasesPanel = BuildInfobasesPanel();
 
             // ---- Первая строка панели (issue #3): «Подключиться», «Обновить», «Диагностика». ----
             var connectButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Connect"), "🔗",
@@ -219,31 +261,41 @@ namespace Workspace1C
                 }
             };
 
-            // ---- Вкладки данных кластера (заголовки ужаты, issue #3). ----
-            // issue #3: сеансы/соединения/блокировки биндятся на ОТФИЛЬТРОВАННЫЕ коллекции —
-            // выбор базы фильтрует их на клиенте без перезагрузки кластера.
+            // ---- Вкладки данных кластера (issue #3, комментарий 7OH): порядок
+            // «Сеансы / Соединения / Блокировки / Рабочие процессы / Информация о кластере»;
+            // вкладка «Базы» перенесена в отдельный список слева; в заголовках количество
+            // строк («Сеансы (12)»). Сеансы/соединения/блокировки биндятся на
+            // ОТФИЛЬТРОВАННЫЕ коллекции — выбор базы фильтрует их на клиенте. ----
             var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0) };
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Processes"),
-                BuildContent(() => BuildSortableTable(_vm.Processes, ProcessColumns, BuildProcessRow))));
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Sessions"),
+            var sessionsTab = CreateTab(_vm.SessionsTabText,
                 BuildTabWithAction(
                     BuildSortableTable(_vm.FilteredSessions, SessionColumns, BuildSessionRow, "SelectedSession"),
                     BuildActionButton(LocalizationManager.T("ServerMonitor.TerminateSession"), "✕",
-                        () => _vm.TerminateSessionCommand.Execute(null)))));
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Connections"),
+                        () => _vm.TerminateSessionCommand.Execute(null))));
+            var connectionsTab = CreateTab(_vm.ConnectionsTabText,
                 BuildTabWithAction(
                     BuildSortableTable(_vm.FilteredConnections, ConnectionColumns, BuildConnectionRow, "SelectedConnection"),
                     BuildActionButton(LocalizationManager.T("ServerMonitor.DisconnectConnection"), "⛓",
-                        () => _vm.DisconnectConnectionCommand.Execute(null)))));
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Locks"),
-                BuildSortableTable(_vm.FilteredLocks, LockColumns, BuildLockRow)));
-            // Базы кластера (issue #3): список, добавление/удаление, выбор базы
-            // фильтрует сеансы/соединения/блокировки на клиенте.
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Infobases"), BuildInfobasesTab()));
-            tabs.Items.Add(CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Info"), BuildInfoPane()));
+                        () => _vm.DisconnectConnectionCommand.Execute(null))));
+            var locksTab = CreateTab(_vm.LocksTabText,
+                BuildSortableTable(_vm.FilteredLocks, LockColumns, BuildLockRow));
+            var processesTab = CreateTab(_vm.ProcessesTabText,
+                BuildContent(() => BuildSortableTable(_vm.Processes, ProcessColumns, BuildProcessRow)));
+            var infoTab = CreateTab(LocalizationManager.T("ServerMonitor.Tabs.Info"), BuildInfoPane());
+            tabs.Items.Add(sessionsTab);
+            tabs.Items.Add(connectionsTab);
+            tabs.Items.Add(locksTab);
+            tabs.Items.Add(processesTab);
+            tabs.Items.Add(infoTab);
+            // Заголовки с количеством строк обновляются при изменении коллекций.
+            RegisterTabHeader(sessionsTab, nameof(ServerMonitorViewModel.SessionsTabText));
+            RegisterTabHeader(connectionsTab, nameof(ServerMonitorViewModel.ConnectionsTabText));
+            RegisterTabHeader(locksTab, nameof(ServerMonitorViewModel.LocksTabText));
+            RegisterTabHeader(processesTab, nameof(ServerMonitorViewModel.ProcessesTabText));
 
-            // Индикатор фильтра по базе (issue #3): виден при выбранной базе, показывает
-            // имя базы и кнопку «Сбросить» (клиентская фильтрация, без rac-вызовов).
+            // Индикатор фильтра по базе (issue #3, 7OH от 2026-10-17): надпись и кнопка
+            // «Сбросить» видны ВСЕГДА; при снятом фильтре — «Без фильтра». Фильтрация
+            // клиентская, без rac-вызовов.
             var filterText = new TextBlock
             {
                 FontSize = 12,
@@ -258,13 +310,7 @@ namespace Workspace1C
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
                 Margin = new Thickness(0, 0, 0, 8),
-                IsVisible = _vm.HasInfobaseFilter,
                 Children = { filterText, clearFilterButton }
-            };
-            _vm.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(ServerMonitorViewModel.HasInfobaseFilter))
-                    filterPanel.IsVisible = _vm.HasInfobaseFilter;
             };
 
             var autoRefreshHint = new TextBlock { FontSize = 11, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
@@ -276,6 +322,7 @@ namespace Workspace1C
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(new GridLength(280, GridUnitType.Pixel)),
+                    new ColumnDefinition(new GridLength(210, GridUnitType.Pixel)),
                     new ColumnDefinition(new GridLength(1, GridUnitType.Star))
                 },
                 RowDefinitions =
@@ -287,13 +334,15 @@ namespace Workspace1C
                     new RowDefinition(GridLength.Auto)
                 }
             };
-            // Слева — справочник «Сервера управления» (issue #3), справа — данные кластера.
+            // Слева — справочник «Сервера управления», далее — список баз (issue #3),
+            // справа — данные кластера.
             Place(root, serversPanel, 0, 0, 5);
-            Place(root, actionPanel, 1, 0);
-            Place(root, clusterPanel, 1, 1);
-            Place(root, filterPanel, 1, 2);
-            Place(root, tabs, 1, 3);
-            Place(root, new StackPanel { Children = { error, autoRefreshHint }, Spacing = 2 }, 1, 4);
+            Place(root, infobasesPanel, 1, 0, 5);
+            Place(root, actionPanel, 2, 0);
+            Place(root, clusterPanel, 2, 1);
+            Place(root, filterPanel, 2, 2);
+            Place(root, tabs, 2, 3);
+            Place(root, new StackPanel { Children = { error, autoRefreshHint }, Spacing = 2 }, 2, 4);
             Content = root;
         }
 
@@ -304,6 +353,27 @@ namespace Workspace1C
             FontSize = 12.5,
             Content = content
         };
+
+        /// <summary>Регистрирует заголовок вкладки для обновления при смене количества строк.</summary>
+        private void RegisterTabHeader(TabItem tab, string property)
+            => _dynamicTabHeaders.Add((tab, property));
+
+        /// <summary>Обновляет заголовки вкладок с количеством строк (issue #3: «Сеансы (12)»).</summary>
+        private void UpdateDynamicTabHeaders(string changedProperty)
+        {
+            foreach (var (tab, property) in _dynamicTabHeaders)
+            {
+                if (property != changedProperty)
+                    continue;
+                tab.Header = changedProperty switch
+                {
+                    nameof(ServerMonitorViewModel.SessionsTabText) => _vm.SessionsTabText,
+                    nameof(ServerMonitorViewModel.ConnectionsTabText) => _vm.ConnectionsTabText,
+                    nameof(ServerMonitorViewModel.LocksTabText) => _vm.LocksTabText,
+                    _ => _vm.ProcessesTabText
+                };
+            }
+        }
 
         /// <summary>
         /// «Диагностика сети…» (0.3.9.232, функция 12): открывает окно диагностики
@@ -530,8 +600,12 @@ namespace Workspace1C
             return dock;
         }
 
-        private static Button BuildActionButton(string text, string icon, System.Action onClick)
+        /// <summary>Кнопка действия: значок + подпись; <paramref name="red"/> — красные текст/иконка
+        /// (кнопки «Удалить», issue #3).</summary>
+        private static Button BuildActionButton(
+            string text, string icon, System.Action onClick, bool red = false)
         {
+            var redBrush = new SolidColorBrush(Color.Parse("#EF4444"));
             var button = new Button
             {
                 Content = new StackPanel
@@ -540,12 +614,45 @@ namespace Workspace1C
                     Spacing = 6,
                     Children =
                     {
-                        new TextBlock { Text = icon, VerticalAlignment = VerticalAlignment.Center },
-                        new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center }
+                        new TextBlock
+                        {
+                            Text = icon,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Foreground = red ? redBrush : null
+                        },
+                        new TextBlock
+                        {
+                            Text = text,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Foreground = red ? redBrush : null
+                        }
                     }
                 },
                 Padding = new Thickness(12, 5)
             };
+            button.Styled(ControlThemes.ModernButton);
+            ThemeBrushes.Bind(button, Button.BackgroundProperty, "ItemHoverBrush");
+            button.Click += (_, _) => onClick();
+            return button;
+        }
+
+        /// <summary>Узкая кнопка-иконка (для строки управления базами, issue #3): только
+        /// значок, подсказка; красная — для «Удалить».</summary>
+        private static Button BuildIconButton(string icon, string tooltip, System.Action onClick, bool red = false)
+        {
+            var redBrush = new SolidColorBrush(Color.Parse("#EF4444"));
+            var button = new Button
+            {
+                Content = new TextBlock
+                {
+                    Text = icon,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = red ? redBrush : null,
+                    FontSize = 13
+                },
+                Padding = new Thickness(8, 5)
+            };
+            ToolTip.SetTip(button, tooltip);
             button.Styled(ControlThemes.ModernButton);
             ThemeBrushes.Bind(button, Button.BackgroundProperty, "ItemHoverBrush");
             button.Click += (_, _) => onClick();
@@ -614,27 +721,14 @@ namespace Workspace1C
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Transaction"), "TransactionId", "TransactionId", Star(1.1))
         };
 
-        /// <summary>Колонки вкладки «Базы» (issue #3).</summary>
-        private static readonly IReadOnlyList<TableColumn> InfobaseColumns = new[]
-        {
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.Name"), "Name", "Name", Star(1.2)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.Descr"), "Descr", "Descr", Star(1.5)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.Dbms"), "DbmsText", "Dbms", Px(110)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.DbServer"), "DbServer", "DbServer", Star(1.1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.DbName"), "DbName", "DbName", Star(1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.DbUser"), "DbUser", "DbUser", Px(120)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.Locale"), "Locale", "Locale", Px(80)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.SecurityLevel"), "SecurityLevel", "SecurityLevel", Px(105)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Infobase.Licensed"), "LicensedText", "Licensed", Px(95))
-        };
-
         // ===================== Вкладки-конструкторы =====================
 
         /// <summary>
-        /// Вкладка «Информация о кластере» (issue #324, C3): свойства «свойство — значение»,
-        /// правится безопасный набор параметров (TextBox у <see cref="RacClusterPropertyRow.IsEditable"/>),
-        /// сверху кнопка «Сохранить изменения» (rac «cluster update»). Локализованные ключи —
-        /// в <see cref="RacClusterPropertyRow.DisplayName"/> (Issue #3: человекочитаемость).
+        /// Вкладка «Информация о кластере» (issue #324, C3; issue #3 от 2026-10-17 —
+        /// человекочитаемость): свойства сгруппированы в секции (заголовки групп),
+        /// значения отформатированы («1 ч 30 мин», «512 МБ», «Да/Нет» — см.
+        /// <see cref="RacClusterPropertyRow.DisplayValue"/>); правится безопасный набор
+        /// параметров (TextBox на ИСХОДНОМ значении rac).
         /// </summary>
         private Control BuildInfoPane()
         {
@@ -642,51 +736,36 @@ namespace Workspace1C
                 LocalizationManager.T("ServerMonitor.Cluster.Save"), "💾",
                 () => _vm.SaveClusterPropertiesCommand.Execute(null));
 
-            var list = new ItemsControl
+            var panel = new StackPanel { Spacing = 2 };
+
+            // Пересобирает секции по группам (порядок фиксирован).
+            void Rebuild()
             {
-                ItemTemplate = new FuncDataTemplate<RacClusterPropertyRow>((row, _) =>
+                panel.Children.Clear();
+                foreach (var group in new[] { "General", "Security", "Sessions", "Other" })
                 {
-                    var name = new TextBlock
-                    {
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(0, 0, 12, 0),
-                        Width = 340,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        [!TextBlock.TextProperty] = new Binding("DisplayName"),
-                        [!ToolTip.TipProperty] = new Binding("RawKey")
-                    };
+                    var rows = _vm.ClusterProperties
+                        .Where(r => RacClusterPropertyRow.GroupKey(r.RawKey) == group)
+                        .ToList();
+                    if (rows.Count == 0)
+                        continue;
 
-                    // Правка — только для безопасного набора параметров; остальные
-                    // свойства показываются текстом «как есть».
-                    var editBox = new TextBox
+                    panel.Children.Add(new TextBlock
                     {
-                        Width = 340,
-                        Padding = new Thickness(4, 2),
-                        VerticalContentAlignment = VerticalAlignment.Center,
-                        [!TextBox.TextProperty] = new Binding("EditValue", BindingMode.TwoWay),
-                        [!Control.IsVisibleProperty] = new Binding("IsEditable")
-                    };
-                    var readOnly = new TextBlock
-                    {
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(4, 0),
-                        Width = 340,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        [!TextBlock.TextProperty] = new Binding("OriginalValue"),
-                        [!Control.IsVisibleProperty] = new Binding("!IsEditable")
-                    };
+                        Text = RacClusterPropertyRow.LocalizeGroup(group),
+                        FontWeight = FontWeight.SemiBold,
+                        FontSize = 13,
+                        Margin = new Thickness(0, 10, 0, 4),
+                        Foreground = new SolidColorBrush(Color.Parse("#8B5CF6"))
+                    });
+                    foreach (var row in rows)
+                        panel.Children.Add(BuildClusterPropertyRow(row));
+                }
+            }
 
-                    var grid = new Grid { ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition() } };
-                    Grid.SetColumn(name, 0);
-                    Grid.SetColumn(editBox, 1);
-                    Grid.SetColumn(readOnly, 1);
-                    grid.Children.Add(name);
-                    grid.Children.Add(editBox);
-                    grid.Children.Add(readOnly);
-                    return grid;
-                })
-            };
-            list.Bind(ItemsControl.ItemsSourceProperty, new Binding("ClusterProperties"));
+            // Исходная коллекция меняется (загрузка/автообновление) — пересобираем секции.
+            _vm.ClusterProperties.CollectionChanged += (_, _) => Rebuild();
+            Rebuild();
 
             var dock = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(saveButton, Dock.Top);
@@ -695,26 +774,90 @@ namespace Workspace1C
             dock.Children.Add(saveButton);
             dock.Children.Add(new ScrollViewer
             {
-                Content = list,
+                Content = panel,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Margin = new Thickness(10)
             });
             return dock;
         }
 
-        /// <summary>
-        /// Вкладка «Базы» (issue #3): список информационных баз кластера с кнопками
-        /// «Добавить базу» (rac «infobase create») и «Удалить базу» (rac «infobase drop»,
-        /// подтверждение — в VM). Выбор базы фильтрует сеансы/соединения/блокировки
-        /// на клиенте (без rac-вызовов).
-        /// </summary>
-        private Control BuildInfobasesTab()
+        /// <summary>Строка «свойство — значение» вкладки «Информация о кластере»:
+        /// правка — только для безопасного набора (ИСХОДНОЕ значение rac),
+        /// остальные свойства — человекочитаемое <see cref="RacClusterPropertyRow.DisplayValue"/>.</summary>
+        private static Control BuildClusterPropertyRow(RacClusterPropertyRow row)
         {
-            var addButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Infobase.Add"), "＋", OnAddInfobase);
-            var deleteButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Infobase.Delete"), "🗑",
-                () => _vm.DropInfobaseCommand.Execute(null));
-            // Кнопка «Удалить» активна только при выбранной базе и подключении.
+            var name = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+                Width = 340,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = row.DisplayName
+            };
+            ToolTip.SetTip(name, row.RawKey);
+
+            var editBox = new TextBox
+            {
+                Width = 340,
+                Padding = new Thickness(4, 2),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Text = row.EditValue,
+                IsVisible = row.IsEditable
+            };
+            // Ручной перенос текста в ViewModel (валидация чисел/сборка «cluster update»).
+            editBox.TextChanged += (_, _) =>
+            {
+                if (row.EditValue != editBox.Text)
+                    row.EditValue = editBox.Text ?? string.Empty;
+            };
+
+            var readOnly = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0),
+                Width = 340,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = row.DisplayValue,
+                IsVisible = !row.IsEditable
+            };
+
+            var grid = new Grid { ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition() } };
+            Grid.SetColumn(name, 0);
+            Grid.SetColumn(editBox, 1);
+            Grid.SetColumn(readOnly, 1);
+            grid.Children.Add(name);
+            grid.Children.Add(editBox);
+            grid.Children.Add(readOnly);
+            return grid;
+        }
+
+        /// <summary>
+        /// Панель «Базы» (issue #3, 7OH от 2026-10-17): список баз СЛЕВА от вкладок, на одной
+        /// горизонтали с ними. В списке — только имя; клик по строке включает фильтр. Три
+        /// кнопки управления (Добавить/Изменить/Удалить) — иконками в одну строку, у удаления
+        /// красная иконка.
+        /// </summary>
+        private Control BuildInfobasesPanel()
+        {
+            var addButton = BuildIconButton(
+                "＋", LocalizationManager.T("ServerMonitor.Infobase.Add"), OnAddInfobase);
+            var editButton = BuildIconButton(
+                "✎", LocalizationManager.T("ServerMonitor.Infobase.Edit"), OnEditInfobase);
+            var deleteButton = BuildIconButton(
+                "🗑", LocalizationManager.T("ServerMonitor.Infobase.Delete"),
+                () => _vm.DropInfobaseCommand.Execute(null), red: true);
+            // Кнопки «Изменить»/«Удалить» активны только при выбранной базе и подключении
+            // (issue #3: раньше кнопка «Удалить» оставалась неактивной — CanDropInfobase
+            // теперь уведомляет об изменении выбора).
+            editButton.Bind(Button.IsEnabledProperty, new Binding("CanDropInfobase"));
             deleteButton.Bind(Button.IsEnabledProperty, new Binding("CanDropInfobase"));
+
+            _infobasesTitle = new TextBlock
+            {
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 0, 0, 8),
+                Text = _vm.InfobasesHeaderText
+            };
 
             _infobasesEmptyHint = new TextBlock
             {
@@ -726,22 +869,45 @@ namespace Workspace1C
                 IsVisible = !_vm.HasInfobases
             };
 
+            // Список баз: одна колонка с именем; клик по строке включает фильтр.
+            _infobasesList = BuildInfobaseList();
+            _infobasesList.Bind(ListBox.ItemsSourceProperty, new Binding("Infobases"));
+            _infobasesList.Bind(ListBox.SelectedItemProperty, new Binding("SelectedInfobase", BindingMode.TwoWay));
+
             var toolbar = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 8,
-                Margin = new Thickness(0, 0, 0, 8),
-                Children = { addButton, deleteButton }
+                Spacing = 6,
+                Margin = new Thickness(0, 0, 0, 6),
+                Children = { addButton, editButton, deleteButton }
             };
 
             var dock = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(_infobasesTitle, Dock.Top);
             DockPanel.SetDock(toolbar, Dock.Top);
             DockPanel.SetDock(_infobasesEmptyHint, Dock.Top);
+            dock.Children.Add(_infobasesTitle);
             dock.Children.Add(toolbar);
             dock.Children.Add(_infobasesEmptyHint);
-            dock.Children.Add(BuildSortableTable(_vm.Infobases, InfobaseColumns, BuildInfobaseRow, "SelectedInfobase"));
+            dock.Children.Add(_infobasesList);
             return dock;
         }
+
+        /// <summary>Список баз: одна колонка с именем; выбор строки включает фильтр.</summary>
+        private ListBox BuildInfobaseList() => new()
+        {
+            ItemTemplate = new FuncDataTemplate<RacInfobaseRow>((infobase, _) =>
+            {
+                var text = new TextBlock
+                {
+                    Text = infobase.Name,
+                    FontSize = 13,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                return text;
+            })
+        };
 
         /// <summary>«Добавить базу»: диалог создания (rac «infobase create») → VM → обновление списков.</summary>
         private void OnAddInfobase()
@@ -751,6 +917,36 @@ namespace Workspace1C
                 return;
             _ = _vm.CreateInfobaseAsync(request);
         }
+
+        /// <summary>«Изменить базу» (issue #3): диалог правки (поля предзаполнены,
+        /// rac «infobase update») → VM → обновление списков.</summary>
+        private void OnEditInfobase()
+        {
+            if (_vm.SelectedInfobase is not { } row || row.InfobaseId == System.Guid.Empty)
+                return;
+            var dialog = new RacInfobaseCreateWindow(SummaryFromRow(row));
+            if (!dialog.ShowSync(this) || dialog.UpdateResult is not { } update)
+                return;
+            _ = _vm.UpdateSelectedInfobaseAsync(update);
+        }
+
+        /// <summary>Строит «infobase summary» из строки списка для предзаполнения диалога правки.</summary>
+        private static Workspace1C.Models.RacInfobaseSummary SummaryFromRow(RacInfobaseRow row) => new()
+        {
+            InfobaseId = row.InfobaseId,
+            Name = row.Name,
+            Descr = Unplacehold(row.Descr),
+            Dbms = row.Dbms,
+            DbServer = row.DbServer,
+            DbName = row.DbName,
+            DbUser = Unplacehold(row.DbUser),
+            Locale = Unplacehold(row.Locale),
+            SecurityLevel = row.SecurityLevel
+        };
+
+        /// <summary>Заменяет плейсхолдер «—» (пустая строка в выводе rac) на пустоту.</summary>
+        private static string Unplacehold(string value) =>
+            string.Equals(value, "—", StringComparison.Ordinal) ? string.Empty : value;
 
         // ===================== Строки вкладок =====================
 
@@ -910,37 +1106,6 @@ namespace Workspace1C
             return grid;
         }
 
-        /// <summary>Строка вкладки «Базы» (issue #3).</summary>
-        private static Control BuildInfobaseRow(object item)
-        {
-            var row = (RacInfobaseRow)item;
-            var grid = new Grid
-            {
-                ColumnDefinitions =
-                {
-                    new ColumnDefinition(new GridLength(1.2, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(1.5, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(110)),
-                    new ColumnDefinition(new GridLength(1.1, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
-                    new ColumnDefinition(new GridLength(120)),
-                    new ColumnDefinition(new GridLength(80)),
-                    new ColumnDefinition(new GridLength(105)),
-                    new ColumnDefinition(new GridLength(95))
-                }
-            };
-            AddCell(grid, CellText("Name", bold: true), 0);
-            AddCell(grid, CellText("Descr"), 1);
-            AddCell(grid, CellText("DbmsText"), 2);
-            AddCell(grid, CellText("DbServer"), 3);
-            AddCell(grid, CellText("DbName"), 4);
-            AddCell(grid, CellText("DbUser"), 5);
-            AddCell(grid, CellText("Locale"), 6);
-            AddCell(grid, CellText("SecurityLevel"), 7);
-            AddCell(grid, CellText("LicensedText"), 8);
-            return grid;
-        }
-
         private static void AddCell(Grid grid, Control control, int column)
         {
             Grid.SetColumn(control, column);
@@ -951,6 +1116,21 @@ namespace Workspace1C
 
         private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            // Заголовки вкладок с количеством строк (issue #3: «Сеансы (12)»).
+            if (e.PropertyName is nameof(ServerMonitorViewModel.SessionsTabText)
+                or nameof(ServerMonitorViewModel.ConnectionsTabText)
+                or nameof(ServerMonitorViewModel.LocksTabText)
+                or nameof(ServerMonitorViewModel.ProcessesTabText))
+            {
+                UpdateDynamicTabHeaders(e.PropertyName);
+            }
+
+            // Заголовок списка баз с количеством строк («Базы (35)»).
+            if (e.PropertyName == nameof(ServerMonitorViewModel.InfobasesHeaderText) && _infobasesTitle is not null)
+            {
+                _infobasesTitle.Text = _vm.InfobasesHeaderText;
+            }
+
             if (e.PropertyName == nameof(ServerMonitorViewModel.HasInfobases) && _infobasesEmptyHint is not null)
             {
                 // Подсказка «баз нет» видна только при пустом списке.

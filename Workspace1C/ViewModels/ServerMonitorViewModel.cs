@@ -322,6 +322,42 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// <summary>Блокировки с учётом фильтра по базе (таблица биндится сюда, issue #3).</summary>
     public ObservableCollection<RacLockRow> FilteredLocks { get; } = new();
 
+    // ===================== Заголовки вкладок с количеством строк (issue #3) =====================
+
+    /// <summary>Заголовок вкладки «Рабочие процессы» с количеством строк («Рабочие процессы (3)»).</summary>
+    public string ProcessesTabText => TabHeader("ServerMonitor.Tabs.Processes", Processes.Count);
+
+    /// <summary>Заголовок вкладки «Сеансы» с количеством показываемых строк («Сеансы (12)»).</summary>
+    public string SessionsTabText => TabHeader("ServerMonitor.Tabs.Sessions", FilteredSessions.Count);
+
+    /// <summary>Заголовок вкладки «Соединения» с количеством показываемых строк.</summary>
+    public string ConnectionsTabText => TabHeader("ServerMonitor.Tabs.Connections", FilteredConnections.Count);
+
+    /// <summary>Заголовок вкладки «Блокировки» с количеством показываемых строк.</summary>
+    public string LocksTabText => TabHeader("ServerMonitor.Tabs.Locks", FilteredLocks.Count);
+
+    /// <summary>Заголовок списка информационных баз с количеством строк («Базы (35)»).</summary>
+    public string InfobasesHeaderText => TabHeader("ServerMonitor.Tabs.Infobases", Infobases.Count);
+
+    private static string TabHeader(string key, int count) =>
+        string.Format(
+            LocalizationManager.T("ServerMonitor.Tabs.CountFormat"),
+            LocalizationManager.T(key),
+            count);
+
+    /// <summary>
+    /// Уведомляет UI об изменении заголовков вкладок (количества строк). Вызывается
+    /// после пересборки коллекций и после клиентской фильтрации по базе.
+    /// </summary>
+    private void RaiseTabHeaderChanges()
+    {
+        OnPropertyChanged(nameof(ProcessesTabText));
+        OnPropertyChanged(nameof(SessionsTabText));
+        OnPropertyChanged(nameof(ConnectionsTabText));
+        OnPropertyChanged(nameof(LocksTabText));
+        OnPropertyChanged(nameof(InfobasesHeaderText));
+    }
+
     /// <summary>
     /// Свойства кластера «свойство — значение» на вкладке «Информация о кластере»
     /// (issue #324, C3): ограниченный набор параметров доступен для правки
@@ -374,8 +410,11 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     public bool HasInfobases => Infobases.Count > 0;
 
     /// <summary>
-    /// Выбранная база на вкладке «Базы»: при изменении сеансы/соединения/блокировки
-    /// перечитываются в разрезе базы (issue #3).
+    /// Выбранная база в списке «Базы»: при изменении сеансы/соединения/блокировки
+    /// фильтруются на клиенте по выбранной базе (issue #3). Одновременно обновляется
+    /// доступность кнопок «Изменить»/«Удалить» (issue #3: раньше кнопка «Удалить»
+    /// оставалась неактивной, потому что <see cref="CanDropInfobase"/> не уведомлял
+    /// об изменении выбора).
     /// </summary>
     public RacInfobaseRow? SelectedInfobase
     {
@@ -385,6 +424,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!SetProperty(ref _selectedInfobase, value))
                 return;
             ApplySelectedInfobase(value?.InfobaseId);
+            OnPropertyChanged(nameof(CanDropInfobase));
         }
     }
 
@@ -495,23 +535,62 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Изменение выбранной базы (issue #3, кнопка «Изменить»): rac «infobase update»
+    /// по полям диалога → перечитывание списков. Ошибка — предупреждение + статус-строка.
+    /// </summary>
+    public async Task UpdateSelectedInfobaseAsync(RacInfobaseUpdateRequest request)
+    {
+        var row = SelectedInfobase;
+        if (request is null || row is null || !HasConnected || SelectedClusterId is not Guid clusterId)
+            return;
+
+        try
+        {
+            var ok = await _rac.UpdateInfobaseAsync(
+                BuildParams(), clusterId, row.InfobaseId, request).ConfigureAwait(false);
+            if (!ok)
+            {
+                var detail = BuildActionError(_rac.LastActionError);
+                _dialogs.ShowWarning(
+                    LocalizationManager.T("ServerMonitor.Infobase.UpdateFailed") + "\n" + detail,
+                    LocalizationManager.T("ServerMonitor.Infobase.UpdateTitle"));
+                StatusText = detail;
+                return;
+            }
+
+            StatusText = string.Format(
+                LocalizationManager.T("ServerMonitor.Infobase.Status.UpdatedFormat"), request.Name);
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ShowWarning(
+                LocalizationManager.T("ServerMonitor.Infobase.UpdateFailed") + "\n" + BuildErrorMessage(ex),
+                LocalizationManager.T("ServerMonitor.Infobase.UpdateTitle"));
+            StatusText = BuildErrorMessage(ex);
+        }
+        finally
+        {
+            Refresh();
+        }
+    }
+
     /// <summary>«Удалить базу»: подтверждение → rac «infobase drop» → обновление.</summary>
     public ICommand DropInfobaseCommand =>
         _dropInfobaseCommand ??= new RelayCommand(async () => await DropSelectedInfobaseAsync());
 
-    /// <summary>Признак возможности удаления выбранной базы (для кнопки).</summary>
-    public bool CanDropSelectedInfobase => SelectedInfobase is not null && HasConnected;
-
     /// <summary>
-    /// Текст индикатора фильтра по базе (issue #3): «Фильтр по базе: <Имя>»;
-    /// пустая строка — фильтр не активен («Все базы»).
+    /// Текст индикатора фильтра по базе (issue #3): «Фильтр по базе: <Имя>» при
+    /// активном фильтре; «Без фильтра» — фильтр снят. Надпись и кнопка «Сбросить»
+    /// видны ВСЕГДА (в отличие от прежней версии, где панель скрывалась при снятом
+    /// фильтре).
     /// </summary>
     public string InfobaseFilterText
     {
         get
         {
             if (_selectedInfobaseId is not Guid id)
-                return string.Empty;
+                return LocalizationManager.T("ServerMonitor.Infobase.NoFilter");
             var name = _infobaseNames.TryGetValue(id, out var n) ? n : string.Empty;
             return string.Format(
                 LocalizationManager.T("ServerMonitor.Infobase.FilterFormat"),
@@ -663,6 +742,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
             ApplyClusters(clusters);
             HasConnected = true;
+            OnPropertyChanged(nameof(CanDropInfobase));
             StatusText = clusters.Count == 0
                 ? LocalizationManager.T("ServerMonitor.Status.NoClusters")
                 : string.Format(LocalizationManager.T("ServerMonitor.Status.ConnectedFormat"), clusters.Count);
@@ -684,6 +764,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             HasConnected = false;
+            OnPropertyChanged(nameof(CanDropInfobase));
             // issue #324: в сообщении об ошибке указываем ЦЕЛЕВОЙ адрес:порт, к которому
             // шло подключение (поля могли быть заполнены сохранёнными значениями, и
             // пользователю должно быть видно, куда именно «ушёл» запрос), а не только
@@ -1092,6 +1173,9 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
             SelectedSession = sessionId is Guid s ? Sessions.FirstOrDefault(x => x.Id == s) : null;
             SelectedConnection = connectionId is Guid c ? Connections.FirstOrDefault(x => x.Id == c) : null;
+
+            // Заголовки вкладок с количеством строк (issue #3): «Сеансы (12)» и т.д.
+            RaiseTabHeaderChanges();
         }
 
         if (_dispatchToUi is null)
@@ -1139,6 +1223,9 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
         OnPropertyChanged(nameof(InfobaseFilterText));
         OnPropertyChanged(nameof(HasInfobaseFilter));
+        // Количество строк во вкладках сеансов/соединений/блокировок могло измениться
+        // после фильтрации по базе (issue #3: «Сеансы (0)» при пустом отборе).
+        RaiseTabHeaderChanges();
     }
 
     private static void ReplaceRows<T>(ObservableCollection<T> target, IEnumerable<T> rows)

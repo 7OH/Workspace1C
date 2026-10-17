@@ -790,4 +790,81 @@ public sealed class RacClientTests
             }));
         Assert.Throws<ArgumentNullException>(() => RacClient.InfobaseCreateArgs(Guid.NewGuid(), null));
     }
+
+    // ---------- «infobase update» (issue #3, кнопка «Изменить») ----------
+
+    [Fact]
+    public void InfobaseUpdateArgs_AllFieldsAreIncluded_WithInfobaseId()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+        var request = new RacInfobaseUpdateRequest
+        {
+            Name = "База (обновлённая)",
+            Description = "Новое описание",
+            Dbms = "MSSQLServer",
+            DbServer = "sql-02",
+            DbName = "buh2",
+            DbUser = "sa",
+            DbPassword = "secret",
+            Locale = "ru_RU",
+            SecurityLevel = 2,
+            ScheduledJobsDeny = true
+        };
+
+        var args = RacClient.InfobaseUpdateArgs(clusterId, infobaseId, request);
+
+        Assert.Equal(new[]
+        {
+            "infobase", "update",
+            $"--cluster={clusterId}",
+            $"--infobase={infobaseId}",
+            "--name=База (обновлённая)",
+            "--desc=Новое описание",
+            "--dbms=MSSQLServer",
+            "--db-server=sql-02",
+            "--db-name=buh2",
+            "--db-user=sa",
+            "--db-pwd=secret",
+            "--locale=ru_RU",
+            "--security-level=2",
+            "--scheduled-jobs-deny"
+        }, args);
+    }
+
+    [Fact]
+    public void InfobaseUpdateArgs_OptionalFields_AreOmitted()
+    {
+        var args = RacClient.InfobaseUpdateArgs(
+            Guid.NewGuid(), Guid.NewGuid(), new RacInfobaseUpdateRequest
+            {
+                Name = "Минимум",
+                Dbms = "FILE",
+                DbServer = "/srv/bases",
+                DbName = "1Cv8.1CD"
+            });
+
+        Assert.DoesNotContain(args, a => a.StartsWith("--desc="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--db-user="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--db-pwd="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--locale="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--security-level="));
+        Assert.DoesNotContain(args, a => a == "--scheduled-jobs-deny");
+        // При изменении «создать базу на сервере СУБД» не поддерживается.
+        Assert.DoesNotContain(args, a => a == "--create-db");
+    }
+
+    [Fact]
+    public void InfobaseUpdateArgs_EmptyName_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RacClient.InfobaseUpdateArgs(Guid.NewGuid(), Guid.NewGuid(), new RacInfobaseUpdateRequest
+            {
+                Dbms = "MSSQLServer",
+                DbServer = "sql-01",
+                DbName = "newbase"
+            }));
+        Assert.Throws<ArgumentNullException>(() =>
+            RacClient.InfobaseUpdateArgs(Guid.NewGuid(), Guid.NewGuid(), null));
+    }
 }

@@ -74,6 +74,7 @@ namespace Workspace1C.Services
         private readonly GitHubReleaseService _gitHub;
         private readonly IDialogService _dialogs;
         private readonly INotificationService _notifications;
+        private readonly PendingUpdateStore _pendingUpdate;
         private readonly HttpClient _http;
 
         /// <summary>
@@ -98,11 +99,17 @@ namespace Workspace1C.Services
             => AutoUpdateEnabled = autoUpdateEnabled
                 && !(LinuxRendering.Virtualized || LinuxRendering.SoftwareRender);
 
-        public UpdateService(GitHubReleaseService gitHub, IDialogService dialogs, INotificationService notifications)
+        public UpdateService(
+            GitHubReleaseService gitHub,
+            IDialogService dialogs,
+            INotificationService notifications,
+            PendingUpdateStore pendingUpdate)
         {
             _gitHub = gitHub;
             _dialogs = dialogs;
             _notifications = notifications;
+            // Маркер «запланировано уведомление об успешном обновлении» (issue #10).
+            _pendingUpdate = pendingUpdate;
 
             _http = new HttpClient();
             // GitHub требует корректный User-Agent.
@@ -542,6 +549,13 @@ namespace Workspace1C.Services
                     LocalizationManager.T("Update.NewVersionAvailable")));
                 return;
             }
+
+            // Маркер об успешном обновлении (issue #10): помощник запущен и обновление
+            // применится уже после нашего выхода, поэтому уведомление о завершении
+            // из этого процесса до Telegram не доедет. Пишем версию, на которую
+            // обновляемся; новая версия отправит уведомление при следующем старте.
+            try { _pendingUpdate.Write(release.TagName); }
+            catch { /* маркер сервисный — обновление не должно срываться */ }
 
             // Помощник запущен — закрываем приложение, чтобы замена прошла после выхода.
             ShutdownNow();

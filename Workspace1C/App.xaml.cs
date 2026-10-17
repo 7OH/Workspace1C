@@ -295,6 +295,12 @@ namespace Workspace1C
                 // на явный, иначе закрытие окна входа гасило приложение до появления главного.
                 ShutdownMode = shutdownModeBeforeStartup;
 
+                // Уведомление об успешном обновлении приложения (issue #10): маркер
+                // «pending_update.json» пишется перед перезапуском для применения новой
+                // версии, а сообщение в Telegram/email отправляется ТОЛЬКО отсюда — из
+                // новой версии, когда интерфейс готов и каналы уведомлений настроены.
+                NotifyPendingUpdate();
+
                 // Фоновая проверка обновлений (Windows/WPF): запускаем после показа
                 // главного окна, чтобы не задерживать старт. Если пользователь отключил
                 // проверку в настройках — пропускаем. Работа выполняется асинхронно,
@@ -346,6 +352,38 @@ namespace Workspace1C
         {
             var text = LocalizationManager.T(key);
             return string.Equals(text, key, StringComparison.Ordinal) ? fallback : text;
+        }
+
+        /// <summary>
+        /// Отправляет уведомление «Приложение обновлено до версии X» (issue #10),
+        /// если при предыдущем запуске было выполнено обновление и новая версия
+        /// реально запустилась. Маркер пишется перед перезапуском (в
+        /// <see cref="UpdateService.DownloadAndInstallAutoAsync"/>), читается и
+        /// удаляется здесь. Уведомление уходит по включённым каналам
+        /// (Telegram/email/system) при событии <see cref="NotificationEvent.Update"/>,
+        /// поэтому уважает фильтр «Уведомлять о новых версиях». Ошибки не роняют старт.
+        /// </summary>
+        private static void NotifyPendingUpdate()
+        {
+            try
+            {
+                var marker = AppServices.GetRequiredService<PendingUpdateStore>();
+                var markerVersion = marker.ReadAndClear();
+                if (!PendingUpdateStore.ShouldNotify(markerVersion, VersionInfo.Display()))
+                    return;
+
+                var notifications = AppServices.GetRequiredService<INotificationService>();
+                notifications.Show(
+                    LocalizationManager.T("App.Title"),
+                    string.Format(LocalizationManager.T("Notify.UpdateInstalled"), markerVersion),
+                    NotificationKind.Success,
+                    NotificationEvent.Update);
+            }
+            catch (Exception ex)
+            {
+                // Уведомление не должно блокировать запуск приложения.
+                System.Diagnostics.Debug.WriteLine("[update] Ошибка уведомления об обновлении: " + ex.Message);
+            }
         }
 
         /// <summary>

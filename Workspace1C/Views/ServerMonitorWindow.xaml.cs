@@ -43,16 +43,44 @@ namespace Workspace1C
             // в заголовке окна. Esc сохранён: раньше его давала IsCancel у панельной
             // кнопки, теперь обрабатываем вручную (фокус может быть в текстовом поле).
             PreviewKeyDown += OnWindowPreviewKeyDown;
-            ProcessesGrid.ItemsSource = _vm.Processes;
             // issue #3: таблицы сеансов/соединений/блокировок биндятся на ОТФИЛЬТРОВАННЫЕ
             // коллекции — выбор базы фильтрует их на клиенте без перезагрузки кластера.
+            // Список баз и заголовки вкладок привязаны в XAML (Infobases, *TabText).
             SessionsGrid.ItemsSource = _vm.FilteredSessions;
             ConnectionsGrid.ItemsSource = _vm.FilteredConnections;
             LocksGrid.ItemsSource = _vm.FilteredLocks;
-            InfobasesGrid.ItemsSource = _vm.Infobases;
+            ProcessesGrid.ItemsSource = _vm.Processes;
 
-            // Таймер автообновления останавливается при закрытии окна (без утечки).
-            Closed += (_, _) => _vm.Dispose();
+            // Состояние окна запоминается (issue #3, комментарий 7OH): максимизировано или нет.
+            try
+            {
+                var repository = AppServices.GetRequiredService<IInfobaseRepository>();
+                var settings = repository.LoadSettings();
+                if (settings.ServerMonitorMaximized)
+                    WindowState = WindowState.Maximized;
+            }
+            catch
+            {
+                // Запоминание состояния — вспомогательная возможность, сбой не важен.
+            }
+
+            // Таймер автообновления останавливается при закрытии окна (без утечки);
+            // состояние «максимизировано» сохраняется в настройки.
+            Closed += (_, _) =>
+            {
+                _vm.Dispose();
+                try
+                {
+                    var repository = AppServices.GetRequiredService<IInfobaseRepository>();
+                    var settings = repository.LoadSettings();
+                    settings.ServerMonitorMaximized = WindowState == WindowState.Maximized;
+                    repository.SaveSettings(settings);
+                }
+                catch
+                {
+                    // Запоминание состояния — вспомогательная возможность, сбой не важен.
+                }
+            };
         }
 
         /// <summary>
@@ -148,6 +176,38 @@ namespace Workspace1C
                 return;
             await _vm.CreateInfobaseAsync(request);
         }
+
+        /// <summary>
+        /// «Изменить базу» (issue #3, комментарий 7OH): модальный диалог правки свойств
+        /// (поля предзаполнены, rac «infobase update») → изменение → обновление списков.
+        /// </summary>
+        private async void OnEditInfobase_Click(object sender, RoutedEventArgs e)
+        {
+            if (_vm.SelectedInfobase is not { } row || row.InfobaseId == Guid.Empty)
+                return;
+            var dialog = new RacInfobaseCreateWindow(SummaryFromRow(row)) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.UpdateResult is not { } update)
+                return;
+            await _vm.UpdateSelectedInfobaseAsync(update);
+        }
+
+        /// <summary>Строит «infobase summary» из строки списка для предзаполнения диалога правки.</summary>
+        private static RacInfobaseSummary SummaryFromRow(RacInfobaseRow row) => new()
+        {
+            InfobaseId = row.InfobaseId,
+            Name = row.Name,
+            // RacInfobaseRow подставляет «—» для пустых строк — в диалог возвращаем пустоту.
+            Descr = Unplacehold(row.Descr),
+            Dbms = row.Dbms,
+            DbServer = row.DbServer,
+            DbName = row.DbName,
+            DbUser = Unplacehold(row.DbUser),
+            Locale = Unplacehold(row.Locale),
+            SecurityLevel = row.SecurityLevel
+        };
+
+        private static string Unplacehold(string value) =>
+            string.Equals(value, "—", StringComparison.Ordinal) ? string.Empty : value;
 
         /// <summary>
         /// «Удалить базу»: подтверждение (в VM) → rac «infobase drop» → обновление.

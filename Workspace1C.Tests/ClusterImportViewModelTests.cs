@@ -481,10 +481,15 @@ public sealed class ClusterImportViewModelTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
-        // Создание/удаление баз (issue #3) окно импорта не использует — успех.
+        // Создание/удаление/изменение баз (issue #3) окно импорта не использует — успех.
         public Task<bool> CreateInfobaseAsync(
             RacConnectionParams parameters, System.Guid clusterId, RacInfobaseCreateRequest request,
             CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<bool> UpdateInfobaseAsync(
+            RacConnectionParams parameters, System.Guid clusterId, System.Guid infobaseId,
+            RacInfobaseUpdateRequest request, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
         public Task<bool> DropInfobaseAsync(

@@ -136,6 +136,11 @@ public static class AppServices
         services.AddSingleton<INotificationChannel>(sp => sp.GetRequiredService<TelegramNotificationChannel>());
         services.AddSingleton<INotificationChannel>(sp => sp.GetRequiredService<EmailNotificationChannel>());
         services.AddSingleton<INotificationService, NotificationDispatcher>();
+        // Маркер «запланировано уведомление об успешном обновлении» (issue #10):
+        // pending_update.json в каталоге данных профиля. Пишется перед перезапуском
+        // приложения для применения обновления, читается и очищается при следующем
+        // старте новой версии. Чистый сервис — без UI-зависимостей.
+        services.AddSingleton<PendingUpdateStore>();
         // Сообщение в строке состояния главного окна из фоновых сервисов (issue #366):
         // канал уведомления задания «Проверить наличие обновления платформы» —
         // «В главном окне». Платформенная реализация (WPF/Avalonia) выбирается

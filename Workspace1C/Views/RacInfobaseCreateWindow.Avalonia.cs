@@ -34,9 +34,13 @@ namespace Workspace1C
         private readonly CheckBox _createDbBox = new() { Content = T("ServerMonitor.Infobase.CreateDb") };
         private readonly CheckBox _scheduledJobsDenyBox = new() { Content = T("ServerMonitor.Infobase.ScheduledJobsDeny") };
         private readonly TextBlock _fileHint;
+        private bool _isEditMode;
 
         /// <summary>Готовый запрос создания базы при подтверждении, иначе <c>null</c>.</summary>
         public RacInfobaseCreateRequest? Result { get; private set; }
+
+        /// <summary>Готовый запрос ИЗМЕНЕНИЯ базы (кнопка «Изменить»), иначе <c>null</c>.</summary>
+        public RacInfobaseUpdateRequest? UpdateResult { get; private set; }
 
         public RacInfobaseCreateWindow()
         {
@@ -78,6 +82,53 @@ namespace Workspace1C
                     _dbmsBox.SelectedItem as string, RacDbms.File, StringComparison.OrdinalIgnoreCase);
 
             Content = BuildRoot();
+        }
+
+        /// <summary>
+        /// Режим ИЗМЕНЕНИЯ существующей базы (issue #3, кнопка «Изменить»): поля
+        /// предзаполняются из вывода «infobase summary list»; пароль СУБД rac не
+        /// возвращает — остаётся пустым (переданный пароль обновит существующий,
+        /// пустой — не трогает). Галочка «создать базу на сервере СУБД» скрывается.
+        /// </summary>
+        public RacInfobaseCreateWindow(RacInfobaseSummary summary)
+            : this()
+        {
+            // Режим правки: заголовок и скрытие «создать базу на сервере СУБД».
+            _isEditMode = true;
+            Title = T("ServerMonitor.Infobase.UpdateTitle");
+            _createDbBox.IsVisible = false;
+            if (summary is null)
+                return;
+
+            _nameBox.Text = summary.Name;
+            _descriptionBox.Text = summary.Descr;
+            _dbServerBox.Text = summary.DbServer;
+            _dbNameBox.Text = summary.DbName;
+            _dbUserBox.Text = summary.DbUser;
+            _localeBox.Text = summary.Locale;
+
+            _dbmsBox.SelectedItem = NormalizeDbms(summary.Dbms);
+            _fileHint.IsVisible = string.Equals(
+                _dbmsBox.SelectedItem as string, RacDbms.File, StringComparison.OrdinalIgnoreCase);
+            if (summary.SecurityLevel is >= 0 and <= 2)
+                _securityLevelBox.SelectedItem = summary.SecurityLevel.ToString();
+        }
+
+        /// <summary>Приводит тип СУБД из вывода rac к константе диалога (регистронезависимо).</summary>
+        internal static string NormalizeDbms(string? summaryDbms)
+        {
+            var value = (summaryDbms ?? string.Empty).Trim().ToLowerInvariant();
+            return value switch
+            {
+                "file" => RacDbms.File,
+                "mssqlserver" => RacDbms.MssqlServer,
+                "postgresql" => RacDbms.PostgreSql,
+                "ibmdb2" => RacDbms.IbmDb2,
+                "oracledatabase" => RacDbms.OracleDatabase,
+                "sqlite" => RacDbms.Sqlite,
+                "serverodbc" => RacDbms.ServerOdbc,
+                _ => RacDbms.MssqlServer
+            };
         }
 
         /// <summary>Показывает окно модально (синхронно).</summary>
@@ -176,21 +227,41 @@ namespace Workspace1C
                 return;
             }
 
-            Result = new RacInfobaseCreateRequest
+            if (_isEditMode)
             {
-                Name = name,
-                Description = _descriptionBox.Text?.Trim() ?? string.Empty,
-                IsFile = isFile,
-                Dbms = dbms,
-                DbServer = dbServer,
-                DbName = dbName,
-                DbUser = _dbUserBox.Text?.Trim() ?? string.Empty,
-                DbPassword = _dbPasswordBox.Password ?? string.Empty,
-                Locale = _localeBox.Text?.Trim() ?? string.Empty,
-                SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
-                CreateDb = _createDbBox.IsChecked == true && !isFile,
-                ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true
-            };
+                UpdateResult = new RacInfobaseUpdateRequest
+                {
+                    Name = name,
+                    Description = _descriptionBox.Text?.Trim() ?? string.Empty,
+                    IsFile = isFile,
+                    Dbms = dbms,
+                    DbServer = dbServer,
+                    DbName = dbName,
+                    DbUser = _dbUserBox.Text?.Trim() ?? string.Empty,
+                    DbPassword = _dbPasswordBox.Password ?? string.Empty,
+                    Locale = _localeBox.Text?.Trim() ?? string.Empty,
+                    SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
+                    ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true
+                };
+            }
+            else
+            {
+                Result = new RacInfobaseCreateRequest
+                {
+                    Name = name,
+                    Description = _descriptionBox.Text?.Trim() ?? string.Empty,
+                    IsFile = isFile,
+                    Dbms = dbms,
+                    DbServer = dbServer,
+                    DbName = dbName,
+                    DbUser = _dbUserBox.Text?.Trim() ?? string.Empty,
+                    DbPassword = _dbPasswordBox.Password ?? string.Empty,
+                    Locale = _localeBox.Text?.Trim() ?? string.Empty,
+                    SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
+                    CreateDb = _createDbBox.IsChecked == true && !isFile,
+                    ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true
+                };
+            }
             DialogResult = true;
             Close();
         }

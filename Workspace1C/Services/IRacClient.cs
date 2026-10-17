@@ -157,6 +157,17 @@ public interface IRacClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Изменение свойств информационной базы в кластере (команда «infobase update
+    /// --cluster=... --infobase=... --name=...», issue #3, кнопка «Изменить»).
+    /// Поля запроса передаются в rac; пароль СУБД маскируется при журналировании.
+    /// Возвращает true при ExitCode 0; при неудаче — false и текст ошибки
+    /// (включая stderr rac) в <see cref="LastActionError"/>.
+    /// </summary>
+    Task<bool> UpdateInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        RacInfobaseUpdateRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Удаление информационной базы из кластера (команда «infobase drop --cluster=...
     /// --infobase=...», issue #3, вкладка «Базы»). Возвращает true при ExitCode 0;
     /// при неудаче — false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.

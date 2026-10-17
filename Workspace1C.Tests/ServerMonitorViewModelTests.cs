@@ -897,7 +897,8 @@ public sealed class ServerMonitorViewModelTests
 
         Assert.Null(vm.SelectedInfobaseId);
         Assert.False(vm.HasInfobaseFilter);
-        Assert.Empty(vm.InfobaseFilterText);
+        // issue #3 (7OH): надпись фильтра видна ВСЕГДА; при сбросе — «Без фильтра».
+        Assert.Equal(LocalizationManager.T("ServerMonitor.Infobase.NoFilter"), vm.InfobaseFilterText);
         Assert.Single(vm.FilteredSessions);
         Assert.Single(vm.FilteredConnections);
         Assert.Single(vm.FilteredLocks);
@@ -996,6 +997,137 @@ public sealed class ServerMonitorViewModelTests
 
         Assert.Single(dialogs.Confirms);
         Assert.Empty(client.DropInfobaseCalls);
+    }
+
+    // ===================== Заголовки с количеством строк и фильтр (issue #3) =====================
+
+    [Fact]
+    public async Task LoadClusterDataAsync_TabHeaderTexts_ContainRowCounts()
+    {
+        // issue #3 (7OH от 2026-10-17): «После названия во вкладках должно показывать
+        // количество строк на данной вкладке», например «Сеансы (1)».
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+
+        // Используем «0» — заголовки видны и до загрузки данных.
+        Assert.Equal(LocalizationManager.T("ServerMonitor.Tabs.CountFormat")
+            .Replace("{0}", LocalizationManager.T("ServerMonitor.Tabs.Sessions")).Replace("{1}", "0"),
+            vm.SessionsTabText);
+
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        Assert.Equal(
+            string.Format(
+                LocalizationManager.T("ServerMonitor.Tabs.CountFormat"),
+                LocalizationManager.T("ServerMonitor.Tabs.Processes"), 1),
+            vm.ProcessesTabText);
+        Assert.Equal(
+            string.Format(
+                LocalizationManager.T("ServerMonitor.Tabs.CountFormat"),
+                LocalizationManager.T("ServerMonitor.Tabs.Sessions"), 1),
+            vm.SessionsTabText);
+        Assert.Equal(
+            string.Format(
+                LocalizationManager.T("ServerMonitor.Tabs.CountFormat"),
+                LocalizationManager.T("ServerMonitor.Tabs.Infobases"), 1),
+            vm.InfobasesHeaderText);
+    }
+
+    [Fact]
+    public void InfobaseFilterText_WithoutFilter_IsNoFilter()
+    {
+        // issue #3: надпись фильтра видна ВСЕГДА; при снятом фильтре — «Без фильтра».
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs());
+
+        Assert.Equal(LocalizationManager.T("ServerMonitor.Infobase.NoFilter"), vm.InfobaseFilterText);
+        Assert.False(vm.HasInfobaseFilter);
+    }
+
+    [Fact]
+    public void SelectInfobase_CanDropInfobase_BecomesTrue()
+    {
+        // issue #3 (7OH от 2026-10-17, «Кнопка удаления сейчас не активна почему-то всегда»):
+        // CanDropInfobase должен обновляться при выборе базы — раньше PropertyChanged не
+        // поднимался, и кнопка «Удалить» оставалась неактивной навсегда.
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+
+        Assert.False(vm.CanDropInfobase);
+
+        // Подключаемся и загружаем базы; выбираем базу.
+        var changed = false;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ServerMonitorViewModel.CanDropInfobase))
+                changed = true;
+        };
+        vm.SelectedInfobase = new RacInfobaseRow(new RacInfobaseSummary
+        {
+            InfobaseId = FakeRacClient.FirstInfobaseId,
+            Name = "Бухгалтерия"
+        });
+
+        Assert.True(changed, "CanDropInfobase обязан уведомлять об изменении выбора (issue #3)");
+    }
+
+    [Fact]
+    public async Task UpdateSelectedInfobaseAsync_CallsClient_WithCorrectArguments()
+    {
+        // issue #3 (7OH от 2026-10-17): кнопка «Изменить» для базы — rac «infobase update».
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+
+        vm.SelectedInfobase = vm.Infobases.Single();
+        var update = new RacInfobaseUpdateRequest
+        {
+            Name = "Бухгалтерия новая",
+            Dbms = RacDbms.MssqlServer,
+            DbServer = "sql-01",
+            DbName = "buh1c"
+        };
+        await vm.UpdateSelectedInfobaseAsync(update);
+
+        var call = Assert.Single(client.UpdateInfobaseCalls);
+        Assert.Equal(FakeRacClient.FirstClusterId, call.clusterId);
+        Assert.Equal(FakeRacClient.FirstInfobaseId, call.infobaseId);
+        Assert.Equal("Бухгалтерия новая", call.request.Name);
+        Assert.Empty(vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task UpdateSelectedInfobaseAsync_WithoutSelection_DoesNothing()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+
+        await vm.UpdateSelectedInfobaseAsync(new RacInfobaseUpdateRequest { Name = "X" });
+
+        Assert.Empty(client.UpdateInfobaseCalls);
+    }
+
+    [Fact]
+    public async Task UpdateSelectedInfobaseAsync_ClientFails_ShowsWarning()
+    {
+        var client = new FakeRacClient(actionFails: true);
+        var dialogs = new RecordingDialogs();
+        var vm = new ServerMonitorViewModel(client, dialogs);
+        await vm.ConnectAsync();
+        await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
+        vm.SelectedInfobase = vm.Infobases.Single();
+
+        await vm.UpdateSelectedInfobaseAsync(new RacInfobaseUpdateRequest
+        {
+            Name = "Бухгалтерия",
+            Dbms = RacDbms.File,
+            DbServer = "/srv/bases",
+            DbName = "1Cv8.1CD"
+        });
+
+        Assert.Single(client.UpdateInfobaseCalls);
+        Assert.NotEmpty(dialogs.Warnings);
+        Assert.NotEmpty(vm.StatusText);
     }
 
     // ===================== Fakes =====================
@@ -1332,12 +1464,31 @@ public sealed class ServerMonitorViewModelTests
 
         // ===================== Базы кластера (issue #3) =====================
 
+        /// <summary>Вызовы «infobase update»: (clusterId, infobaseId, запрос).</summary>
+        public List<(Guid clusterId, Guid infobaseId, RacInfobaseUpdateRequest request)> UpdateInfobaseCalls { get; } = new();
+
         /// <summary>«infobase create»: фиксирует вызов; «неудача» настраивается, как у остальных действий.</summary>
         public Task<bool> CreateInfobaseAsync(
             RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,
             CancellationToken cancellationToken = default)
         {
             CreateInfobaseCalls.Add((clusterId, request));
+            if (_throwOnAction)
+                throw new RacClientException("нет прав администратора");
+            if (_actionFails)
+            {
+                LastActionError = "rac: у пользователя нет прав на изменение списка баз";
+                return Task.FromResult(false);
+            }
+            return Task.FromResult(true);
+        }
+
+        /// <summary>«infobase update»: фиксирует вызов; «неудача» настраивается, как у остальных действий.</summary>
+        public Task<bool> UpdateInfobaseAsync(
+            RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+            RacInfobaseUpdateRequest request, CancellationToken cancellationToken = default)
+        {
+            UpdateInfobaseCalls.Add((clusterId, infobaseId, request));
             if (_throwOnAction)
                 throw new RacClientException("нет прав администратора");
             if (_actionFails)
