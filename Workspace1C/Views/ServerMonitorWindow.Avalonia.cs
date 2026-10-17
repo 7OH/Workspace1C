@@ -457,8 +457,9 @@ namespace Workspace1C
                             rowGrid.ColumnDefinitions[i].Width = widths[i];
                         // Вертикальные линии между колонками (issue #3, 7OH 17.10).
                         AddColumnLines(rowGrid, widths.Length);
+                        // «_» здесь — параметр шаблона (INameScope), поэтому не discard.
                         if (liveRows.Count > 4000)
-                            liveRows.RemoveAll(r => !r.TryGetTarget(out _));
+                            liveRows.RemoveAll(r => !r.TryGetTarget(out Grid? _dead));
                         liveRows.Add(new WeakReference<Grid>(rowGrid));
                     }
                     return control;
