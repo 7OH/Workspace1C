@@ -616,6 +616,46 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Полные свойства базы для диалога правки (issue #3, 7OH 17.10): rac «infobase info»
+    /// с учётными данными администратора ИБ. Возвращает свойства либо текст ошибки rac
+    /// (например, нужна аутентификация администратора ИБ).
+    /// </summary>
+    public async Task<(RacInfobaseInfo? Info, string Error)> LoadInfobaseInfoAsync(
+        Guid infobaseId, string? infobaseUser, string? infobasePassword)
+    {
+        if (!HasConnected || SelectedClusterId is not Guid clusterId || infobaseId == Guid.Empty)
+            return (null, LocalizationManager.T("ServerMonitor.Infobase.Props.NotConnected"));
+        try
+        {
+            var info = await _rac.GetInfobaseInfoAsync(
+                BuildParams(), clusterId, infobaseId, infobaseUser, infobasePassword).ConfigureAwait(false);
+            return info is null
+                ? (null, BuildActionError(_rac.LastActionError))
+                : (info, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return (null, BuildErrorMessage(ex));
+        }
+    }
+
+    /// <summary>
+    /// ViewModel диалога «Свойства информационной базы» (issue #3): учётные данные
+    /// администратора ИБ ищутся в списке баз приложения (та же база на том же сервере),
+    /// загрузка полных свойств — <see cref="LoadInfobaseInfoAsync"/>.
+    /// </summary>
+    public RacInfobasePropertiesViewModel CreateInfobasePropertiesViewModel(
+        RacInfobaseSummary summary, IEnumerable<Infobase>? appInfobases)
+    {
+        var saved = ClusterInfobaseCredentials.Find(appInfobases, ServerAddress, summary?.Name);
+        var infobaseId = summary?.InfobaseId ?? Guid.Empty;
+        return new RacInfobasePropertiesViewModel(
+            summary ?? new RacInfobaseSummary(),
+            (user, password) => LoadInfobaseInfoAsync(infobaseId, user, password),
+            saved);
+    }
+
     /// <summary>«Удалить базу»: подтверждение → rac «infobase drop» → обновление.</summary>
     public ICommand DropInfobaseCommand =>
         _dropInfobaseCommand ??= new RelayCommand(async () => await DropSelectedInfobaseAsync());

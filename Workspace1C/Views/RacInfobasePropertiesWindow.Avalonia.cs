@@ -1,0 +1,317 @@
+#if LINUX
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Data;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Workspace1C.Controls;
+using Workspace1C.Localization;
+using Workspace1C.Models;
+using Workspace1C.Services;
+using Workspace1C.Themes;
+using Workspace1C.ViewModels;
+
+namespace Workspace1C
+{
+    /// <summary>
+    /// Окно «Свойства информационной базы» монитора «Серверы 1С» (issue #3, 7OH 17.10) —
+    /// Avalonia/Linux-версия WPF-окна. Логика — в <see cref="RacInfobasePropertiesViewModel"/>:
+    /// при открытии читаются полные свойства (rac «infobase info»), «Обновить» перечитывает
+    /// их с введёнными учётными данными администратора ИБ.
+    /// </summary>
+    public sealed class RacInfobasePropertiesWindow : ModalWindowBase
+    {
+        private readonly RacInfobasePropertiesViewModel _vm;
+        private readonly IDialogService _dialogs = AppServices.GetRequiredService<IDialogService>();
+
+        /// <summary>Запрос rac «infobase update» при сохранении (null при отмене).</summary>
+        public RacInfobaseUpdateRequest? Result { get; private set; }
+
+        public RacInfobasePropertiesWindow(RacInfobasePropertiesViewModel vm)
+        {
+            _vm = vm;
+            DataContext = vm;
+            Title = T("ServerMonitor.Infobase.Props.Title");
+            Width = 820;
+            Height = 800;
+            MinWidth = 680;
+            MinHeight = 560;
+            FontSize = 13;
+            CanResize = true;
+            Content = BuildRoot();
+            Opened += async (_, _) => await _vm.RefreshAsync();
+        }
+
+        /// <summary>Показывает окно модально (синхронно).</summary>
+        public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
+
+        private static string T(string key) => LocalizationManager.T(key);
+
+        private Control BuildRoot()
+        {
+            var root = new DockPanel { Margin = new Thickness(16), LastChildFill = true };
+
+            // Заголовок + «Обновить» справа (как в эталоне).
+            var title = new TextBlock
+            {
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                [!TextBlock.TextProperty] = new Binding(nameof(RacInfobasePropertiesViewModel.Name))
+            };
+            var refresh = new Button { Content = "⟳ " + T("ServerMonitor.Refresh"), Height = 32, HorizontalAlignment = HorizontalAlignment.Right };
+            refresh.Styled(ControlThemes.ModernButton);
+            ToolTip.SetTip(refresh, T("ServerMonitor.Infobase.Props.RefreshHint"));
+            refresh.Click += async (_, _) => await _vm.RefreshAsync();
+            var header = new Grid { Margin = new Thickness(0, 0, 0, 6), Children = { title, refresh } };
+            DockPanel.SetDock(header, Dock.Top);
+            root.Children.Add(header);
+
+            // Кнопки внизу.
+            var save = new Button { Content = T("Updates.Save"), Width = 130, Height = 36, IsDefault = true };
+            save.Styled(ControlThemes.DialogConfirmButton);
+            save.Click += (_, _) => OnSave();
+            var cancel = BuildCancelActionButton(120);
+            cancel.Click += (_, _) =>
+            {
+                DialogResult = false;
+                Close();
+            };
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Spacing = 10,
+                Margin = new Thickness(0, 12, 0, 0),
+                Children = { save, cancel }
+            };
+            DockPanel.SetDock(buttons, Dock.Bottom);
+            root.Children.Add(buttons);
+
+            // Строка состояния загрузки (ошибка — красным).
+            var status = new TextBlock
+            {
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 8, 0, 0),
+                [!TextBlock.TextProperty] = new Binding(nameof(RacInfobasePropertiesViewModel.StatusText))
+            };
+            void UpdateStatusColor() => status.Foreground = _vm.StatusIsError
+                ? new SolidColorBrush(Color.Parse("#DC2626"))
+                : null;
+            _vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(RacInfobasePropertiesViewModel.StatusIsError))
+                    UpdateStatusColor();
+            };
+            DockPanel.SetDock(status, Dock.Bottom);
+            root.Children.Add(status);
+
+            var form = new StackPanel { Spacing = 2 };
+
+            // Администратор информационной базы.
+            var adminPassword = new PasswordBox { Height = 32 }.Styled(ControlThemes.ModernPasswordBox);
+            adminPassword.Password = _vm.InfobasePassword;
+            adminPassword.PasswordChanged += (_, _) => _vm.InfobasePassword = adminPassword.Password ?? string.Empty;
+            var adminPanel = new StackPanel
+            {
+                Children =
+                {
+                    Label(T("ServerMonitor.Infobase.Props.AdminGroup")),
+                    TwoColumns(
+                        Field(T("ServerMonitor.Infobase.Props.AdminUser"), Text(nameof(RacInfobasePropertiesViewModel.InfobaseUser))),
+                        Field(T("ServerMonitor.Infobase.Props.AdminPassword"), adminPassword)),
+                    new TextBlock
+                    {
+                        FontSize = 11,
+                        Opacity = 0.7,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 6, 0, 0),
+                        Text = _vm.CredentialsSourceText
+                    }
+                }
+            };
+            form.Children.Add(Group(adminPanel));
+
+            form.Children.Add(TwoColumns(
+                Field(T("ServerMonitor.Infobase.Name"), Text(nameof(RacInfobasePropertiesViewModel.Name), readOnly: true)),
+                Field(T("ServerMonitor.Infobase.Props.SecureConnection"),
+                    Text(nameof(RacInfobasePropertiesViewModel.SecureConnectionText), readOnly: true))));
+            form.Children.Add(Field(T("ServerMonitor.Infobase.Description"), Text(nameof(RacInfobasePropertiesViewModel.Description))));
+
+            var dbms = new ComboBox { Height = 32, HorizontalAlignment = HorizontalAlignment.Stretch };
+            dbms.Styled(ControlThemes.ModernComboBox);
+            dbms.ItemsSource = RacInfobasePropertiesViewModel.DbmsOptions;
+            dbms.Bind(ComboBox.SelectedItemProperty,
+                new Binding(nameof(RacInfobasePropertiesViewModel.Dbms), BindingMode.TwoWay));
+            form.Children.Add(TwoColumns(
+                Field(T("ServerMonitor.Infobase.DbServer"), Text(nameof(RacInfobasePropertiesViewModel.DbServer))),
+                Field(T("ServerMonitor.Infobase.Dbms"), dbms)));
+
+            var dbPassword = new PasswordBox { Height = 32 }.Styled(ControlThemes.ModernPasswordBox);
+            ToolTip.SetTip(dbPassword, T("ServerMonitor.Infobase.Props.DbPasswordHint"));
+            dbPassword.PasswordChanged += (_, _) => _vm.DbPassword = dbPassword.Password ?? string.Empty;
+            form.Children.Add(ThreeColumns(
+                Field(T("ServerMonitor.Infobase.DbName"), Text(nameof(RacInfobasePropertiesViewModel.DbName))),
+                Field(T("ServerMonitor.Infobase.DbUser"), Text(nameof(RacInfobasePropertiesViewModel.DbUser))),
+                Field(T("ServerMonitor.Infobase.DbPassword"), dbPassword)));
+
+            var license = Check(T("ServerMonitor.Infobase.Props.LicenseDistribution"),
+                nameof(RacInfobasePropertiesViewModel.LicenseDistributionAllowed));
+            license.Margin = new Thickness(0, 10, 0, 0);
+            license.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
+            form.Children.Add(license);
+
+            // Блокировка начала сеансов.
+            var deniedFrom = Text(nameof(RacInfobasePropertiesViewModel.DeniedFromText));
+            var deniedTo = Text(nameof(RacInfobasePropertiesViewModel.DeniedToText));
+            deniedFrom.Watermark = T("ServerMonitor.Infobase.Props.DateHint");
+            deniedTo.Watermark = T("ServerMonitor.Infobase.Props.DateHint");
+            var lockPanel = new StackPanel
+            {
+                Children =
+                {
+                    Check(T("ServerMonitor.Infobase.Props.SessionsDeny"), nameof(RacInfobasePropertiesViewModel.SessionsDeny)),
+                    TwoColumns(
+                        Field(T("ServerMonitor.Infobase.Props.DeniedFrom"), deniedFrom),
+                        Field(T("ServerMonitor.Infobase.Props.DeniedTo"), deniedTo)),
+                    Field(T("ServerMonitor.Infobase.Props.DeniedMessage"), Text(nameof(RacInfobasePropertiesViewModel.DeniedMessage))),
+                    TwoColumns(
+                        Field(T("ServerMonitor.Infobase.Props.PermissionCode"), Text(nameof(RacInfobasePropertiesViewModel.PermissionCode))),
+                        Field(T("ServerMonitor.Infobase.Props.DeniedParameter"), Text(nameof(RacInfobasePropertiesViewModel.DeniedParameter))))
+                }
+            };
+            var lockGroup = Group(lockPanel);
+            lockGroup.Margin = new Thickness(0, 10, 0, 0);
+            lockGroup.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
+            form.Children.Add(lockGroup);
+
+            var jobs = Check(T("ServerMonitor.Infobase.Props.ScheduledJobsDeny"), nameof(RacInfobasePropertiesViewModel.ScheduledJobsDeny));
+            jobs.Margin = new Thickness(0, 10, 0, 0);
+            form.Children.Add(jobs);
+
+            var extra = new StackPanel
+            {
+                Children =
+                {
+                    Field(T("ServerMonitor.Infobase.Props.ExternalSessionManager"),
+                        Text(nameof(RacInfobasePropertiesViewModel.ExternalSessionManagerConnectionString))),
+                    Check(T("ServerMonitor.Infobase.Props.ExternalSessionManagerRequired"),
+                        nameof(RacInfobasePropertiesViewModel.ExternalSessionManagerRequired)),
+                    TwoColumns(
+                        Field(T("ServerMonitor.Infobase.Props.SecurityProfile"), Text(nameof(RacInfobasePropertiesViewModel.SecurityProfileName))),
+                        Field(T("ServerMonitor.Infobase.Props.SafeModeSecurityProfile"),
+                            Text(nameof(RacInfobasePropertiesViewModel.SafeModeSecurityProfileName))))
+                }
+            };
+            extra.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
+            form.Children.Add(extra);
+
+            root.Children.Add(new ScrollViewer
+            {
+                Content = form,
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+            });
+            return root;
+        }
+
+        private void OnSave()
+        {
+            var request = _vm.BuildRequest(out var error);
+            if (request is null)
+            {
+                _dialogs.ShowWarning(error ?? string.Empty, Title ?? string.Empty);
+                return;
+            }
+            Result = request;
+            DialogResult = true;
+            Close();
+        }
+
+        // ===================== Построители =====================
+
+        private static TextBlock Label(string text) => new()
+        {
+            Text = text,
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 8, 0, 3)
+        };
+
+        private static TextBox Text(string path, bool readOnly = false)
+        {
+            var box = new TextBox
+            {
+                Height = 32,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                IsReadOnly = readOnly
+            };
+            box.Bind(TextBox.TextProperty, new Binding(path, readOnly ? BindingMode.OneWay : BindingMode.TwoWay));
+            return box;
+        }
+
+        private static CheckBox Check(string text, string path)
+        {
+            var check = new CheckBox { Content = text, Margin = new Thickness(0, 6, 0, 0) };
+            check.Bind(Avalonia.Controls.Primitives.ToggleButton.IsCheckedProperty, new Binding(path, BindingMode.TwoWay));
+            return check;
+        }
+
+        private static Control Field(string label, Control editor) =>
+            new StackPanel { Children = { Label(label), editor } };
+
+        private static Grid TwoColumns(Control left, Control right)
+        {
+            var grid = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
+                    new ColumnDefinition(new GridLength(16)),
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star))
+                }
+            };
+            Grid.SetColumn(left, 0);
+            Grid.SetColumn(right, 2);
+            grid.Children.Add(left);
+            grid.Children.Add(right);
+            return grid;
+        }
+
+        private static Grid ThreeColumns(Control a, Control b, Control c)
+        {
+            var grid = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
+                    new ColumnDefinition(new GridLength(16)),
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
+                    new ColumnDefinition(new GridLength(16)),
+                    new ColumnDefinition(new GridLength(1, GridUnitType.Star))
+                }
+            };
+            Grid.SetColumn(a, 0);
+            Grid.SetColumn(b, 2);
+            Grid.SetColumn(c, 4);
+            grid.Children.Add(a);
+            grid.Children.Add(b);
+            grid.Children.Add(c);
+            return grid;
+        }
+
+        private static Border Group(Control content)
+        {
+            var border = new Border
+            {
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 4, 10, 10),
+                Child = content
+            };
+            ThemeBrushes.Bind(border, Border.BorderBrushProperty, "BorderColorBrush");
+            return border;
+        }
+    }
+}
+#endif

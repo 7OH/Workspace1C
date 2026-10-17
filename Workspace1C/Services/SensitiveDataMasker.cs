@@ -18,7 +18,9 @@ internal static class SensitiveDataMasker
     /// скрывается целиком при журналировании команд rac.
     /// </summary>
     private static readonly Regex RacPasswordRegex = new(
-        @"(--password=)[^\s]*",
+        // issue #3: кроме пароля администратора кластера маскируются пароли СУБД
+        // («--db-pwd») и администратора информационной базы («--infobase-pwd»).
+        @"(--(?:password|db-pwd|infobase-pwd|cluster-pwd)=)[^\s]*",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>

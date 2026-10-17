@@ -272,6 +272,9 @@
          исключается, Avalonia-версия (RacInfobaseCreateWindow.Avalonia.cs) подключается
          глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\RacInfobaseCreateWindow.xaml.cs" />
+    <!-- Окно «Свойства информационной базы» (issue #3): WPF code-behind исключается,
+         Avalonia-версия (RacInfobasePropertiesWindow.Avalonia.cs) подключается глобом ниже. -->
+    <Compile Remove="Views\RacInfobasePropertiesWindow.xaml.cs" />
     <!-- Окно редактирования сервера справочника «Сервера управления» (issue #3):
          WPF code-behind исключается, Avalonia-версия (ServerEditWindow.Avalonia.cs)
          подключается глобом *Window.Avalonia.cs ниже. -->
@@ -503,6 +506,8 @@
     <!-- Строка вкладки «Базы» (issue #3): чистая модель — на Linux подключается
          явно (имя не совпадает с глобом *.Avalonia.cs). -->
     <Compile Include="ViewModels\RacInfobaseRow.cs" />
+    <!-- ViewModel диалога «Свойства информационной базы» (issue #3): обе платформы. -->
+    <Compile Include="ViewModels\RacInfobasePropertiesViewModel.cs" />
     <!-- Вью-модель диалога импорта баз из кластера 1С (0.3.9.173, цикл 0.3.9.172–175):
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ClusterImportViewModel.cs" />

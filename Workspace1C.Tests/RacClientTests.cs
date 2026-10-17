@@ -744,7 +744,7 @@ public sealed class RacClientTests
         {
             "infobase", "create", $"--cluster={clusterId}",
             "--name=Новая база",
-            "--desc=Описание базы",
+            "--descr=Описание базы",
             "--dbms=MSSQLServer",
             "--db-server=sql-01",
             "--db-name=newbase",
@@ -752,7 +752,7 @@ public sealed class RacClientTests
             "--db-pwd=p@ss",
             "--locale=ru_RU",
             "--security-level=1",
-            "--create-db"
+            "--create-database"
         }, args);
     }
 
@@ -769,13 +769,13 @@ public sealed class RacClientTests
             DbName = "1Cv8.1CD"
         });
 
-        Assert.DoesNotContain(args, a => a.StartsWith("--desc="));
+        Assert.DoesNotContain(args, a => a.StartsWith("--descr="));
         Assert.DoesNotContain(args, a => a.StartsWith("--db-user="));
         Assert.DoesNotContain(args, a => a.StartsWith("--db-pwd="));
         Assert.DoesNotContain(args, a => a.StartsWith("--locale="));
         Assert.DoesNotContain(args, a => a.StartsWith("--security-level="));
-        Assert.DoesNotContain(args, a => a == "--create-db");
-        Assert.DoesNotContain(args, a => a == "--scheduled-jobs-deny");
+        Assert.DoesNotContain(args, a => a == "--create-database");
+        Assert.DoesNotContain(args, a => a.StartsWith("--scheduled-jobs-deny"));
     }
 
     [Fact]
@@ -794,13 +794,15 @@ public sealed class RacClientTests
     // ---------- «infobase update» (issue #3, кнопка «Изменить») ----------
 
     [Fact]
-    public void InfobaseUpdateArgs_AllFieldsAreIncluded_WithInfobaseId()
+    public void InfobaseUpdateArgs_SummaryOnly_UsesRacUpdateKeys()
     {
+        // issue #3 (7OH 17.10): «infobase update» не принимает --name/--locale/--security-level;
+        // описание — «--descr», признак регламентных — «on|off».
         var clusterId = Guid.NewGuid();
         var infobaseId = Guid.NewGuid();
         var request = new RacInfobaseUpdateRequest
         {
-            Name = "База (обновлённая)",
+            Name = "База",
             Description = "Новое описание",
             Dbms = "MSSQLServer",
             DbServer = "sql-02",
@@ -819,52 +821,108 @@ public sealed class RacClientTests
             "infobase", "update",
             $"--cluster={clusterId}",
             $"--infobase={infobaseId}",
-            "--name=База (обновлённая)",
-            "--desc=Новое описание",
             "--dbms=MSSQLServer",
             "--db-server=sql-02",
             "--db-name=buh2",
             "--db-user=sa",
             "--db-pwd=secret",
-            "--locale=ru_RU",
-            "--security-level=2",
-            "--scheduled-jobs-deny"
+            "--descr=Новое описание",
+            "--scheduled-jobs-deny=on"
         }, args);
     }
 
     [Fact]
-    public void InfobaseUpdateArgs_OptionalFields_AreOmitted()
+    public void InfobaseUpdateArgs_FullProperties_AndInfobaseCredentials()
     {
-        var args = RacClient.InfobaseUpdateArgs(
-            Guid.NewGuid(), Guid.NewGuid(), new RacInfobaseUpdateRequest
-            {
-                Name = "Минимум",
-                Dbms = "FILE",
-                DbServer = "/srv/bases",
-                DbName = "1Cv8.1CD"
-            });
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+        var request = new RacInfobaseUpdateRequest
+        {
+            Dbms = "PostgreSQL",
+            DbServer = "pg",
+            DbName = "erp",
+            InfobaseUser = "Администратор",
+            InfobasePassword = "123",
+            ScheduledJobsDeny = false,
+            SessionsDeny = true,
+            DeniedFrom = new DateTime(2026, 10, 17, 22, 0, 0),
+            DeniedTo = new DateTime(2026, 10, 18, 6, 30, 0),
+            DeniedMessage = "Обновление",
+            PermissionCode = "777",
+            DeniedParameter = "",
+            LicenseDistributionAllowed = false,
+            ExternalSessionManagerConnectionString = "",
+            ExternalSessionManagerRequired = false,
+            SecurityProfileName = "",
+            SafeModeSecurityProfileName = "safe"
+        };
 
-        Assert.DoesNotContain(args, a => a.StartsWith("--desc="));
-        Assert.DoesNotContain(args, a => a.StartsWith("--db-user="));
-        Assert.DoesNotContain(args, a => a.StartsWith("--db-pwd="));
-        Assert.DoesNotContain(args, a => a.StartsWith("--locale="));
-        Assert.DoesNotContain(args, a => a.StartsWith("--security-level="));
-        Assert.DoesNotContain(args, a => a == "--scheduled-jobs-deny");
-        // При изменении «создать базу на сервере СУБД» не поддерживается.
-        Assert.DoesNotContain(args, a => a == "--create-db");
+        var args = RacClient.InfobaseUpdateArgs(clusterId, infobaseId, request);
+
+        Assert.Equal(new[]
+        {
+            "infobase", "update",
+            $"--cluster={clusterId}",
+            $"--infobase={infobaseId}",
+            "--infobase-user=Администратор",
+            "--infobase-pwd=123",
+            "--dbms=PostgreSQL",
+            "--db-server=pg",
+            "--db-name=erp",
+            "--descr=",
+            "--scheduled-jobs-deny=off",
+            "--sessions-deny=on",
+            "--denied-from=2026-10-17T22:00:00",
+            "--denied-to=2026-10-18T06:30:00",
+            "--denied-message=Обновление",
+            "--permission-code=777",
+            "--denied-parameter=",
+            "--license-distribution=deny",
+            "--external-session-manager-connection-string=",
+            "--external-session-manager-required=no",
+            "--security-profile-name=",
+            "--safe-mode-security-profile-name=safe"
+        }, args);
     }
 
     [Fact]
-    public void InfobaseUpdateArgs_EmptyName_Throws()
+    public void InfobaseUpdateArgs_MissingDbFields_Throw()
     {
         Assert.Throws<ArgumentException>(() =>
             RacClient.InfobaseUpdateArgs(Guid.NewGuid(), Guid.NewGuid(), new RacInfobaseUpdateRequest
             {
                 Dbms = "MSSQLServer",
-                DbServer = "sql-01",
+                DbServer = "",
                 DbName = "newbase"
             }));
         Assert.Throws<ArgumentNullException>(() =>
             RacClient.InfobaseUpdateArgs(Guid.NewGuid(), Guid.NewGuid(), null));
+    }
+
+    [Fact]
+    public void InfobaseInfoArgs_WithAndWithoutCredentials()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+
+        Assert.Equal(new[] { "infobase", "info", $"--cluster={clusterId}", $"--infobase={infobaseId}" },
+            RacClient.InfobaseInfoArgs(clusterId, infobaseId, null, null));
+        Assert.Equal(new[]
+            {
+                "infobase", "info", $"--cluster={clusterId}", $"--infobase={infobaseId}",
+                "--infobase-user=admin", "--infobase-pwd=p"
+            },
+            RacClient.InfobaseInfoArgs(clusterId, infobaseId, "admin", "p"));
+    }
+
+    [Fact]
+    public void MaskRacPassword_HidesDbAndInfobasePasswords()
+    {
+        var masked = SensitiveDataMasker.MaskRacPassword(
+            "infobase update --db-pwd=secret --infobase-user=adm --infobase-pwd=top --password=x");
+
+        Assert.DoesNotContain("secret", masked);
+        Assert.DoesNotContain("top", masked);
+        Assert.Contains("--infobase-user=adm", masked);
     }
 }

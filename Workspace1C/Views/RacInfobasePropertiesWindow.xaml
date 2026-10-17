@@ -1,0 +1,248 @@
+<Window x:Class="Workspace1C.RacInfobasePropertiesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        xmlns:vm="clr-namespace:Workspace1C.ViewModels"
+        Icon="{StaticResource AppIcon}"
+        Title="{loc:Loc ServerMonitor.Infobase.Props.Title}"
+        Height="780" Width="820" MinHeight="560" MinWidth="680"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <!-- Свойства информационной базы кластера (issue #3, комментарии 7OH 17.10):
+         поля как в консоли кластера; полные свойства — rac «infobase info» с
+         учётными данными администратора ИБ (кнопка «Обновить»). -->
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,8,0,3"/>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}">
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="16">
+        <!-- Заголовок + «Обновить» справа (как в эталоне). -->
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
+            <TextBlock FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"
+                       Text="{Binding Name, StringFormat={}{0}}"/>
+            <Button HorizontalAlignment="Right" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                    Click="OnRefreshClick" ToolTip="{loc:Loc ServerMonitor.Infobase.Props.RefreshHint}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⟳" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#16A34A"/>
+                    <TextBlock Text="{loc:Loc ServerMonitor.Refresh}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- Кнопки внизу. -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Style="{StaticResource ModernButton}" Background="{DynamicResource AccentBrush}"
+                    Padding="18,6" Margin="0,0,8,0" IsDefault="True" Click="OnSaveClick">
+                <TextBlock Text="{loc:Loc Updates.Save}" VerticalAlignment="Center" Foreground="White"/>
+            </Button>
+            <Button Style="{StaticResource ModernButton}" Background="{DynamicResource ItemHoverBrush}"
+                    Padding="16,6" IsCancel="True" Click="OnCancelClick">
+                <TextBlock Text="{loc:Loc Updates.Cancel}" VerticalAlignment="Center"/>
+            </Button>
+        </StackPanel>
+
+        <!-- Строка состояния загрузки (ошибка — красным). -->
+        <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" FontSize="12" Margin="0,8,0,0"
+                   Text="{Binding StatusText}">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StatusIsError}" Value="True">
+                            <Setter Property="Foreground" Value="#DC2626"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Администратор информационной базы (учётные данные для rac). -->
+                <Border BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                        CornerRadius="6" Padding="10,4,10,10" Margin="0,0,0,6">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource FieldLabel}"
+                                   Text="{loc:Loc ServerMonitor.Infobase.Props.AdminGroup}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource FieldLabel}"
+                                           Text="{loc:Loc ServerMonitor.Infobase.Props.AdminUser}"/>
+                                <TextBox Style="{StaticResource Field}"
+                                         Text="{Binding InfobaseUser, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabel}"
+                                           Text="{loc:Loc ServerMonitor.Infobase.Props.AdminPassword}"/>
+                                <PasswordBox x:Name="AdminPasswordBox" Padding="6,3"
+                                             PasswordChanged="OnAdminPasswordChanged"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="{Binding CredentialsSourceText}"/>
+                    </StackPanel>
+                </Border>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Name}"/>
+                        <TextBox Style="{StaticResource Field}" IsReadOnly="True" Text="{Binding Name, Mode=OneWay}"
+                                 ToolTip="{loc:Loc ServerMonitor.Infobase.Props.ReadOnlyHint}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.SecureConnection}"/>
+                        <TextBox Style="{StaticResource Field}" IsReadOnly="True" Text="{Binding SecureConnectionText, Mode=OneWay}"
+                                 ToolTip="{loc:Loc ServerMonitor.Infobase.Props.ReadOnlyHint}"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Description}"/>
+                <TextBox Style="{StaticResource Field}" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"/>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.DbServer}"/>
+                        <TextBox Style="{StaticResource Field}" Text="{Binding DbServer, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Dbms}"/>
+                        <ComboBox Style="{StaticResource ModernComboBox}" Padding="6,3"
+                                  ItemsSource="{x:Static vm:RacInfobasePropertiesViewModel.DbmsOptions}"
+                                  SelectedItem="{Binding Dbms}"/>
+                    </StackPanel>
+                </Grid>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.DbName}"/>
+                        <TextBox Style="{StaticResource Field}" Text="{Binding DbName, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.DbUser}"/>
+                        <TextBox Style="{StaticResource Field}" Text="{Binding DbUser, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.DbPassword}"/>
+                        <PasswordBox x:Name="DbPasswordBox" Padding="6,3" PasswordChanged="OnDbPasswordChanged"
+                                     ToolTip="{loc:Loc ServerMonitor.Infobase.Props.DbPasswordHint}"/>
+                    </StackPanel>
+                </Grid>
+
+                <CheckBox Margin="0,10,0,0" IsChecked="{Binding LicenseDistributionAllowed}"
+                          IsEnabled="{Binding IsFullyLoaded}">
+                    <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Props.LicenseDistribution}"/>
+                </CheckBox>
+
+                <!-- Блокировка начала сеансов. -->
+                <Border BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
+                        CornerRadius="6" Padding="10,6,10,10" Margin="0,10,0,0"
+                        IsEnabled="{Binding IsFullyLoaded}">
+                    <StackPanel>
+                        <CheckBox IsChecked="{Binding SessionsDeny}">
+                            <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Props.SessionsDeny}"/>
+                        </CheckBox>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.DeniedFrom}"/>
+                                <TextBox Style="{StaticResource Field}" Text="{Binding DeniedFromText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="{loc:Loc ServerMonitor.Infobase.Props.DateHint}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.DeniedTo}"/>
+                                <TextBox Style="{StaticResource Field}" Text="{Binding DeniedToText, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="{loc:Loc ServerMonitor.Infobase.Props.DateHint}"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.DeniedMessage}"/>
+                        <TextBox Style="{StaticResource Field}" Text="{Binding DeniedMessage, UpdateSourceTrigger=PropertyChanged}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.PermissionCode}"/>
+                                <TextBox Style="{StaticResource Field}" Text="{Binding PermissionCode, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.DeniedParameter}"/>
+                                <TextBox Style="{StaticResource Field}" Text="{Binding DeniedParameter, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <CheckBox Margin="0,10,0,0" IsChecked="{Binding ScheduledJobsDeny}">
+                    <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Props.ScheduledJobsDeny}"/>
+                </CheckBox>
+
+                <StackPanel IsEnabled="{Binding IsFullyLoaded}">
+                    <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.ExternalSessionManager}"/>
+                    <TextBox Style="{StaticResource Field}"
+                             Text="{Binding ExternalSessionManagerConnectionString, UpdateSourceTrigger=PropertyChanged}"/>
+                    <CheckBox Margin="0,8,0,0" IsChecked="{Binding ExternalSessionManagerRequired}">
+                        <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Props.ExternalSessionManagerRequired}"/>
+                    </CheckBox>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.SecurityProfile}"/>
+                            <TextBox Style="{StaticResource Field}" Text="{Binding SecurityProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Style="{StaticResource FieldLabel}" Text="{loc:Loc ServerMonitor.Infobase.Props.SafeModeSecurityProfile}"/>
+                            <TextBox Style="{StaticResource Field}" Text="{Binding SafeModeSecurityProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

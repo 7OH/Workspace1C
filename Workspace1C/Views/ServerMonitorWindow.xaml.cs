@@ -191,8 +191,20 @@ namespace Workspace1C
         {
             if (_vm.SelectedInfobase is not { } row || row.InfobaseId == Guid.Empty)
                 return;
-            var dialog = new RacInfobaseCreateWindow(SummaryFromRow(row)) { Owner = this };
-            if (dialog.ShowDialog() != true || dialog.UpdateResult is not { } update)
+            // Полный диалог свойств (issue #3, 7OH 17.10): «infobase info» с учётными
+            // данными администратора ИБ из списка баз приложения либо введёнными вручную.
+            System.Collections.Generic.IEnumerable<Infobase>? bases = null;
+            try
+            {
+                bases = AppServices.GetRequiredService<IInfobaseRepository>().Load();
+            }
+            catch
+            {
+                // Список баз недоступен — учётные данные пользователь введёт сам.
+            }
+            var propertiesVm = _vm.CreateInfobasePropertiesViewModel(SummaryFromRow(row), bases);
+            var dialog = new RacInfobasePropertiesWindow(propertiesVm) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.Result is not { } update)
                 return;
             await _vm.UpdateSelectedInfobaseAsync(update);
         }

@@ -172,6 +172,17 @@ public interface IRacClient
     /// --infobase=...», issue #3, вкладка «Базы»). Возвращает true при ExitCode 0;
     /// при неудаче — false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.
     /// </summary>
+    /// <summary>
+    /// Полные свойства информационной базы (команда «infobase info», issue #3): нужны
+    /// учётные данные администратора ИБ, если в базе есть пользователи. Возвращает null
+    /// при ошибке; текст ошибки — в <see cref="LastActionError"/>. Реализация по умолчанию
+    /// (для тестовых заглушек) — null.
+    /// </summary>
+    Task<RacInfobaseInfo?> GetInfobaseInfoAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        string? infobaseUser, string? infobasePassword, CancellationToken cancellationToken = default)
+        => Task.FromResult<RacInfobaseInfo?>(null);
+
     Task<bool> DropInfobaseAsync(
         RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
         CancellationToken cancellationToken = default);

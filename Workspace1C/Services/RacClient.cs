@@ -479,8 +479,10 @@ public sealed class RacClient : IRacClient
 
         var args = new List<string>(16) { "infobase", "create", $"--cluster={clusterId}" };
         args.Add($"--name={request.Name}");
+        // Ключи по справке rac «infobase create» (issue #3): описание — «--descr»,
+        // создание БД — «--create-database», запрет регламентных — «--scheduled-jobs-deny=on».
         if (!string.IsNullOrWhiteSpace(request.Description))
-            args.Add($"--desc={request.Description}");
+            args.Add($"--descr={request.Description}");
         args.Add($"--dbms={request.Dbms}");
         args.Add($"--db-server={request.DbServer}");
         args.Add($"--db-name={request.DbName}");
@@ -493,9 +495,9 @@ public sealed class RacClient : IRacClient
         if (request.SecurityLevel is { } level)
             args.Add($"--security-level={level.ToString(CultureInfo.InvariantCulture)}");
         if (request.CreateDb)
-            args.Add("--create-db");
+            args.Add("--create-database");
         if (request.ScheduledJobsDeny)
-            args.Add("--scheduled-jobs-deny");
+            args.Add("--scheduled-jobs-deny=on");
         return args.ToArray();
     }
 
@@ -511,8 +513,6 @@ public sealed class RacClient : IRacClient
     {
         if (request is null)
             throw new ArgumentNullException(nameof(request));
-        if (string.IsNullOrWhiteSpace(request.Name))
-            throw new ArgumentException("Не указано имя информационной базы.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.Dbms))
             throw new ArgumentException("Не указан тип СУБД.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.DbServer))
@@ -520,15 +520,22 @@ public sealed class RacClient : IRacClient
         if (string.IsNullOrWhiteSpace(request.DbName))
             throw new ArgumentException("Не указано имя базы данных.", nameof(request));
 
-        var args = new List<string>(16)
+        // Ключи по справке rac «infobase update» (issue #3, 7OH 17.10): имя, локаль и уровень
+        // безопасности командой update не меняются (раньше передавались «--name/--locale/
+        // --security-level», и rac отвергал команду); описание — «--descr», признаки —
+        // «on|off», «yes|no», «allow|deny». Учётные данные администратора ИБ — первыми.
+        var args = new List<string>(32)
         {
             "infobase", "update",
             $"--cluster={clusterId}",
             $"--infobase={infobaseId}"
         };
-        args.Add($"--name={request.Name}");
-        if (!string.IsNullOrWhiteSpace(request.Description))
-            args.Add($"--desc={request.Description}");
+        if (!string.IsNullOrEmpty(request.InfobaseUser))
+        {
+            args.Add($"--infobase-user={request.InfobaseUser}");
+            if (!string.IsNullOrEmpty(request.InfobasePassword))
+                args.Add($"--infobase-pwd={request.InfobasePassword}");
+        }
         args.Add($"--dbms={request.Dbms}");
         args.Add($"--db-server={request.DbServer}");
         args.Add($"--db-name={request.DbName}");
@@ -536,12 +543,56 @@ public sealed class RacClient : IRacClient
             args.Add($"--db-user={request.DbUser}");
         if (!string.IsNullOrEmpty(request.DbPassword))
             args.Add($"--db-pwd={request.DbPassword}");
-        if (!string.IsNullOrWhiteSpace(request.Locale))
-            args.Add($"--locale={request.Locale}");
-        if (request.SecurityLevel is { } level)
-            args.Add($"--security-level={level.ToString(CultureInfo.InvariantCulture)}");
-        if (request.ScheduledJobsDeny)
-            args.Add("--scheduled-jobs-deny");
+        // Описание передаётся всегда — так его можно и очистить.
+        args.Add($"--descr={request.Description ?? string.Empty}");
+        args.Add($"--scheduled-jobs-deny={OnOff(request.ScheduledJobsDeny)}");
+
+        if (request.SessionsDeny is { } sessionsDeny)
+            args.Add($"--sessions-deny={OnOff(sessionsDeny)}");
+        if (request.DeniedFrom is { } deniedFrom)
+            args.Add($"--denied-from={RacInfobaseInfo.FormatRacDate(deniedFrom)}");
+        if (request.DeniedTo is { } deniedTo)
+            args.Add($"--denied-to={RacInfobaseInfo.FormatRacDate(deniedTo)}");
+        if (request.DeniedMessage is not null)
+            args.Add($"--denied-message={request.DeniedMessage}");
+        if (request.PermissionCode is not null)
+            args.Add($"--permission-code={request.PermissionCode}");
+        if (request.DeniedParameter is not null)
+            args.Add($"--denied-parameter={request.DeniedParameter}");
+        if (request.LicenseDistributionAllowed is { } license)
+            args.Add($"--license-distribution={(license ? "allow" : "deny")}");
+        if (request.ExternalSessionManagerConnectionString is not null)
+            args.Add($"--external-session-manager-connection-string={request.ExternalSessionManagerConnectionString}");
+        if (request.ExternalSessionManagerRequired is { } esmRequired)
+            args.Add($"--external-session-manager-required={(esmRequired ? "yes" : "no")}");
+        if (request.SecurityProfileName is not null)
+            args.Add($"--security-profile-name={request.SecurityProfileName}");
+        if (request.SafeModeSecurityProfileName is not null)
+            args.Add($"--safe-mode-security-profile-name={request.SafeModeSecurityProfileName}");
+        return args.ToArray();
+    }
+
+    /// <summary>Значение признака rac «on»/«off».</summary>
+    private static string OnOff(bool value) => value ? "on" : "off";
+
+    /// <summary>
+    /// Аргументы команды «infobase info» (issue #3): <c>infobase info --cluster=<uuid>
+    /// --infobase=<uuid> [--infobase-user=U [--infobase-pwd=P]]</c>. Internal — для тестов.
+    /// </summary>
+    internal static string[] InfobaseInfoArgs(Guid clusterId, Guid infobaseId, string? infobaseUser, string? infobasePassword)
+    {
+        var args = new List<string>(6)
+        {
+            "infobase", "info",
+            $"--cluster={clusterId}",
+            $"--infobase={infobaseId}"
+        };
+        if (!string.IsNullOrEmpty(infobaseUser))
+        {
+            args.Add($"--infobase-user={infobaseUser}");
+            if (!string.IsNullOrEmpty(infobasePassword))
+                args.Add($"--infobase-pwd={infobasePassword}");
+        }
         return args.ToArray();
     }
 
@@ -661,6 +712,31 @@ public sealed class RacClient : IRacClient
         RacInfobaseUpdateRequest request, CancellationToken cancellationToken = default) =>
         RunActionAsync(parameters, cancellationToken,
             InfobaseUpdateArgs(clusterId, infobaseId, request));
+
+    /// <inheritdoc />
+    public async Task<RacInfobaseInfo?> GetInfobaseInfoAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        string? infobaseUser, string? infobasePassword, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var output = await RunAsync(parameters, cancellationToken,
+                InfobaseInfoArgs(clusterId, infobaseId, infobaseUser, infobasePassword)).ConfigureAwait(false);
+            var info = RacOutputParser.ToInfobaseInfo(output);
+            LastActionError = info is null ? "Не удалось разобрать вывод rac «infobase info»." : string.Empty;
+            return info;
+        }
+        catch (OperationCanceledException)
+        {
+            LastActionError = "Операция отменена.";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LastActionError = string.IsNullOrWhiteSpace(ex.Message) ? "Неизвестная ошибка rac." : ex.Message;
+            return null;
+        }
+    }
 
     /// <inheritdoc />
     public Task<bool> DropInfobaseAsync(

@@ -153,8 +153,10 @@ namespace Workspace1C
                     DbUser = DbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = DbPasswordBox.Password ?? string.Empty,
                     Locale = LocaleBox.Text?.Trim() ?? string.Empty,
+                    // Элементы списка — ComboBoxItem «0/1/2»: значение = индекс (issue #3:
+                    // приведение SelectedItem к int? бросало InvalidCastException).
                     SecurityLevel = SecurityLevelBox.SelectedIndex >= 0
-                        ? (int?)SecurityLevelBox.SelectedItem
+                        ? SecurityLevelBox.SelectedIndex
                         : null,
                     ScheduledJobsDeny = ScheduledJobsDenyBox.IsChecked == true
                 };
@@ -172,8 +174,10 @@ namespace Workspace1C
                     DbUser = DbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = DbPasswordBox.Password ?? string.Empty,
                     Locale = LocaleBox.Text?.Trim() ?? string.Empty,
+                    // Элементы списка — ComboBoxItem «0/1/2»: значение = индекс (issue #3:
+                    // приведение SelectedItem к int? бросало InvalidCastException).
                     SecurityLevel = SecurityLevelBox.SelectedIndex >= 0
-                        ? (int?)SecurityLevelBox.SelectedItem
+                        ? SecurityLevelBox.SelectedIndex
                         : null,
                     CreateDb = CreateDbBox.IsChecked == true && !isFile,
                     ScheduledJobsDeny = ScheduledJobsDenyBox.IsChecked == true

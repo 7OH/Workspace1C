@@ -696,6 +696,59 @@ public static class RacOutputParser
     }
 
     /// <summary>
+    /// Разбирает вывод «infobase info» (блок «ключ : значение») в полные свойства базы
+    /// (issue #3). Возвращает null, если в выводе нет ни имени, ни идентификатора базы.
+    /// Значения в кавычках освобождаются от них; признаки on/off, yes/no, allow/deny.
+    /// </summary>
+    public static RacInfobaseInfo? ToInfobaseInfo(string output)
+    {
+        var props = ParseInfo(output);
+        if (props.Count == 0)
+            return null;
+
+        string V(string key) => Unquote(Get(props, key));
+        static bool IsOn(string value) =>
+            value.Equals("on", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("allow", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+            value == "1";
+
+        var id = ParseGuid(V("infobase"));
+        if (id == Guid.Empty)
+            id = ParseGuid(V("infobase-id"));
+        var name = V("name");
+        if (id == Guid.Empty && name.Length == 0)
+            return null;
+
+        return new RacInfobaseInfo
+        {
+            InfobaseId = id,
+            Name = name,
+            Descr = V("descr"),
+            Dbms = V("dbms"),
+            DbServer = V("db-server"),
+            DbName = V("db-name"),
+            DbUser = V("db-user"),
+            SecurityLevel = ParseInt(V("security-level")),
+            LicenseDistributionAllowed = IsOn(V("license-distribution")),
+            SessionsDeny = IsOn(V("sessions-deny")),
+            DeniedFrom = RacInfobaseInfo.ParseRacDate(V("denied-from")),
+            DeniedTo = RacInfobaseInfo.ParseRacDate(V("denied-to")),
+            DeniedMessage = V("denied-message"),
+            DeniedParameter = V("denied-parameter"),
+            PermissionCode = V("permission-code"),
+            ScheduledJobsDeny = IsOn(V("scheduled-jobs-deny")),
+            ExternalSessionManagerConnectionString = V("external-session-manager-connection-string"),
+            ExternalSessionManagerRequired = IsOn(V("external-session-manager-required")),
+            SecurityProfileName = V("security-profile-name"),
+            SafeModeSecurityProfileName = V("safe-mode-security-profile-name"),
+            ReserveWorkingProcesses = IsOn(V("reserve-working-processes")),
+            Locale = V("locale"),
+        };
+    }
+
+    /// <summary>
     /// Разбирает вывод «infobase summary list» в список информационных баз кластера.
     /// Колонки: infobase, name, descr, dbms, db-server, db-name, db-user, locale,
     /// security-level, licensed. Минимальный набор — первые 2 колонки; отсутствующие

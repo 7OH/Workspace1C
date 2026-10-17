@@ -1,3 +1,5 @@
+using System;
+
 namespace Workspace1C.Models;
 
 /// <summary>
@@ -50,6 +52,50 @@ public sealed class RacInfobaseUpdateRequest
     /// <summary>Уровень безопасности (параметр rac «--security-level», 0/1/2); null — по умолчанию.</summary>
     public int? SecurityLevel { get; set; }
 
-    /// <summary>Запретить выполнение регламентных заданий (параметр rac «--scheduled-jobs-deny»).</summary>
+    /// <summary>Запретить выполнение регламентных заданий (параметр rac «--scheduled-jobs-deny=on|off»).</summary>
     public bool ScheduledJobsDeny { get; set; }
+
+    // ---- Учётные данные администратора ИБ (issue #3, 7OH 17.10) ----
+
+    /// <summary>Администратор информационной базы (параметр rac «--infobase-user»); пусто — без него.</summary>
+    public string InfobaseUser { get; set; } = string.Empty;
+
+    /// <summary>Пароль администратора ИБ (параметр rac «--infobase-pwd»; маскируется в журнале).</summary>
+    public string InfobasePassword { get; set; } = string.Empty;
+
+    // ---- Полные свойства (issue #3): заполняются, только когда известны из «infobase info».
+    // null — параметр не передаётся (текущее значение в кластере не меняется). ----
+
+    /// <summary>Блокировка начала сеансов («--sessions-deny=on|off»).</summary>
+    public bool? SessionsDeny { get; set; }
+
+    /// <summary>Начало блокировки сеансов («--denied-from»).</summary>
+    public DateTime? DeniedFrom { get; set; }
+
+    /// <summary>Окончание блокировки сеансов («--denied-to»).</summary>
+    public DateTime? DeniedTo { get; set; }
+
+    /// <summary>Сообщение блокировки («--denied-message»).</summary>
+    public string? DeniedMessage { get; set; }
+
+    /// <summary>Параметр блокировки («--denied-parameter»).</summary>
+    public string? DeniedParameter { get; set; }
+
+    /// <summary>Код разрешения («--permission-code»).</summary>
+    public string? PermissionCode { get; set; }
+
+    /// <summary>Разрешить выдачу лицензий сервером 1С («--license-distribution=allow|deny»).</summary>
+    public bool? LicenseDistributionAllowed { get; set; }
+
+    /// <summary>Внешнее управление сеансами («--external-session-manager-connection-string»).</summary>
+    public string? ExternalSessionManagerConnectionString { get; set; }
+
+    /// <summary>Обязательное использование внешнего управления («--external-session-manager-required=yes|no»).</summary>
+    public bool? ExternalSessionManagerRequired { get; set; }
+
+    /// <summary>Профиль безопасности («--security-profile-name»).</summary>
+    public string? SecurityProfileName { get; set; }
+
+    /// <summary>Профиль безопасности безопасного режима («--safe-mode-security-profile-name»).</summary>
+    public string? SafeModeSecurityProfileName { get; set; }
 }
