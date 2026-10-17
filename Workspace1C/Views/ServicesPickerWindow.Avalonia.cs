@@ -108,14 +108,14 @@ namespace Workspace1C
             servicesList.Bind(ItemsControl.ItemsSourceProperty, new Binding("FilteredServices"));
 
             // ---- Кнопки OK / Отмена. ----
-            var okButton = BuildActionButton(LocalizationManager.T("Common.Ok"), () =>
+            var okButton = BuildActionButton("✔ " + LocalizationManager.T("Common.Ok"), () =>
             {
                 _vm.OkCommand.Execute(null);
                 DialogResult = true;
                 Close();
             });
             okButton.MinWidth = 90;
-            var cancelButton = BuildActionButton(LocalizationManager.T("Common.Cancel"), () =>
+            var cancelButton = BuildActionButton("✖ " + LocalizationManager.T("Common.Cancel"), () =>
             {
                 DialogResult = false;
                 Close();
@@ -126,19 +126,20 @@ namespace Workspace1C
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 8,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 12, 0, 0),
+                // OK / Отмена — над списком одной строкой (issue #11, 7OH 17.10).
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 10),
                 Children = { okButton, cancelButton }
             };
 
             // ---- Компоновка (остаток — список). ----
             var root = new DockPanel { Margin = new Thickness(16), LastChildFill = true };
+            DockPanel.SetDock(buttonsRow, Dock.Top);
             DockPanel.SetDock(searchRow, Dock.Top);
             DockPanel.SetDock(countText, Dock.Top);
-            DockPanel.SetDock(buttonsRow, Dock.Bottom);
+            root.Children.Add(buttonsRow);
             root.Children.Add(searchRow);
             root.Children.Add(countText);
-            root.Children.Add(buttonsRow);
             root.Children.Add(servicesList);
             Content = root;
         }

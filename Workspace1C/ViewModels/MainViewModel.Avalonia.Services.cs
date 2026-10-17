@@ -42,6 +42,7 @@ public partial class MainViewModel
             return;
         }
 
+        // Пока окно инструмента модальное (issue #11, 7OH 17.10).
         var window = new Workspace1C.ServicesWindow();
         window.Closed += (_, _) =>
         {
@@ -49,7 +50,7 @@ public partial class MainViewModel
                 _servicesWindow = null;
         };
         _servicesWindow = window;
-        window.Show();
+        window.ShowSync(OwnerWindow());
     }
 }
 #endif

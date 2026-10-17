@@ -193,21 +193,27 @@ public sealed class RacInfobasePropertiesViewModel : ViewModelBase
             else
             {
                 StatusIsError = true;
-                StatusText = string.Format(
-                    LocalizationManager.T("ServerMonitor.Infobase.Props.LoadFailedFormat"),
-                    string.IsNullOrWhiteSpace(error) ? "—" : error.Trim());
+                StatusText = FailedText(string.IsNullOrWhiteSpace(error) ? "—" : error.Trim());
             }
         }
         catch (Exception ex)
         {
             StatusIsError = true;
-            StatusText = string.Format(
-                LocalizationManager.T("ServerMonitor.Infobase.Props.LoadFailedFormat"), ex.Message);
+            StatusText = FailedText(ex.Message);
         }
         finally
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>Текст ошибки загрузки: шаблон локализации с текстом rac (текст rac — всегда).</summary>
+    private static string FailedText(string error)
+    {
+        var template = LocalizationManager.T("ServerMonitor.Infobase.Props.LoadFailedFormat");
+        return template.Contains("{0}", StringComparison.Ordinal)
+            ? string.Format(template, error)
+            : template + " " + error;
     }
 
     /// <summary>Заполняет поля из вывода «infobase info».</summary>

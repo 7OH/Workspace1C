@@ -4,9 +4,9 @@
         xmlns:loc="clr-namespace:Workspace1C.Localization"
         xmlns:local="clr-namespace:Workspace1C"
         Icon="{StaticResource AppIcon}"
-        Height="560" Width="640" MinHeight="460" MinWidth="480"
+        Height="600" Width="900" MinHeight="460" MinWidth="760"
         WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="True"
+        ShowInTaskbar="False"
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <Window.Resources>
@@ -26,6 +26,16 @@
             <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
+        <!-- Кнопка команды службы: цветная иконка + подпись (issue #11, 7OH 17.10). -->
+        <Style x:Key="CommandButton" TargetType="Button" BasedOn="{StaticResource IconOnlyButton}">
+            <Setter Property="Padding" Value="9,5"/>
+        </Style>
+        <Style x:Key="ToolbarSeparator" TargetType="Border">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Background" Value="{DynamicResource BorderBrushColor}"/>
+        </Style>
     </Window.Resources>
 
     <!-- Порядок: сверху кнопки/заголовок/строки, внизу статус, последний — список
@@ -38,17 +48,30 @@
                     Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="0,0,6,0"
                     Click="OnConfigure_Click">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⚙" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="⚙" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#6B7280"/>
                     <TextBlock Text="{loc:Loc Services.Configure}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
             <Button x:Name="SystemDialogButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5" Margin="0,0,6,0"
                     Visibility="{Binding CanOpenSystemDialog, Converter={StaticResource BooleanToVisibilityConverter}}"
                     Click="OnSystemDialog_Click">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🗔" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="🗔" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#2563EB"/>
                     <TextBlock Text="{loc:Loc Services.SystemDialog}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <!-- «Выдать права» (issue #11, 7OH 17.10): права текущего пользователя на
+                 управление службами списка — один запрос повышения прав (только Windows). -->
+            <Button x:Name="GrantRightsButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="12,5"
+                    ToolTip="{loc:Loc Services.GrantRights.Hint}"
+                    Visibility="{Binding CanGrantRights, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    IsEnabled="{Binding HasRows}"
+                    Click="OnGrantRights_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🛡" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#7C3AED"/>
+                    <TextBlock Text="{loc:Loc Services.GrantRights}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
         </StackPanel>
@@ -61,41 +84,63 @@
              Изменить группу / Удалить группу / Переместить выше / ниже») скрыты —
              место зарезервировано комментарием (итерация 2 issue #11). -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-            <!-- Группы (issue #11, итерация 2): кнопки группы и перемещения скрыты до
-                 реализации групп; правый блок действий начинается с разделителя. -->
+            <!-- Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже».
+                 Кнопки групп появятся вместе с группами служб (следующая итерация). -->
+            <Button x:Name="MoveUpButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.MoveUp}" IsEnabled="{Binding CanMoveUp}"
+                    Click="OnMoveUp_Click">
+                <TextBlock Text="▲" VerticalAlignment="Center" Foreground="#2563EB"/>
+            </Button>
+            <Button x:Name="MoveDownButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.MoveDown}" IsEnabled="{Binding CanMoveDown}"
+                    Click="OnMoveDown_Click">
+                <TextBlock Text="▼" VerticalAlignment="Center" Foreground="#2563EB"/>
+            </Button>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
             <Button x:Name="RefreshButton" Style="{StaticResource IconOnlyButton}"
                     ToolTip="{loc:Loc Services.Refresh}" Click="OnRefresh_Click">
-                <TextBlock Text="⟳" VerticalAlignment="Center"/>
+                <TextBlock Text="⟳" VerticalAlignment="Center" Foreground="#2563EB"/>
             </Button>
-            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
-            <Button x:Name="StartButton" Style="{StaticResource IconOnlyButton}"
-                    ToolTip="{loc:Loc Services.Start}" IsEnabled="{Binding CanStart}"
-                    Click="OnStart_Click">
-                <TextBlock Text="▶" VerticalAlignment="Center"/>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
+            <!-- Команды — цветные иконки с подписями (issue #11, 7OH 17.10). -->
+            <Button x:Name="StartButton" Style="{StaticResource CommandButton}"
+                    IsEnabled="{Binding CanStart}" Click="OnStart_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="▶" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#16A34A"/>
+                    <TextBlock Text="{loc:Loc Services.Start}" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Button x:Name="StopButton" Style="{StaticResource IconOnlyButton}"
-                    ToolTip="{loc:Loc Services.Stop}" IsEnabled="{Binding CanStop}"
-                    Click="OnStop_Click">
-                <TextBlock Text="⏹" VerticalAlignment="Center"/>
+            <Button x:Name="StopButton" Style="{StaticResource CommandButton}"
+                    IsEnabled="{Binding CanStop}" Click="OnStop_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="■" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#DC2626"/>
+                    <TextBlock Text="{loc:Loc Services.Stop}" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
-            <Button x:Name="PauseButton" Style="{StaticResource IconOnlyButton}"
-                    ToolTip="{loc:Loc Services.Pause}" IsEnabled="{Binding CanPause}"
-                    Click="OnPause_Click">
-                <TextBlock Text="⏸" VerticalAlignment="Center"/>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
+            <Button x:Name="PauseButton" Style="{StaticResource CommandButton}"
+                    IsEnabled="{Binding CanPause}" Click="OnPause_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="❚❚" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#D97706"/>
+                    <TextBlock Text="{loc:Loc Services.Pause}" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Button x:Name="ContinueButton" Style="{StaticResource IconOnlyButton}"
-                    ToolTip="{loc:Loc Services.Continue}" IsEnabled="{Binding CanContinue}"
-                    Click="OnContinue_Click">
-                <TextBlock Text="⏵" VerticalAlignment="Center"/>
+            <Button x:Name="ContinueButton" Style="{StaticResource CommandButton}"
+                    IsEnabled="{Binding CanContinue}" Click="OnContinue_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="▶" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#0EA5E9"/>
+                    <TextBlock Text="{loc:Loc Services.Continue}" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
-            <Button x:Name="RestartButton" Style="{StaticResource IconOnlyButton}"
-                    ToolTip="{loc:Loc Services.Restart}" IsEnabled="{Binding CanRestart}"
-                    Click="OnRestart_Click">
-                <TextBlock Text="🔄" VerticalAlignment="Center"/>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
+            <Button x:Name="RestartButton" Style="{StaticResource CommandButton}"
+                    IsEnabled="{Binding CanRestart}" Click="OnRestart_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⟲" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#2563EB"/>
+                    <TextBlock Text="{loc:Loc Services.Restart}" VerticalAlignment="Center"/>
+                </StackPanel>
             </Button>
-            <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="0,0,6,0"/>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
             <!-- Подменю «Все сервисы» (Запустить / Остановить / Перезапустить). -->
             <Button x:Name="AllServicesButton" Style="{StaticResource ModernButton}"
                     Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"

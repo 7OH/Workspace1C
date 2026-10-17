@@ -96,6 +96,26 @@ namespace Workspace1C
 
         private void OnRefresh_Click(object sender, RoutedEventArgs e) => _vm.RefreshCommand.Execute(null);
 
+        private void OnMoveUp_Click(object sender, RoutedEventArgs e) => _vm.MoveUpCommand.Execute(null);
+
+        private void OnMoveDown_Click(object sender, RoutedEventArgs e) => _vm.MoveDownCommand.Execute(null);
+
+        private void OnGrantRights_Click(object sender, RoutedEventArgs e) => _vm.GrantRightsCommand.Execute(null);
+
+        /// <summary>Пункт меню с цветной иконкой (issue #11, 7OH 17.10).</summary>
+        private static MenuItem CommandItem(string textKey, string icon, string colorHex, ICommand command) => new()
+        {
+            Header = LocalizationManager.T(textKey),
+            Command = command,
+            Icon = new TextBlock
+            {
+                Text = icon,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
         private void OnStart_Click(object sender, RoutedEventArgs e) => _vm.StartCommand.Execute(null);
 
         private void OnStop_Click(object sender, RoutedEventArgs e) => _vm.StopCommand.Execute(null);
@@ -111,22 +131,10 @@ namespace Workspace1C
         {
             var button = (Button)sender;
             var menu = new ContextMenu { PlacementTarget = button };
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.StartAll"),
-                Command = _vm.StartAllCommand
-            });
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.StopAll"),
-                Command = _vm.StopAllCommand
-            });
+            menu.Items.Add(CommandItem("Services.StartAll", "▶", "#16A34A", _vm.StartAllCommand));
+            menu.Items.Add(CommandItem("Services.StopAll", "■", "#DC2626", _vm.StopAllCommand));
             menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.RestartAll"),
-                Command = _vm.RestartAllCommand
-            });
+            menu.Items.Add(CommandItem("Services.RestartAll", "⟲", "#2563EB", _vm.RestartAllCommand));
             menu.IsOpen = true;
         }
 
@@ -151,33 +159,16 @@ namespace Workspace1C
         private ContextMenu BuildRowContextMenu()
         {
             var menu = new ContextMenu();
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.Start"),
-                Command = _vm.StartCommand
-            });
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.Stop"),
-                Command = _vm.StopCommand
-            });
+            menu.Items.Add(CommandItem("Services.Start", "▶", "#16A34A", _vm.StartCommand));
+            menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopCommand));
             menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.Pause"),
-                Command = _vm.PauseCommand
-            });
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.Continue"),
-                Command = _vm.ContinueCommand
-            });
+            menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseCommand));
+            menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueCommand));
             menu.Items.Add(new Separator());
-            menu.Items.Add(new MenuItem
-            {
-                Header = LocalizationManager.T("Services.Restart"),
-                Command = _vm.RestartCommand
-            });
+            menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartCommand));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(CommandItem("Services.MoveUp", "▲", "#2563EB", _vm.MoveUpCommand));
+            menu.Items.Add(CommandItem("Services.MoveDown", "▼", "#2563EB", _vm.MoveDownCommand));
             return menu;
         }
 

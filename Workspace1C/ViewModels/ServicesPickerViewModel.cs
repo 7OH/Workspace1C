@@ -135,7 +135,10 @@ public sealed class ServicesPickerViewModel : ViewModelBase
         Action? rowCheckChanged = null;
         rowCheckChanged = OnAnyRowCheckedChanged;
 
-        foreach (var info in _services.GetAllServices())
+        // По алфавиту (issue #11, 7OH 17.10): в чеклисте так проще найти службу.
+        var comparer = StringComparer.Create(System.Globalization.CultureInfo.CurrentCulture, ignoreCase: true);
+        foreach (var info in _services.GetAllServices()
+                     .OrderBy(i => string.IsNullOrWhiteSpace(i.DisplayName) ? i.ServiceName : i.DisplayName, comparer))
         {
             AllServices.Add(new ServicePickRow(
                 info.ServiceName,

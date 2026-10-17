@@ -2,6 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.ServiceProcess;
 
 namespace Workspace1C.Services;
@@ -72,6 +74,128 @@ public sealed class ServiceControllerService : IServiceControllerService
         catch
         {
             // Не удалось открыть системный диалог — молча пропускаем (операция вспомогательная).
+        }
+    }
+
+    /// <inheritdoc />
+    public bool CanGrantControlRights => true;
+
+    /// <inheritdoc />
+    public ServiceRightsResult GrantControlRights(IReadOnlyList<string> serviceNames)
+    {
+        var result = new ServiceRightsResult();
+        string? sid;
+        try
+        {
+            sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+            return result;
+        }
+        if (string.IsNullOrWhiteSpace(sid))
+        {
+            result.Error = "SID текущего пользователя не определён.";
+            return result;
+        }
+
+        // 1) Текущие дескрипторы читаются без повышения прав; новые — с записью для SID.
+        var changes = new List<(string Name, string Sddl)>();
+        foreach (var name in serviceNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!ServiceRights.IsSafeName(name))
+            {
+                result.Failed[name] = "недопустимые символы в имени службы";
+                continue;
+            }
+            var output = RunHidden("sc.exe", $"sdshow \"{name}\"");
+            var sddl = ServiceRights.ParseSdShowOutput(output);
+            if (sddl is null)
+            {
+                result.Failed[name] = "не удалось прочитать дескриптор безопасности";
+                continue;
+            }
+            var updated = ServiceRights.AddControlAce(sddl, sid);
+            if (updated is null)
+                result.Failed[name] = "дескриптор без DACL";
+            else if (string.Equals(updated, sddl, StringComparison.Ordinal))
+                result.AlreadyGranted.Add(name);
+            else
+                changes.Add((name, updated));
+        }
+        if (changes.Count == 0)
+            return result;
+
+        // 2) Один командный файл sc sdset для всех служб — один запрос UAC.
+        var dir = Path.Combine(Path.GetTempPath(), "Workspace1C-service-rights-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var resultFile = Path.Combine(dir, "result.txt");
+            var batchFile = Path.Combine(dir, "grant.cmd");
+            File.WriteAllText(batchFile, ServiceRights.BuildBatch(changes, resultFile), System.Text.Encoding.ASCII);
+
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c \"{batchFile}\"",
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden,
+                CreateNoWindow = true
+            });
+            if (process is null)
+            {
+                result.Error = "Не удалось запустить cmd.exe с повышением прав.";
+                return result;
+            }
+            if (!process.WaitForExit(120_000))
+            {
+                result.Error = "Превышено время ожидания выдачи прав.";
+                return result;
+            }
+            var codes = ServiceRights.ParseResultFile(File.Exists(resultFile) ? File.ReadAllText(resultFile) : null);
+            ServiceRights.ApplyResults(result, changes.Select(c => c.Name), codes);
+        }
+        catch (System.ComponentModel.Win32Exception wex) when (wex.NativeErrorCode == 1223)
+        {
+            result.Canceled = true; // отмена запроса UAC
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* временные файлы */ }
+        }
+        return result;
+    }
+
+    /// <summary>Запускает консольную утилиту без окна и возвращает stdout (пусто при ошибке).</summary>
+    private static string RunHidden(string fileName, string arguments)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            if (process is null)
+                return string.Empty;
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(15_000);
+            return output;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 

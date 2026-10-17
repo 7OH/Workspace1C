@@ -15,6 +15,25 @@
     </Window.Resources>
 
     <DockPanel Margin="16" LastChildFill="True">
+        <!-- OK / Отмена — над списком одной строкой (issue #11, 7OH 17.10). -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="OkButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource AccentBrush}" Padding="16,6" Margin="0,0,8,0"
+                    MinWidth="90">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✔" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="White"/>
+                    <TextBlock Text="{loc:Loc Common.Ok}" VerticalAlignment="Center" Foreground="White"/>
+                </StackPanel>
+            </Button>
+            <Button x:Name="CancelButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" MinWidth="90">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✖" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#DC2626"/>
+                    <TextBlock Text="{loc:Loc Common.Cancel}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
         <!-- Поиск и кнопки «Выбрать все / Сбросить». -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="{loc:Loc Services.Picker.Search}" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -64,18 +83,5 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- Кнопки OK / Отмена. -->
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
-                    HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button x:Name="OkButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" Margin="0,0,8,0"
-                    MinWidth="90">
-                <TextBlock Text="{loc:Loc Common.Ok}" VerticalAlignment="Center"/>
-            </Button>
-            <Button x:Name="CancelButton" Style="{StaticResource ModernButton}"
-                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" MinWidth="90">
-                <TextBlock Text="{loc:Loc Common.Cancel}" VerticalAlignment="Center"/>
-            </Button>
-        </StackPanel>
     </DockPanel>
 </Window>

@@ -45,7 +45,19 @@ public sealed class WpfDialogService : IDialogService
     /// </summary>
     private static void SetOwnerIfAvailable(Window win)
     {
-        win.Owner = Application.Current.MainWindow is { } owner && !ReferenceEquals(owner, win) ? owner : null;
+        // Владелец — активное окно (issue #11, 7OH 17.10): сообщение из диалога (например,
+        // «Управление службами») модально к нему, а не к главному окну; иначе — главное окно.
+        Window? active = null;
+        foreach (Window w in Application.Current.Windows)
+        {
+            if (w.IsActive && w.IsVisible && !ReferenceEquals(w, win))
+            {
+                active = w;
+                break;
+            }
+        }
+        var owner = active ?? Application.Current.MainWindow;
+        win.Owner = owner is not null && !ReferenceEquals(owner, win) && owner.IsLoaded ? owner : null;
     }
 
     public string? OpenFileDialog(string title = "", string filter = "", string? initialDirectory = null)

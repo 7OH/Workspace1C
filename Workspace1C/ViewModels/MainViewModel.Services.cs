@@ -58,17 +58,20 @@ public partial class MainViewModel
             return;
         }
 
-        var window = new ServicesWindow
-        {
-            Owner = System.Windows.Application.Current.MainWindow
-        };
+        // Пока окно инструмента модальное (issue #11, 7OH 17.10).
+        var window = new ServicesWindow();
+        var main = System.Windows.Application.Current.MainWindow;
+        if (main is { IsLoaded: true, IsVisible: true })
+            window.Owner = main;
+        else
+            window.WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen;
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_servicesWindow, window))
                 _servicesWindow = null;
         };
         _servicesWindow = window;
-        window.Show();
+        window.ShowDialog();
     }
 }
 #endif

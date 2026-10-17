@@ -38,13 +38,14 @@ namespace Workspace1C
         public ServicesWindow()
         {
             Title = LocalizationManager.T("Services.Title");
-            Width = 640;
-            Height = 560;
-            MinWidth = 480;
+            Width = 900;
+            Height = 600;
+            MinWidth = 760;
             MinHeight = 400;
             FontSize = 13;
             CanResize = true;
-            ShowInTaskbar = true;
+            // Окно модальное (issue #11, 7OH 17.10) — в панели задач не показывается.
+            ShowInTaskbar = false;
 
             var services = AppServices.GetRequiredService<IServiceControllerService>();
             var store = AppServices.GetRequiredService<IServicesStore>();
@@ -62,17 +63,21 @@ namespace Workspace1C
 
             // ---- Первая строка: «Настроить» и «Системный диалог» (скрыт на Linux). ----
             var configureButton = BuildActionButton(
-                LocalizationManager.T("Services.Configure"), "⚙", () => _vm.ConfigureCommand.Execute(null));
+                LocalizationManager.T("Services.Configure"), "⚙", () => _vm.ConfigureCommand.Execute(null), "#6B7280");
             var systemDialogButton = BuildActionButton(
-                LocalizationManager.T("Services.SystemDialog"), "🗔", () => _vm.OpenSystemDialogCommand.Execute(null));
+                LocalizationManager.T("Services.SystemDialog"), "🗔", () => _vm.OpenSystemDialogCommand.Execute(null), "#2563EB");
             systemDialogButton.IsVisible = _vm.CanOpenSystemDialog;
+            // «Выдать права» (issue #11): на Linux выдача прав не поддерживается — скрыта.
+            var grantRightsButton = BuildActionButton(
+                LocalizationManager.T("Services.GrantRights"), "🛡", () => _vm.GrantRightsCommand.Execute(null), "#7C3AED");
+            grantRightsButton.IsVisible = _vm.CanGrantRights;
 
             var topButtons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 6,
                 Margin = new Thickness(0, 0, 0, 10),
-                Children = { configureButton, systemDialogButton }
+                Children = { configureButton, systemDialogButton, grantRightsButton }
             };
 
             // ---- Заголовок списка «Службы». ----
@@ -84,22 +89,30 @@ namespace Workspace1C
             };
 
             // ---- Строка кнопок над списком (без групп — итерация 2 issue #11). ----
+            // Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже».
+            var moveUpButton = BuildIconButton("▲", LocalizationManager.T("Services.MoveUp"),
+                () => _vm.MoveUpCommand.Execute(null), "#2563EB");
+            moveUpButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveUp"));
+            var moveDownButton = BuildIconButton("▼", LocalizationManager.T("Services.MoveDown"),
+                () => _vm.MoveDownCommand.Execute(null), "#2563EB");
+            moveDownButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveDown"));
             var refreshButton = BuildIconButton("⟳", LocalizationManager.T("Services.Refresh"),
-                () => _vm.RefreshCommand.Execute(null));
-            var startButton = BuildIconButton("▶", LocalizationManager.T("Services.Start"),
-                () => _vm.StartCommand.Execute(null));
+                () => _vm.RefreshCommand.Execute(null), "#2563EB");
+            // Команды — цветные иконки с подписями (issue #11, 7OH 17.10).
+            var startButton = BuildActionButton(LocalizationManager.T("Services.Start"), "▶",
+                () => _vm.StartCommand.Execute(null), "#16A34A");
             startButton.Bind(Button.IsEnabledProperty, new Binding("CanStart"));
-            var stopButton = BuildIconButton("⏹", LocalizationManager.T("Services.Stop"),
-                () => _vm.StopCommand.Execute(null));
+            var stopButton = BuildActionButton(LocalizationManager.T("Services.Stop"), "■",
+                () => _vm.StopCommand.Execute(null), "#DC2626");
             stopButton.Bind(Button.IsEnabledProperty, new Binding("CanStop"));
-            var pauseButton = BuildIconButton("⏸", LocalizationManager.T("Services.Pause"),
-                () => _vm.PauseCommand.Execute(null));
+            var pauseButton = BuildActionButton(LocalizationManager.T("Services.Pause"), "❚❚",
+                () => _vm.PauseCommand.Execute(null), "#D97706");
             pauseButton.Bind(Button.IsEnabledProperty, new Binding("CanPause"));
-            var continueButton = BuildIconButton("⏵", LocalizationManager.T("Services.Continue"),
-                () => _vm.ContinueCommand.Execute(null));
+            var continueButton = BuildActionButton(LocalizationManager.T("Services.Continue"), "▶",
+                () => _vm.ContinueCommand.Execute(null), "#0EA5E9");
             continueButton.Bind(Button.IsEnabledProperty, new Binding("CanContinue"));
-            var restartButton = BuildIconButton("🔄", LocalizationManager.T("Services.Restart"),
-                () => _vm.RestartCommand.Execute(null));
+            var restartButton = BuildActionButton(LocalizationManager.T("Services.Restart"), "⟲",
+                () => _vm.RestartCommand.Execute(null), "#2563EB");
             restartButton.Bind(Button.IsEnabledProperty, new Binding("CanRestart"));
 
             // Подменю «Все сервисы» (Запустить / Остановить / Перезапустить).
@@ -138,6 +151,9 @@ namespace Workspace1C
                 Margin = new Thickness(0, 0, 0, 6),
                 Children =
                 {
+                    moveUpButton,
+                    moveDownButton,
+                    Divider(),
                     refreshButton,
                     Divider(),
                     startButton,
@@ -208,6 +224,9 @@ namespace Workspace1C
             Opened += async (_, _) => await _vm.LoadAsync();
         }
 
+        /// <summary>Показывает окно модально (синхронно, issue #11).</summary>
+        public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
+
         /// <summary>«Настроить»: модальный чеклист всех служб; null — отмена.</summary>
         private IReadOnlyList<string>? ShowServicesPicker()
         {
@@ -219,8 +238,8 @@ namespace Workspace1C
 
         // ===================== Построители =====================
 
-        /// <summary>Кнопка действия: значок + подпись.</summary>
-        private static Button BuildActionButton(string text, string icon, Action onClick)
+        /// <summary>Кнопка действия: значок (цветной, issue #11) + подпись.</summary>
+        private static Button BuildActionButton(string text, string icon, Action onClick, string? iconColorHex = null)
         {
             var button = new Button
             {
@@ -230,7 +249,12 @@ namespace Workspace1C
                     Spacing = 6,
                     Children =
                     {
-                        new TextBlock { Text = icon, VerticalAlignment = VerticalAlignment.Center },
+                        new TextBlock
+                        {
+                            Text = icon,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Foreground = iconColorHex is null ? null : new SolidColorBrush(Color.Parse(iconColorHex))
+                        },
                         new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center }
                     }
                 },
@@ -243,7 +267,7 @@ namespace Workspace1C
         }
 
         /// <summary>Узкая кнопка-иконка с подсказкой.</summary>
-        private static Button BuildIconButton(string icon, string tooltip, Action onClick)
+        private static Button BuildIconButton(string icon, string tooltip, Action onClick, string? iconColorHex = null)
         {
             var button = new Button
             {
@@ -251,7 +275,8 @@ namespace Workspace1C
                 {
                     Text = icon,
                     VerticalAlignment = VerticalAlignment.Center,
-                    FontSize = 13
+                    FontSize = 13,
+                    Foreground = iconColorHex is null ? null : new SolidColorBrush(Color.Parse(iconColorHex))
                 },
                 Padding = new Thickness(8, 5)
             };

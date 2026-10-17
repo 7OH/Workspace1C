@@ -143,6 +143,9 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     private ICommand? _refreshCommand;
     private ICommand? _configureCommand;
     private ICommand? _openSystemDialogCommand;
+    private ICommand? _moveUpCommand;
+    private ICommand? _moveDownCommand;
+    private ICommand? _grantRightsCommand;
 
     /// <param name="services">Платформенный сервис управления службами.</param>
     /// <param name="store">Хранилище списка служб (services.json).</param>
@@ -203,6 +206,18 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// <summary>Есть ли системный диалог служб (Windows: true; Linux: false — кнопка скрыта).</summary>
     public bool CanOpenSystemDialog => _services.CanOpenSystemDialog;
 
+    /// <summary>
+    /// Можно ли выдать права на управление службами одним запросом повышения прав
+    /// (issue #11, 7OH 17.10): Windows — кнопка «Выдать права»; Linux — скрыта.
+    /// </summary>
+    public bool CanGrantRights => _services.CanGrantControlRights;
+
+    /// <summary>Можно ли переместить выбранную строку выше (issue #11: порядок задаёт пользователь).</summary>
+    public bool CanMoveUp => _selectedRow is not null && Rows.IndexOf(_selectedRow) > 0;
+
+    /// <summary>Можно ли переместить выбранную строку ниже.</summary>
+    public bool CanMoveDown => _selectedRow is not null && Rows.IndexOf(_selectedRow) is var i && i >= 0 && i < Rows.Count - 1;
+
     // ===================== Доступность команд (таблица 3.1 плана) =====================
 
     public bool CanStart { get; private set; }
@@ -252,6 +267,16 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// <summary>«Настроить» — модальный чеклист всех служб системы.</summary>
     public ICommand ConfigureCommand => _configureCommand ??= new RelayCommand(async () => await ConfigureAsync());
 
+    /// <summary>«Переместить выше» — порядок списка сохраняется в services.json.</summary>
+    public ICommand MoveUpCommand => _moveUpCommand ??= new RelayCommand(() => Move(-1));
+
+    /// <summary>«Переместить ниже».</summary>
+    public ICommand MoveDownCommand => _moveDownCommand ??= new RelayCommand(() => Move(+1));
+
+    /// <summary>«Выдать права» — права на управление всеми службами списка (один запрос UAC).</summary>
+    public ICommand GrantRightsCommand => _grantRightsCommand ??=
+        new RelayCommand(async () => await GrantRightsAsync(Rows.Select(r => r.ServiceName).ToList(), confirm: false));
+
     /// <summary>«Системный диалог» — services.msc (кнопка скрыта на Linux).</summary>
     public ICommand OpenSystemDialogCommand =>
         _openSystemDialogCommand ??= new RelayCommand(_services.OpenSystemServicesDialog, () => _services.CanOpenSystemDialog);
@@ -278,8 +303,109 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// </summary>
     public async Task ApplyConfigurationAsync(IReadOnlyList<string> names)
     {
-        _store.Save(names);
-        await RebuildRowsAsync(names);
+        // Порядок задаёт пользователь (issue #11): уже добавленные службы остаются на своих
+        // местах, новые — в конец (в порядке чеклиста — по алфавиту).
+        var current = Rows.Count > 0 ? Rows.Select(r => r.ServiceName).ToList() : _store.Load().ToList();
+        var merged = MergeOrder(current, names);
+        var added = merged.Where(n => !current.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+        _store.Save(merged);
+        await RebuildRowsAsync(merged);
+
+        // Новым службам сразу предлагаем выдать права (7OH 17.10): один запрос повышения.
+        if (added.Count > 0 && CanGrantRights)
+            await GrantRightsAsync(added, confirm: true);
+    }
+
+    /// <summary>
+    /// Новый состав списка с сохранением пользовательского порядка: службы из
+    /// <paramref name="current"/>, оставшиеся выбранными, — в прежнем порядке; затем новые
+    /// из <paramref name="selected"/> в их порядке. Сравнение имён без учёта регистра.
+    /// </summary>
+    public static List<string> MergeOrder(IReadOnlyList<string> current, IReadOnlyList<string> selected)
+    {
+        var selectedSet = new HashSet<string>(selected.Select(n => n.Trim()), StringComparer.OrdinalIgnoreCase);
+        var result = current.Select(n => n.Trim()).Where(selectedSet.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var present = new HashSet<string>(result, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in selected.Select(n => n.Trim()))
+        {
+            if (name.Length > 0 && present.Add(name))
+                result.Add(name);
+        }
+        return result;
+    }
+
+    /// <summary>Перемещает выбранную строку на <paramref name="delta"/> позиций и сохраняет порядок.</summary>
+    private void Move(int delta)
+    {
+        var row = _selectedRow;
+        if (row is null)
+            return;
+        var index = Rows.IndexOf(row);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= Rows.Count)
+            return;
+        Rows.Move(index, target);
+        _store.Save(Rows.Select(r => r.ServiceName).ToList());
+        RefreshCommandStates();
+    }
+
+    /// <summary>
+    /// Выдача прав на управление службами (issue #11, 7OH 17.10): один запрос повышения
+    /// прав на все службы; итог — модальным сообщением. <paramref name="confirm"/> — сначала
+    /// спросить (при добавлении служб через «Настроить»).
+    /// </summary>
+    public async Task GrantRightsAsync(IReadOnlyList<string> names, bool confirm)
+    {
+        if (!CanGrantRights || names.Count == 0)
+            return;
+        var title = LocalizationManager.T("Services.Title");
+        if (confirm && !_dialogs.Confirm(
+                string.Format(LocalizationManager.T("Services.GrantRights.ConfirmFormat"), names.Count), title))
+            return;
+
+        IsBusy = true;
+        ServiceRightsResult result;
+        try
+        {
+            result = await Task.Run(() => _services.GrantControlRights(names));
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        if (result.Canceled)
+        {
+            StatusText = LocalizationManager.T("Services.GrantRights.Canceled");
+            return;
+        }
+        var message = FormatRightsResult(result);
+        if (result.Failed.Count > 0 || !string.IsNullOrEmpty(result.Error))
+            _dialogs.ShowWarning(message, title);
+        else
+            _dialogs.ShowInfo(message, title);
+        StatusText = message;
+        await RefreshAsync();
+    }
+
+    /// <summary>Текст итога выдачи прав (выдано / уже были / ошибки).</summary>
+    public static string FormatRightsResult(ServiceRightsResult result)
+    {
+        var lines = new List<string>();
+        if (result.Granted.Count > 0)
+            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.GrantedFormat"),
+                string.Join(", ", result.Granted)));
+        if (result.AlreadyGranted.Count > 0)
+            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.AlreadyFormat"),
+                string.Join(", ", result.AlreadyGranted)));
+        foreach (var pair in result.Failed)
+            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.FailedFormat"), pair.Key, pair.Value));
+        if (!string.IsNullOrEmpty(result.Error))
+            lines.Add(result.Error);
+        return lines.Count == 0
+            ? LocalizationManager.T("Services.GrantRights.Nothing")
+            : string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>Перестраивает строки: статусы опрашиваются в фоне, строки обновляются в UI-потоке.</summary>
@@ -361,8 +487,11 @@ public sealed class ServicesWindowViewModel : ViewModelBase
 
         if (failures.Count > 0)
         {
+            // Сообщение модальное (окно служб — владелец диалога, issue #11); на Windows
+            // подсказываем кнопку «Выдать права» вместо запуска программы от администратора.
             _dialogs.ShowError(
-                LocalizationManager.T("Services.NotAdmin"),
+                LocalizationManager.T(CanGrantRights ? "Services.NotAdminGrantHint" : "Services.NotAdmin")
+                    + Environment.NewLine + string.Join(", ", failures),
                 LocalizationManager.T("Services.Title"));
         }
 
@@ -439,6 +568,8 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanStartAll));
         OnPropertyChanged(nameof(CanStopAll));
         OnPropertyChanged(nameof(CanRestartAll));
+        OnPropertyChanged(nameof(CanMoveUp));
+        OnPropertyChanged(nameof(CanMoveDown));
     }
 
     /// <summary>Применяет действие в UI-потоке (dispatch) или сразу (тесты).</summary>

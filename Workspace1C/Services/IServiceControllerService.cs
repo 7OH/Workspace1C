@@ -45,4 +45,16 @@ public interface IServiceControllerService
 
     /// <summary>Перезапускает службу; true при успехе (блокирующая — вызывать из фона).</summary>
     bool Restart(string serviceName);
+
+    /// <summary>
+    /// Можно ли выдать текущему пользователю права на управление службами одним запросом
+    /// повышения прав (issue #11, 7OH 17.10). Windows: true; Linux/заглушки: false.
+    /// </summary>
+    bool CanGrantControlRights => false;
+
+    /// <summary>
+    /// Выдаёт текущему пользователю права на запуск/остановку/паузу перечисленных служб
+    /// (Windows: SDDL через sc sdshow/sdset, один запрос UAC). Блокирующая — вызывать из фона.
+    /// </summary>
+    ServiceRightsResult GrantControlRights(IReadOnlyList<string> serviceNames) => ServiceRightsResult.Unsupported();
 }
