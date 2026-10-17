@@ -7,10 +7,14 @@ namespace Workspace1C.Tests;
 
 /// <summary>
 /// Тесты задания по расписанию «Обновить приложение» (<see cref="ScheduledTaskKind.UpdateApp"/>,
-/// issue #8): актуальная версия — успех без ложного уведомления об ошибке и без спама
+/// issues #8/#10): актуальная версия — успех без ложного уведомления об ошибке и без спама
 /// уведомлений; сбой проверки (null-релиз) — ошибка; новая версия с адресом загрузки —
-/// успех с вызовом установки. Паттерн повторяет тесты проверки платформы/конфигурации
-/// (issues #366/#367): планировщик собирается на фейках, без сети, файловой системы и UI.
+/// успех с вызовом установки и подавлением уведомления «задание выполнено» при успешно
+/// применённом обновлении (issue #10): единственное сообщение — «Приложение обновлено до
+/// версии X» из новой версии после перезапуска. Если обновление применить не удалось —
+/// уведомление о завершении задания уходит как обычно. Паттерн повторяет тесты проверки
+/// платформы/конфигурации (issues #366/#367): планировщик собирается на фейках, без сети,
+/// файловой системы и UI.
 /// </summary>
 public sealed class SchedulerServiceUpdateAppTests
 {
@@ -81,7 +85,7 @@ public sealed class SchedulerServiceUpdateAppTests
     }
 
     [Fact]
-    public async Task RunNow_NewReleaseWithDownloadUrl_Installs()
+    public async Task RunNow_NewReleaseWithDownloadUrl_UpdateApplied_JobFinishedSuppressed()
     {
         var release = new ReleaseInfo { TagName = NewReleaseTag, DownloadUrl = "https://example.test/Workspace1C.exe" };
         var gitHub = new FakeGitHubReleaseService(release);
@@ -98,15 +102,49 @@ public sealed class SchedulerServiceUpdateAppTests
         Assert.True(result!.Success);
         Assert.Null(result.ErrorMessage);
         Assert.Equal(NewReleaseTag, result.ScenarioName);
-        Assert.False(result.SuppressNotification);
+        // Обновление применено (фейк вернул true) — уведомление о завершении подавлено
+        // (issue #10): после перезапуска единственное сообщение пришлёт новая версия.
+        Assert.True(result.SuppressNotification);
         Assert.True(task.LastRunSuccess);
         Assert.Equal(NewReleaseTag, task.LastRunMessage);
 
         // Обновление реально запущено: скачивание+установка вызваны ровно один раз.
         Assert.Equal(1, installer.InstallCalls);
         Assert.Same(release, installer.LastRelease);
-        // Фактический запуск обновления — успешное завершение, уведомление по-прежнему шлётся.
+        // Никакого отдельного «Задание выполнено…» — обновление объявит о себе само.
+        Assert.Equal(0, notifications.ShowCount);
+    }
+
+    [Fact]
+    public async Task RunNow_NewReleaseUpdateFailed_JobFinishedNotificationSent()
+    {
+        // Применение обновления не удалось: фейк возвращает false, как реальный сервис
+        // при сбое скачивания/замены (ошибку он показывает пользователю, но наружу
+        // не выбрасывает).
+        var release = new ReleaseInfo { TagName = NewReleaseTag, DownloadUrl = "https://example.test/Workspace1C.exe" };
+        var gitHub = new FakeGitHubReleaseService(release);
+        var installer = new FakeAppUpdateService { Result = false };
+        var notifications = new FakeNotifications();
+        var store = new FakeTaskStore();
+        var task = NewUpdateAppTask();
+        store.Tasks.Add(task);
+
+        using var scheduler = CreateScheduler(store, gitHub, installer, notifications);
+        var result = await scheduler.RunNowAsync(task);
+
+        // Попытка установки была, но подавление НЕ включается: уведомление о завершении
+        // задания уходит как обычно (issue #10 — только успешное применение «молчит»).
+        Assert.NotNull(result);
+        Assert.True(result!.Success);
+        Assert.Null(result.ErrorMessage);
+        Assert.Equal(NewReleaseTag, result.ScenarioName);
+        Assert.False(result.SuppressNotification);
+        Assert.True(task.LastRunSuccess);
+        Assert.Equal(NewReleaseTag, task.LastRunMessage);
+
+        Assert.Equal(1, installer.InstallCalls);
         Assert.Equal(1, notifications.ShowCount);
+        Assert.Equal(NotificationKind.Success, notifications.LastKind);
     }
 
     [Fact]
@@ -183,17 +221,23 @@ public sealed class SchedulerServiceUpdateAppTests
             => Task.FromResult(_release);
     }
 
-    /// <summary>Фейк подсистемы автообновления: только считает вызовы установки.</summary>
+    /// <summary>Фейк подсистемы автообновления: считает вызовы установки и возвращает
+    /// настраиваемый результат применения (по умолчанию — успех, как реальный сервис
+    /// при успешно запущенном помощнике и записанном маркере).</summary>
     private sealed class FakeAppUpdateService : IAppUpdateService
     {
         public int InstallCalls { get; private set; }
         public ReleaseInfo? LastRelease { get; private set; }
 
-        public Task DownloadAndInstallAutoAsync(ReleaseInfo release)
+        /// <summary>Результат применения обновления: true — помощник запущен и обновление
+        /// применится после перезапуска, false — применить не удалось.</summary>
+        public bool Result { get; set; } = true;
+
+        public Task<bool> DownloadAndInstallAutoAsync(ReleaseInfo release)
         {
             InstallCalls++;
             LastRelease = release;
-            return Task.CompletedTask;
+            return Task.FromResult(Result);
         }
     }
 

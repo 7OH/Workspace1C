@@ -216,10 +216,10 @@ public sealed class SchedulerServiceRefreshTests
     {
         public int InstallCalls { get; private set; }
 
-        public Task DownloadAndInstallAutoAsync(ReleaseInfo release)
+        public Task<bool> DownloadAndInstallAutoAsync(ReleaseInfo release)
         {
             InstallCalls++;
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
     }
 

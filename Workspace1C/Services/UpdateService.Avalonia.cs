@@ -496,7 +496,14 @@ namespace Workspace1C.Services
     /// автообновление (<see cref="AutoUpdateEnabled"/>), — аналог <c>DownloadAndInstallAutoAsync</c>
     /// Windows-версии. Все ошибки обрабатываются внутри и не роняют приложение.
     /// </summary>
-    public async Task DownloadAndInstallAutoAsync(ReleaseInfo release)
+    /// <returns>
+    /// <c>true</c> — обновление применено: бинарник скачан, помощник запущен, маркер
+    /// <c>pending_update.json</c> записан и приложение закрывается для перезапуска;
+    /// <c>false</c> — применить не удалось (нет ссылки, сбой скачивания/замены,
+    /// невозможность самообновления). Ошибки по-прежнему показываются, но наружу
+    /// не выбрасываются.
+    /// </returns>
+    public async Task<bool> DownloadAndInstallAutoAsync(ReleaseInfo release)
     {
         try
         {
@@ -505,7 +512,7 @@ namespace Workspace1C.Services
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.NoDownloadUrl"),
                     LocalizationManager.T("Update.NewVersionAvailable")));
-                return;
+                return false;
             }
 
             var target = ResolveTargetBinary();
@@ -514,7 +521,7 @@ namespace Workspace1C.Services
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.InstallFailed"),
                     LocalizationManager.T("Update.NewVersionAvailable")));
-                return;
+                return false;
             }
 
             // Способ установки проверяется до скачивания, как и в режиме с вопросом
@@ -529,7 +536,7 @@ namespace Workspace1C.Services
                 // Самообновление недоступно: показываем понятный диалог с кликабельной
                 // ссылкой на страницу выпуска вместо молчаливого завершения (issue #225).
                 ShowManualUpdateDialog(autoBlocker, release.HtmlUrl);
-                return;
+                return false;
             }
 
             var newBinary = await DownloadWithProgressAsync(release);
@@ -538,7 +545,7 @@ namespace Workspace1C.Services
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.DownloadFailed"),
                     LocalizationManager.T("Update.NewVersionAvailable")));
-                return;
+                return false;
             }
 
             // Автоматический режим всегда применяет обновление с перезапуском «сейчас».
@@ -547,7 +554,7 @@ namespace Workspace1C.Services
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.InstallFailed"),
                     LocalizationManager.T("Update.NewVersionAvailable")));
-                return;
+                return false;
             }
 
             // Маркер об успешном обновлении (issue #10): помощник запущен и обновление
@@ -559,12 +566,14 @@ namespace Workspace1C.Services
 
             // Помощник запущен — закрываем приложение, чтобы замена прошла после выхода.
             ShutdownNow();
+            return true;
         }
         catch
         {
             ShowOnUi(() => _dialogs.ShowError(
                 LocalizationManager.T("Update.InstallFailed"),
                 LocalizationManager.T("Update.NewVersionAvailable")));
+            return false;
         }
     }
 

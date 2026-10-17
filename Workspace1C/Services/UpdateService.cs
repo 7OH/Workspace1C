@@ -220,7 +220,13 @@ public sealed class UpdateService : IAppUpdateService
     /// проверка всегда открывают единый диалог <see cref="UpdateAvailableWindow"/>,
     /// который сам скачивает файл и спрашивает пользователя, как применить обновление.
     /// </summary>
-    public async Task DownloadAndInstallAutoAsync(ReleaseInfo release)
+    /// <returns>
+    /// <c>true</c> — обновление применено: файл скачан, помощник запущен, маркер
+    /// <c>pending_update.json</c> записан и приложение закрывается для перезапуска;
+    /// <c>false</c> — применить не удалось. Ошибки по-прежнему показываются, но наружу
+    /// не выбрасываются.
+    /// </returns>
+    public async Task<bool> DownloadAndInstallAutoAsync(ReleaseInfo release)
     {
         try
         {
@@ -229,14 +235,14 @@ public sealed class UpdateService : IAppUpdateService
                 // Прямой ссылки на exe нет. Браузер/GitHub не открываем — просто
                 // сообщаем пользователю, что загрузить обновление невозможно.
                 ShowErrorOnUi(LocalizationManager.T("Update.NoDownloadUrl"));
-                return;
+                return false;
             }
 
             var targetExe = ResolveTargetExe();
             if (targetExe is null)
             {
                 ShowErrorOnUi(LocalizationManager.T("Update.InstallFailed"));
-                return;
+                return false;
             }
 
             // Скачивание выполняется в фоне; прогресс передаётся в строку состояния
@@ -246,14 +252,14 @@ public sealed class UpdateService : IAppUpdateService
             if (newExe is null)
             {
                 ShowErrorOnUi(LocalizationManager.T("Update.DownloadFailed"));
-                return;
+                return false;
             }
 
             // Автоматический режим всегда применяет обновление с перезапуском «сейчас».
             if (!ApplyRestartNow(targetExe, newExe))
             {
                 ShowErrorOnUi(LocalizationManager.T("Update.InstallFailed"));
-                return;
+                return false;
             }
 
             // Маркер об успешном обновлении (issue #10): помощник запущен и обновление
@@ -265,10 +271,12 @@ public sealed class UpdateService : IAppUpdateService
 
             // Помощник запущен — закрываем приложение, чтобы exe освободился и был заменён.
             ShutdownNow();
+            return true;
         }
         catch (Exception ex)
         {
             ShowErrorOnUi(LocalizationManager.T("Update.InstallFailed") + "\n" + ex.Message);
+            return false;
         }
     }
 

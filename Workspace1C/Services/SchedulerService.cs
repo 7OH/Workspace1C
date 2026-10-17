@@ -407,7 +407,14 @@ public class SchedulerService : IDisposable
         result.ScenarioName = release.TagName ?? "";
         // Метод скачивает новый исполняемый файл, применяет обновление и перезапускает
         // приложение (в том числе без диалогов). Ошибки он обрабатывает сам.
-        await _updateService.DownloadAndInstallAutoAsync(release).ConfigureAwait(false);
+        //
+        // issue #10: при успешном применении (метод вернул true — помощник запущен,
+        // маркер pending_update записан) отдельное уведомление «Задание выполнено»
+        // подавляется: после перезапуска сама новая версия отправит единственное
+        // сообщение «Приложение обновлено до версии X» (см. NotifyPendingUpdate).
+        // Если обновление не применилось — подавление не включается, и уведомление
+        // о завершении задания уходит как обычно.
+        result.SuppressNotification = await _updateService.DownloadAndInstallAutoAsync(release).ConfigureAwait(false);
         return result;
     }
 
