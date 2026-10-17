@@ -170,6 +170,7 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(new GridLength(34)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
@@ -177,10 +178,14 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
             },
             Margin = new Thickness(0, 6, 0, 2)
         };
-        editionsHeader.Children.Add(MakeHeaderText(T("Updates.Name"), 0));
-        editionsHeader.Children.Add(MakeHeaderText(T("Updates.EditionRed"), 1));
-        editionsHeader.Children.Add(MakeHeaderText(T("Updates.EditionSubRed"), 2));
-        editionsHeader.Children.Add(MakeHeaderText(T("Updates.UrlOverride"), 3));
+        // Колонка 0 — отметка основной редакции «★» (issue #14).
+        var defaultHeader = MakeHeaderText("★", 0);
+        ToolTip.SetTip(defaultHeader, T("Updates.DefaultEdition"));
+        editionsHeader.Children.Add(defaultHeader);
+        editionsHeader.Children.Add(MakeHeaderText(T("Updates.Name"), 1));
+        editionsHeader.Children.Add(MakeHeaderText(T("Updates.EditionRed"), 2));
+        editionsHeader.Children.Add(MakeHeaderText(T("Updates.EditionSubRed"), 3));
+        editionsHeader.Children.Add(MakeHeaderText(T("Updates.UrlOverride"), 4));
 
         _editionsList.ItemsSource = _editions;
         _editionsList.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -201,11 +206,16 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
         var editEd = new Button { Content = T("Updates.EditEdition"), Height = 30 };
         editEd.Styled(ControlThemes.SelectAllButton);
         editEd.Click += (_, _) => OnEditEditionClick();
+        var defaultEd = new Button { Content = T("Updates.SetDefaultEdition"), Height = 30 };
+        defaultEd.Styled(ControlThemes.SelectAllButton);
+        ToolTip.SetTip(defaultEd, T("Updates.SetDefaultEditionHint"));
+        defaultEd.Click += (_, _) => OnSetDefaultEditionClick();
         var removeEd = new Button { Content = T("Updates.Delete"), Height = 30 };
         removeEd.Styled(ControlThemes.SelectAllButton);
         removeEd.Click += (_, _) => OnRemoveEditionClick();
         editionButtons.Children.Add(addEd);
         editionButtons.Children.Add(editEd);
+        editionButtons.Children.Add(defaultEd);
         editionButtons.Children.Add(removeEd);
         editionsColumn.Children.Add(editionButtons);
 
@@ -262,6 +272,7 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
             IsBuiltIn = false,
             Editions = new List<OneCConfigEdition>(_editions),
         };
+        OneCConfigType.NormalizeDefaultEdition(Result.Editions);
         DialogResult = true;
         Close();
     }
@@ -302,13 +313,46 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
             Red = edition.Red,
             SubRed = edition.SubRed,
             UrlOverride = edition.UrlOverride,
+            IsDefault = edition.IsDefault,
         });
         if (!dialog.ShowSync(this) || dialog.Result is not { } updated)
             return;
 
+        // Флаг «Основная» правится кнопкой «Сделать основной», диалог его не меняет (issue #14).
+        updated.IsDefault = edition.IsDefault;
         var index = _editions.IndexOf(edition);
         _editions[index] = updated;
         _editionsList.SelectedItem = updated;
+    }
+
+    /// <summary>
+    /// «Сделать основной» (issue #14): выбранная редакция становится основной — она
+    /// используется, когда редакцию не удалось подобрать по версии базы. Строки
+    /// пересоздаются копиями, чтобы шаблон списка перерисовал отметку «★».
+    /// </summary>
+    private void OnSetDefaultEditionClick()
+    {
+        if (_editionsList.SelectedItem is not OneCConfigEdition edition)
+        {
+            _dialogs.ShowInfo(T("Updates.SelectEditionFirst"), T("Updates.SetDefaultEdition"));
+            return;
+        }
+
+        var selectedIndex = _editions.IndexOf(edition);
+        OneCConfigType.SetDefaultEdition(_editions, edition);
+        for (var i = 0; i < _editions.Count; i++)
+        {
+            var e = _editions[i];
+            _editions[i] = new OneCConfigEdition
+            {
+                Name = e.Name,
+                Red = e.Red,
+                SubRed = e.SubRed,
+                UrlOverride = e.UrlOverride,
+                IsDefault = e.IsDefault,
+            };
+        }
+        _editionsList.SelectedIndex = selectedIndex;
     }
 
     /// <summary>«Удалить»: удаляет выбранную редакцию из списка.</summary>
@@ -370,23 +414,28 @@ public sealed class ConfigTypeEditWindow : ModalWindowBase
         return block;
     }
 
-    /// <summary>Строка таблицы редакций: 4 колонки (имя/Ред/Подред/URL) — issue #321.</summary>
+    /// <summary>Строка таблицы редакций: «★» (основная, issue #14) + имя/Ред/Подред/URL (issue #321).</summary>
     private static Control BuildEditionRow(OneCConfigEdition edition)
     {
         var grid = new Grid
         {
             ColumnDefinitions =
             {
+                new ColumnDefinition(new GridLength(34)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                 new ColumnDefinition(new GridLength(1.5, GridUnitType.Star)),
             }
         };
-        grid.Children.Add(EditionCellText(edition.Name, 0));
-        grid.Children.Add(EditionCellText(edition.Red, 1));
-        grid.Children.Add(EditionCellText(edition.SubRed, 2));
-        grid.Children.Add(EditionCellText(edition.UrlOverride, 3));
+        var mark = EditionCellText(edition.DefaultMark, 0);
+        mark.HorizontalAlignment = HorizontalAlignment.Center;
+        mark.Foreground = new SolidColorBrush(Color.Parse("#F59E0B"));
+        grid.Children.Add(mark);
+        grid.Children.Add(EditionCellText(edition.Name, 1));
+        grid.Children.Add(EditionCellText(edition.Red, 2));
+        grid.Children.Add(EditionCellText(edition.SubRed, 3));
+        grid.Children.Add(EditionCellText(edition.UrlOverride, 4));
         return grid;
     }
 

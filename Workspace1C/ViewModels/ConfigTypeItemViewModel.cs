@@ -48,7 +48,8 @@ public class ConfigTypeItemViewModel : ViewModelBase
     public string EditionsSummary =>
         Model.Editions.Count == 0
             ? string.Empty
-            : string.Join(", ", Model.Editions.Select(e => e.ToString()));
+            // Явно отмеченная основная редакция помечается «★» (issue #14).
+            : string.Join(", ", Model.Editions.Select(e => e.IsDefault ? e + " ★" : e.ToString()));
 
     /// <summary>Отображаемое имя учётной записи ИТС (issue #333): имя выбранной записи
     /// справочника либо «Основная», если запись не указана или не найдена.</summary>

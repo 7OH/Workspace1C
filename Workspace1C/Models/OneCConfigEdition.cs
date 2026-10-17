@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Workspace1C.Models;
 
@@ -26,7 +27,21 @@ public class OneCConfigEdition
     /// </summary>
     public string UrlOverride { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Основная редакция конфигурации (issue #14): используется, когда редакцию не удалось
+    /// подобрать по версии базы (окно F9, планировщик, связывание базы). В конфигурации
+    /// основной может быть не более одной редакции; если флаг не стоит ни у одной —
+    /// основной считается первая. В JSON пишется только значение <c>true</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsDefault { get; set; }
+
+    /// <summary>Отметка основной редакции для таблицы редакций («★» либо пусто).</summary>
+    [JsonIgnore]
+    public string DefaultMark => IsDefault ? "★" : string.Empty;
+
     /// <summary>Возвращает true, если задана ручная ссылка каталога релизов.</summary>
+    [JsonIgnore]
     public bool HasUrlOverride => !string.IsNullOrWhiteSpace(UrlOverride);
 
     /// <summary>Отображаемое имя редакции (для ComboBox и списков).</summary>

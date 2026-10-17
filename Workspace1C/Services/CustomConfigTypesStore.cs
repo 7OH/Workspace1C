@@ -204,6 +204,7 @@ public sealed class CustomConfigTypesStore : ICustomConfigTypesStore
             type.Nick ??= string.Empty;
             type.AccountId ??= string.Empty;
             type.Editions ??= new List<OneCConfigEdition>();
+            type.Editions.RemoveAll(e => e is null);
             foreach (var edition in type.Editions)
             {
                 edition.Name ??= string.Empty;
@@ -211,6 +212,8 @@ public sealed class CustomConfigTypesStore : ICustomConfigTypesStore
                 edition.SubRed ??= string.Empty;
                 edition.UrlOverride ??= string.Empty;
             }
+            // Не более одной основной редакции (issue #14).
+            OneCConfigType.NormalizeDefaultEdition(type.Editions);
             result.Add(type);
         }
         return result;

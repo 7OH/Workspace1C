@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace Workspace1C.Models;
 
@@ -67,11 +68,54 @@ public class OneCConfigType
     public List<OneCConfigEdition> Editions { get; set; } = new();
 
     /// <summary>Сегмент URL конфигурации: UrlCode, либо (если пуст) имя.</summary>
+    [JsonIgnore]
     public string EffectiveUrlCode =>
         string.IsNullOrWhiteSpace(UrlCode) ? Name : UrlCode;
 
-    /// <summary>Первая (по умолчанию) редакция конфигурации, или null, если редакций нет.</summary>
-    public OneCConfigEdition? DefaultEdition => Editions.FirstOrDefault();
+    /// <summary>
+    /// Основная редакция конфигурации (issue #14): редакция с флагом
+    /// <see cref="OneCConfigEdition.IsDefault"/>, а если флаг не стоит ни у одной — первая;
+    /// <c>null</c>, если редакций нет. Вычисляемое свойство — в JSON не пишется
+    /// (раньше попадало в <c>custom_config_types.json</c> дублем первой редакции).
+    /// </summary>
+    [JsonIgnore]
+    public OneCConfigEdition? DefaultEdition =>
+        Editions.FirstOrDefault(e => e is { IsDefault: true }) ?? Editions.FirstOrDefault();
+
+    /// <summary>
+    /// Оставляет флаг «Основная» не более чем у одной редакции (issue #14): первая
+    /// отмеченная сохраняет флаг, у остальных он снимается. Пустой список и список без
+    /// отметок не меняются (основной тогда считается первая редакция).
+    /// </summary>
+    public static void NormalizeDefaultEdition(IList<OneCConfigEdition>? editions)
+    {
+        if (editions is null)
+            return;
+        var found = false;
+        foreach (var edition in editions)
+        {
+            if (edition is null || !edition.IsDefault)
+                continue;
+            if (found)
+                edition.IsDefault = false;
+            found = true;
+        }
+    }
+
+    /// <summary>
+    /// Делает <paramref name="target"/> основной редакцией (issue #14): флаг ставится только
+    /// ей, у остальных снимается. Если редакции нет в списке — список не меняется.
+    /// </summary>
+    public static void SetDefaultEdition(IList<OneCConfigEdition>? editions, OneCConfigEdition? target)
+    {
+        if (editions is null || target is null || !editions.Contains(target))
+            return;
+        foreach (var edition in editions)
+        {
+            if (edition is not null)
+                edition.IsDefault = ReferenceEquals(edition, target);
+        }
+    }
 
     /// <summary>Отображаемое имя конфигурации (для ComboBox и списков).</summary>
     public override string ToString() => string.IsNullOrWhiteSpace(Name) ? Code : Name;

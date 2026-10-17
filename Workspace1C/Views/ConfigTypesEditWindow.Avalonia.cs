@@ -422,6 +422,7 @@ namespace Workspace1C
                 Red = e.Red,
                 SubRed = e.SubRed,
                 UrlOverride = e.UrlOverride,
+                IsDefault = e.IsDefault,
             }).ToList(),
         };
 

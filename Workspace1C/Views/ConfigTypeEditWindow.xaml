@@ -131,6 +131,20 @@
                               RowHeaderWidth="0" SelectionMode="Single" SelectionUnit="FullRow"
                               GridLinesVisibility="Horizontal" RowHeight="32" AlternationCount="2">
                         <DataGrid.Columns>
+                            <!-- Отметка основной редакции (issue #14). -->
+                            <DataGridTextColumn Width="34" Header="★" Binding="{Binding DefaultMark}">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                        <Setter Property="ToolTip" Value="{loc:Loc Updates.DefaultEdition}"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                                        <Setter Property="Foreground" Value="#F59E0B"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Width="*" Header="{loc:Loc Updates.Name}" Binding="{Binding Name}"/>
                             <DataGridTextColumn Width="*" Header="{loc:Loc Updates.EditionRed}" Binding="{Binding Red}"/>
                             <DataGridTextColumn Width="*" Header="{loc:Loc Updates.EditionSubRed}" Binding="{Binding SubRed}"/>
@@ -151,6 +165,14 @@
                             <StackPanel Orientation="Horizontal">
                                 <materialDesign:PackIcon Kind="PencilOutline" Width="16" Height="16"/>
                                 <TextBlock Text="{loc:Loc Updates.EditEdition}" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="SetDefaultEditionButton" Height="30" Style="{StaticResource OutlineButtonStyle}"
+                                Margin="0,0,8,0" Click="OnSetDefaultEditionClick"
+                                ToolTip="{loc:Loc Updates.SetDefaultEditionHint}">
+                            <StackPanel Orientation="Horizontal">
+                                <materialDesign:PackIcon Kind="StarOutline" Width="16" Height="16" Foreground="#F59E0B"/>
+                                <TextBlock Text="{loc:Loc Updates.SetDefaultEdition}" Margin="4,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="RemoveEditionButton" Height="30" Style="{StaticResource OutlineButtonStyle}"

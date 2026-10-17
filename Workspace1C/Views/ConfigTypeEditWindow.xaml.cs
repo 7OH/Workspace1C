@@ -153,6 +153,7 @@ public partial class ConfigTypeEditWindow : Window
             IsBuiltIn = false,
             Editions = new List<OneCConfigEdition>(_editions),
         };
+        OneCConfigType.NormalizeDefaultEdition(Result.Editions);
         DialogResult = true;
     }
 
@@ -193,6 +194,7 @@ public partial class ConfigTypeEditWindow : Window
             Red = edition.Red,
             SubRed = edition.SubRed,
             UrlOverride = edition.UrlOverride,
+            IsDefault = edition.IsDefault,
         })
         {
             Owner = this,
@@ -200,9 +202,29 @@ public partial class ConfigTypeEditWindow : Window
         if (dialog.ShowDialog() != true || dialog.Result is not { } updated)
             return;
 
+        // Флаг «Основная» правится кнопкой «Сделать основной», диалог его не меняет (issue #14).
+        updated.IsDefault = edition.IsDefault;
         var index = _editions.IndexOf(edition);
         _editions[index] = updated;
         EditionsGrid.SelectedItem = updated;
+    }
+
+    /// <summary>
+    /// «Сделать основной» (issue #14): выбранная редакция становится основной — она
+    /// используется, когда редакцию не удалось подобрать по версии базы.
+    /// </summary>
+    private void OnSetDefaultEditionClick(object sender, RoutedEventArgs e)
+    {
+        if (EditionsGrid.SelectedItem is not OneCConfigEdition edition)
+        {
+            _dialogs.ShowInfo(LocalizationManager.T("Updates.SelectEditionFirst"),
+                LocalizationManager.T("Updates.SetDefaultEdition"));
+            return;
+        }
+
+        OneCConfigType.SetDefaultEdition(_editions, edition);
+        EditionsGrid.Items.Refresh();
+        EditionsGrid.SelectedItem = edition;
     }
 
     /// <summary>«Удалить»: удаляет выбранную редакцию из списка.</summary>

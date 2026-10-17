@@ -278,6 +278,7 @@ public partial class ConfigTypesEditWindow : Window
             Red = e.Red,
             SubRed = e.SubRed,
             UrlOverride = e.UrlOverride,
+            IsDefault = e.IsDefault,
         }).ToList(),
     };
 
