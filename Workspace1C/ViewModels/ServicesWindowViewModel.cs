@@ -361,7 +361,7 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             return;
         var title = LocalizationManager.T("Services.Title");
         if (confirm && !_dialogs.Confirm(
-                string.Format(LocalizationManager.T("Services.GrantRights.ConfirmFormat"), names.Count), title))
+                Fmt("Services.GrantRights.ConfirmFormat", names.Count), title))
             return;
 
         IsBusy = true;
@@ -389,18 +389,25 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         await RefreshAsync();
     }
 
+    /// <summary>Шаблон локализации с аргументами; без «{0}» в шаблоне аргументы дописываются.</summary>
+    private static string Fmt(string key, params object[] args)
+    {
+        var template = LocalizationManager.T(key);
+        return template.Contains("{0}", StringComparison.Ordinal)
+            ? string.Format(template, args)
+            : template + " " + string.Join(" ", args);
+    }
+
     /// <summary>Текст итога выдачи прав (выдано / уже были / ошибки).</summary>
     public static string FormatRightsResult(ServiceRightsResult result)
     {
         var lines = new List<string>();
         if (result.Granted.Count > 0)
-            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.GrantedFormat"),
-                string.Join(", ", result.Granted)));
+            lines.Add(Fmt("Services.GrantRights.GrantedFormat", string.Join(", ", result.Granted)));
         if (result.AlreadyGranted.Count > 0)
-            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.AlreadyFormat"),
-                string.Join(", ", result.AlreadyGranted)));
+            lines.Add(Fmt("Services.GrantRights.AlreadyFormat", string.Join(", ", result.AlreadyGranted)));
         foreach (var pair in result.Failed)
-            lines.Add(string.Format(LocalizationManager.T("Services.GrantRights.FailedFormat"), pair.Key, pair.Value));
+            lines.Add(Fmt("Services.GrantRights.FailedFormat", pair.Key, pair.Value));
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(result.Error);
         return lines.Count == 0
