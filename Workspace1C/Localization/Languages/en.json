@@ -2836,6 +2836,7 @@
     "Updates.AddEdition": "Add edition",
     "Updates.EditEdition": "Edit edition",
     "Updates.SetDefaultEdition": "Make default",
+    "Updates.SortByColumn": "Sort by this column (click again to reverse)",
     "Updates.SetDefaultEditionHint": "The default edition is used when the edition cannot be determined from the infobase version",
     "Updates.DefaultEdition": "Default edition",
     "Updates.EditionNameOrRedRequired": "Set the edition name or the \"Red\" segment.",

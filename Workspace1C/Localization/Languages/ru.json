@@ -2835,6 +2835,7 @@
     "Updates.AddEdition": "Добавить редакцию",
     "Updates.EditEdition": "Изменить редакцию",
     "Updates.SetDefaultEdition": "Сделать основной",
+    "Updates.SortByColumn": "Сортировать по колонке (повторный щелчок — обратный порядок)",
     "Updates.SetDefaultEditionHint": "Основная редакция используется, когда редакцию не удалось определить по версии базы",
     "Updates.DefaultEdition": "Основная редакция",
     "Updates.EditionNameOrRedRequired": "Задайте имя редакции или сегмент «Ред».",

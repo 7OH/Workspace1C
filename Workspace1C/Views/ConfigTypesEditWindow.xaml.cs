@@ -36,6 +36,8 @@ public partial class ConfigTypesEditWindow : Window
     // Фильтрация по копии полного списка, а не по MergeAll на каждый ввод (issue #321, часть 2).
     private readonly List<ConfigTypeItemViewModel> _allRows = new();
     private readonly ObservableCollection<ConfigTypeItemViewModel> _rows = new();
+    // Сортировка списка (issue #12): по умолчанию — по наименованию по возрастанию.
+    private readonly ConfigTypesSorter _sorter = new();
 
     /// <summary>
     /// Открывает окно редактирования списка типовых конфигураций.
@@ -108,13 +110,53 @@ public partial class ConfigTypesEditWindow : Window
     private void ApplyFilter()
     {
         var query = SearchBox?.Text; // SearchBox создаётся InitializeComponent; до этого — null
+        var selected = ConfigGrid?.SelectedItem as ConfigTypeItemViewModel;
         _rows.Clear();
-        foreach (var row in _allRows)
+        foreach (var row in _sorter.Apply(_allRows.Where(r => ViewModels.ConfigTypesFilter.Matches(r, query))))
+            _rows.Add(row);
+
+        // Выбранная строка сохраняется после пересортировки/фильтра (по той же модели).
+        if (selected is not null && ConfigGrid is not null)
         {
-            if (ViewModels.ConfigTypesFilter.Matches(row, query))
-                _rows.Add(row);
+            var again = _rows.FirstOrDefault(r => ReferenceEquals(r.Model, selected.Model));
+            if (again is not null)
+            {
+                ConfigGrid.SelectedItem = again;
+                ConfigGrid.ScrollIntoView(again);
+            }
         }
     }
+
+    /// <summary>
+    /// Щелчок по заголовку колонки (issue #12): сортировку выполняет общий
+    /// <see cref="ConfigTypesSorter"/> (без учёта регистра, пустые — в конце), штатная
+    /// сортировка DataGrid отключается; стрелка ▲/▼ — через SortDirection колонки.
+    /// </summary>
+    private void OnConfigGridSorting(object sender, DataGridSortingEventArgs e)
+    {
+        e.Handled = true;
+        if (SortColumnOf(e.Column.SortMemberPath) is not { } column)
+            return;
+
+        _sorter.Toggle(column);
+        foreach (var c in ConfigGrid.Columns)
+            c.SortDirection = null;
+        e.Column.SortDirection = _sorter.Descending
+            ? System.ComponentModel.ListSortDirection.Descending
+            : System.ComponentModel.ListSortDirection.Ascending;
+        ApplyFilter();
+    }
+
+    /// <summary>Колонка сортировки по SortMemberPath колонки таблицы.</summary>
+    private static ConfigTypesSortColumn? SortColumnOf(string? memberPath) => memberPath switch
+    {
+        nameof(ConfigTypeItemViewModel.Name) => ConfigTypesSortColumn.Name,
+        nameof(ConfigTypeItemViewModel.ConfigName) => ConfigTypesSortColumn.ConfigName,
+        nameof(ConfigTypeItemViewModel.Nick) => ConfigTypesSortColumn.Nick,
+        nameof(ConfigTypeItemViewModel.EditionsSummary) => ConfigTypesSortColumn.Editions,
+        nameof(ConfigTypeItemViewModel.AccountDisplay) => ConfigTypesSortColumn.Account,
+        _ => null,
+    };
 
     /// <summary>Поиск/отбор списка по мере ввода (issue #321, часть 2).</summary>
     private void OnSearchTextChanged(object sender, TextChangedEventArgs e)

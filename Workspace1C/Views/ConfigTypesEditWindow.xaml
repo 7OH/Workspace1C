@@ -103,6 +103,47 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Заголовок колонки со стрелкой сортировки ▲/▼ (issue #12; шаблон как в окне
+             «Серверы 1С», issue #3): тема DataGrid не показывает штатную индикацию, поэтому
+             стрелка рисуется отдельным TextBlock у колонки с заданным SortDirection. -->
+        <Style x:Key="SortableColumnHeader" TargetType="DataGridColumnHeader"
+               BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridColumnHeader">
+                        <Grid Background="{TemplateBinding Background}" MinHeight="30">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                            <TextBlock Grid.Column="1" x:Name="SortArrow" Text="▲" FontSize="9"
+                                       Margin="4,0,6,0" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       Visibility="Collapsed"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource Self}}"
+                                         Value="Ascending">
+                                <Setter TargetName="SortArrow" Property="Text" Value="▲"/>
+                                <Setter TargetName="SortArrow" Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource Self}}"
+                                         Value="Descending">
+                                <Setter TargetName="SortArrow" Property="Text" Value="▼"/>
+                                <Setter TargetName="SortArrow" Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -157,7 +198,9 @@
                 CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
             <DataGrid x:Name="ConfigGrid" AutoGenerateColumns="False" IsReadOnly="True"
                       HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
-                      CanUserSortColumns="False" RowHeaderWidth="0" SelectionMode="Single"
+                      CanUserSortColumns="True" Sorting="OnConfigGridSorting"
+                      ColumnHeaderStyle="{StaticResource SortableColumnHeader}"
+                      RowHeaderWidth="0" SelectionMode="Single"
                       BorderThickness="0" Background="Transparent" GridLinesVisibility="None"
                       RowHeight="36" AlternationCount="2">
                 <!-- Вертикальное выравнивание содержимого ячеек по центру (issue #265).
@@ -211,7 +254,8 @@
                     <!-- Наименование + пометка о перекрытии типовой пользовательской копией
                          (issue #321, часть 2): у строки-переопределения (значок ✎★ в колонке
                          слева) рядом с именем показывается подпись «заменена пользовательской». -->
-                    <DataGridTemplateColumn Width="3*" Header="{loc:Loc Updates.Name}">
+                    <DataGridTemplateColumn Width="3*" Header="{loc:Loc Updates.Name}" SortMemberPath="Name"
+                                            SortDirection="Ascending">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" Margin="8,0,8,0" VerticalAlignment="Center">
@@ -242,12 +286,12 @@
                          справочника либо «Основная», если запись не указана. ToolTip поясняет
                          назначение колонки (issue #321, часть 2). -->
                     <DataGridTextColumn Width="2*" Header="{loc:Loc ItsAccounts.AccountLabel}"
-                                        Binding="{Binding AccountDisplay}"
+                                        Binding="{Binding AccountDisplay}" SortMemberPath="AccountDisplay"
                                         ElementStyle="{StaticResource AccountCellText}"/>
 
                     <!-- Признак предопределённой; пользовательская копия предопределённой
                          (правка встроенной строки, issue #321) помечается значком ✎★. -->
-                    <DataGridTemplateColumn Width="44">
+                    <DataGridTemplateColumn Width="44" CanUserSort="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock Text="★" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -272,7 +316,7 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTemplateColumn Width="44">
+                    <DataGridTemplateColumn Width="44" CanUserSort="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <!-- Правка доступна и для предопределённых (issue #321): изменение
@@ -288,7 +332,7 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTemplateColumn Width="44">
+                    <DataGridTemplateColumn Width="44" CanUserSort="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Button x:Name="DeleteButton" Style="{StaticResource SelectAllButtonStyle}"

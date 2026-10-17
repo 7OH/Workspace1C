@@ -40,6 +40,11 @@ namespace Workspace1C
         private readonly List<ConfigTypeItemViewModel> _rows = new();
         private TextBox? _searchBox;
 
+        // Сортировка списка (issue #12): по умолчанию — по наименованию по возрастанию;
+        // заголовки колонок кликабельные, текущая колонка помечается ▲/▼.
+        private readonly ConfigTypesSorter _sorter = new();
+        private readonly List<(TextBlock Block, string Title, ConfigTypesSortColumn Column)> _sortHeaders = new();
+
         // Панель строк списка (пересобирается после каждого изменения).
         private readonly StackPanel _rowsPanel = new();
         private readonly DockPanel _listView = new() { LastChildFill = true };
@@ -104,10 +109,25 @@ namespace Workspace1C
             var query = _searchBox?.Text; // до BuildRoot поле поиска ещё не создано
             _rows.Clear();
             _rowsPanel.Children.Clear();
-            foreach (var row in _allRows)
+            foreach (var row in _sorter.Apply(_allRows.Where(r => ViewModels.ConfigTypesFilter.Matches(r, query))))
+                AddRow(row);
+        }
+
+        /// <summary>Щелчок по заголовку колонки (issue #12): смена колонки/направления и пересборка.</summary>
+        private void OnSortHeaderClick(ConfigTypesSortColumn column)
+        {
+            _sorter.Toggle(column);
+            UpdateSortHeaders();
+            ApplyFilter();
+        }
+
+        /// <summary>Подписи заголовков с индикатором направления у текущей колонки (issue #12).</summary>
+        private void UpdateSortHeaders()
+        {
+            foreach (var (block, title, column) in _sortHeaders)
             {
-                if (ViewModels.ConfigTypesFilter.Matches(row, query))
-                    AddRow(row);
+                var indicator = _sorter.IndicatorFor(column);
+                block.Text = indicator.Length == 0 ? title : $"{title} {indicator}";
             }
         }
 
@@ -625,11 +645,13 @@ namespace Workspace1C
             grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(2, GridUnitType.Star)));
             grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(2, GridUnitType.Star)));
 
-            grid.Children.Add(MakeHeaderText(T("Updates.Name"), 0));
-            grid.Children.Add(MakeHeaderText(T("Updates.ConfigName"), 1));
-            grid.Children.Add(MakeHeaderText(T("Updates.Nick"), 2));
-            grid.Children.Add(MakeHeaderText(T("Updates.Editions"), 3));
-            grid.Children.Add(MakeHeaderText(T("ItsAccounts.AccountLabel"), 4));
+            _sortHeaders.Clear();
+            grid.Children.Add(MakeSortHeader(T("Updates.Name"), 0, ConfigTypesSortColumn.Name));
+            grid.Children.Add(MakeSortHeader(T("Updates.ConfigName"), 1, ConfigTypesSortColumn.ConfigName));
+            grid.Children.Add(MakeSortHeader(T("Updates.Nick"), 2, ConfigTypesSortColumn.Nick));
+            grid.Children.Add(MakeSortHeader(T("Updates.Editions"), 3, ConfigTypesSortColumn.Editions));
+            grid.Children.Add(MakeSortHeader(T("ItsAccounts.AccountLabel"), 4, ConfigTypesSortColumn.Account));
+            UpdateSortHeaders();
             return grid;
         }
 
@@ -638,6 +660,31 @@ namespace Workspace1C
             if (Application.Current is not { } app || !app.TryFindResource(key, out var found))
                 return null;
             return found as IBrush;
+        }
+
+        /// <summary>
+        /// Кликабельный заголовок колонки (issue #12): прозрачная кнопка с подписью; щелчок
+        /// сортирует по колонке, повторный — меняет направление.
+        /// </summary>
+        private Control MakeSortHeader(string title, int gridColumn, ConfigTypesSortColumn column)
+        {
+            var block = MakeHeaderText(title, 0);
+            block.Margin = new Thickness(0);
+            var button = new Button
+            {
+                Content = block,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(8, 4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            };
+            ToolTip.SetTip(button, T("Updates.SortByColumn"));
+            button.Click += (_, _) => OnSortHeaderClick(column);
+            Grid.SetColumn(button, gridColumn);
+            _sortHeaders.Add((block, title, column));
+            return button;
         }
 
         private static TextBlock MakeHeaderText(string text, int column)
