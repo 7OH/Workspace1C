@@ -248,7 +248,7 @@ namespace Workspace1C
             {
                 Orientation = Orientation.Horizontal,
                 Spacing = 10,
-                Margin = new Thickness(0, 0, 0, 0),
+                Margin = new Thickness(0, 0, 0, 10),
                 Children =
                 {
                     new TextBlock { Text = LocalizationManager.T("ServerMonitor.Cluster"), VerticalAlignment = VerticalAlignment.Center },
@@ -266,7 +266,7 @@ namespace Workspace1C
             // вкладка «Базы» перенесена в отдельный список слева; в заголовках количество
             // строк («Сеансы (12)»). Сеансы/соединения/блокировки биндятся на
             // ОТФИЛЬТРОВАННЫЕ коллекции — выбор базы фильтрует их на клиенте. ----
-            var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0) };
+            var tabs = new TabControl { Margin = new Thickness(0) };
             var sessionsTab = CreateTab(_vm.SessionsTabText,
                 BuildTabWithAction(
                     BuildSortableTable(_vm.FilteredSessions, SessionColumns, BuildSessionRow, "SelectedSession"),
@@ -322,7 +322,7 @@ namespace Workspace1C
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(new GridLength(280, GridUnitType.Pixel)),
-                    new ColumnDefinition(new GridLength(210, GridUnitType.Pixel)),
+                    new ColumnDefinition(new GridLength(230, GridUnitType.Pixel)),
                     new ColumnDefinition(new GridLength(1, GridUnitType.Star))
                 },
                 RowDefinitions =
@@ -336,10 +336,16 @@ namespace Workspace1C
             };
             // Слева — справочник «Сервера управления», далее — список баз (issue #3),
             // справа — данные кластера.
+            // Компоновка (issue #3, скриншот 7OH 17.10): кнопки действий и строка кластера —
+            // на всю ширину над базами и вкладками; список баз начинается на одном уровне
+            // со строкой фильтра и вкладками («базы и вкладки на одном уровне»).
             Place(root, serversPanel, 0, 0, 5);
-            Place(root, infobasesPanel, 1, 0, 5);
-            Place(root, actionPanel, 2, 0);
-            Place(root, clusterPanel, 2, 1);
+            Place(root, actionPanel, 1, 0);
+            Grid.SetColumnSpan(actionPanel, 2);
+            Place(root, clusterPanel, 1, 1);
+            Grid.SetColumnSpan(clusterPanel, 2);
+            infobasesPanel.Margin = new Thickness(0, 0, 12, 0);
+            Place(root, infobasesPanel, 1, 2, 3);
             Place(root, filterPanel, 2, 2);
             Place(root, tabs, 2, 3);
             Place(root, new StackPanel { Children = { error, autoRefreshHint }, Spacing = 2 }, 2, 4);
@@ -416,18 +422,58 @@ namespace Workspace1C
             Func<object, Control> rowFactory,
             string? selectedBinding = null)
         {
+            // Текущие ширины колонок (issue #3, 7OH 17.10): общие для шапки и всех строк,
+            // меняются перетаскиванием границы заголовка. Строки создаются шаблоном и
+            // получают ширины отсюда — свои ColumnDefinitions построителей перекрываются.
+            var widths = columns.Select(c => c.Width).ToArray();
+            var liveRows = new List<WeakReference<Grid>>();
+            Grid? headerGridRef = null;
+
+            void ApplyWidths()
+            {
+                if (headerGridRef is not null)
+                {
+                    for (var i = 0; i < widths.Length && i < headerGridRef.ColumnDefinitions.Count; i++)
+                        headerGridRef.ColumnDefinitions[i].Width = widths[i];
+                }
+                liveRows.RemoveAll(r => !r.TryGetTarget(out _));
+                foreach (var weak in liveRows)
+                {
+                    if (!weak.TryGetTarget(out var rowGrid))
+                        continue;
+                    for (var i = 0; i < widths.Length && i < rowGrid.ColumnDefinitions.Count; i++)
+                        rowGrid.ColumnDefinitions[i].Width = widths[i];
+                }
+            }
+
             var list = new ListBox
             {
-                ItemTemplate = new FuncDataTemplate<object>((item, _) => rowFactory(item))
+                ItemTemplate = new FuncDataTemplate<object>((item, _) =>
+                {
+                    var control = rowFactory(item);
+                    if (control is Grid rowGrid && rowGrid.ColumnDefinitions.Count == widths.Length)
+                    {
+                        for (var i = 0; i < widths.Length; i++)
+                            rowGrid.ColumnDefinitions[i].Width = widths[i];
+                        // Вертикальные линии между колонками (issue #3, 7OH 17.10).
+                        AddColumnLines(rowGrid, widths.Length);
+                        if (liveRows.Count > 4000)
+                            liveRows.RemoveAll(r => !r.TryGetTarget(out _));
+                        liveRows.Add(new WeakReference<Grid>(rowGrid));
+                    }
+                    return control;
+                })
             };
-            // Тексты строк по вертикали по центру (issue #324): контейнер ListBoxItem
-            // центрирует содержимое, MinHeight задаёт единую комфортную высоту строки.
+            // Строка занимает всю высоту контейнера (линии колонок — от края до края),
+            // тексты ячеек центрируются сами (issue #324: единая высота строки 36).
+            // Нулевой отступ контейнера — чтобы колонки строк совпадали с шапкой.
             list.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
             {
                 Setters =
                 {
                     new Setter(ListBoxItem.MinHeightProperty, 36d),
-                    new Setter(ListBoxItem.VerticalContentAlignmentProperty, VerticalAlignment.Center)
+                    new Setter(ListBoxItem.PaddingProperty, new Thickness(0)),
+                    new Setter(ListBoxItem.VerticalContentAlignmentProperty, VerticalAlignment.Stretch)
                 }
             });
 
@@ -462,8 +508,9 @@ namespace Workspace1C
 
             // Заголовки-кнопки: клик сортирует по колонке (повторный клик меняет направление).
             var headerGrid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-            foreach (var width in columns)
-                headerGrid.ColumnDefinitions.Add(new ColumnDefinition(width.Width));
+            headerGridRef = headerGrid;
+            foreach (var width in widths)
+                headerGrid.ColumnDefinitions.Add(new ColumnDefinition(width));
             var arrows = new Dictionary<TableColumn, TextBlock>();
 
             for (var i = 0; i < columns.Count; i++)
@@ -528,6 +575,58 @@ namespace Workspace1C
                 };
                 Grid.SetColumn(button, i);
                 headerGrid.Children.Add(button);
+
+                // Граница колонки в заголовке (issue #3, 7OH 17.10): видимая вертикальная
+                // линия + «ручка» шириной 7 px — перетаскиванием меняется ширина колонки
+                // в шапке и во всех строках.
+                var index = i;
+                var line = new Border
+                {
+                    Width = 1,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    IsHitTestVisible = false
+                };
+                ThemeBrushes.Bind(line, Border.BackgroundProperty, "BorderColorBrush");
+                var grip = new Border
+                {
+                    Width = 7,
+                    Background = Brushes.Transparent,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Thickness(0, 0, -3, 0),
+                    Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.SizeWestEast),
+                    ZIndex = 1
+                };
+                ToolTip.SetTip(grip, LocalizationManager.T("ServerMonitor.ColumnResizeHint"));
+                var dragging = false;
+                var startX = 0d;
+                var startWidth = 0d;
+                grip.PointerPressed += (_, e) =>
+                {
+                    dragging = true;
+                    startX = e.GetPosition(headerGrid).X;
+                    startWidth = headerGrid.ColumnDefinitions[index].ActualWidth;
+                    e.Pointer.Capture(grip);
+                    e.Handled = true;
+                };
+                grip.PointerMoved += (_, e) =>
+                {
+                    if (!dragging)
+                        return;
+                    var newWidth = Math.Max(30, startWidth + e.GetPosition(headerGrid).X - startX);
+                    widths[index] = new GridLength(newWidth, GridUnitType.Pixel);
+                    ApplyWidths();
+                    e.Handled = true;
+                };
+                grip.PointerReleased += (_, e) =>
+                {
+                    dragging = false;
+                    e.Pointer.Capture(null);
+                    e.Handled = true;
+                };
+                Grid.SetColumn(line, i);
+                Grid.SetColumn(grip, i);
+                headerGrid.Children.Add(line);
+                headerGrid.Children.Add(grip);
             }
 
             // Исходная коллекция меняется (автообновление/переключение баз) — применяем сортировку заново.
@@ -650,7 +749,7 @@ namespace Workspace1C
                     Foreground = red ? redBrush : null,
                     FontSize = 13
                 },
-                Padding = new Thickness(8, 5)
+                Padding = new Thickness(6, 5)
             };
             ToolTip.SetTip(button, tooltip);
             button.Styled(ControlThemes.ModernButton);
@@ -667,16 +766,16 @@ namespace Workspace1C
         /// <summary>Колонки вкладки «Рабочие процессы».</summary>
         private static readonly IReadOnlyList<TableColumn> ProcessColumns = new[]
         {
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Type"), "Type", "Type", Px(90)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Type"), "Type", "Type", Px(110)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Host"), "Host", "Host", Star(1.2)),
-            new TableColumn("PID", "Pid", "Pid", Px(70)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Port"), "Port", "Port", Px(60)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.StartedAt"), "StartedAtText", "StartedAtText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Memory"), "MemorySizeText", "MemorySizeText", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Threads"), "Threads", "Threads", Px(80)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Cpu"), "CpuText", "CpuText", Px(80)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Running"), "RunningText", "Running", Px(80)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Infobases"), "Infobases", "Infobases", Px(60)),
+            new TableColumn("PID", "Pid", "Pid", Px(90)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Port"), "Port", "Port", Px(80)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.StartedAt"), "StartedAtText", "StartedAtText", Px(150)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Memory"), "MemorySizeText", "MemorySizeText", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Threads"), "Threads", "Threads", Px(100)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Cpu"), "CpuText", "CpuText", Px(100)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Running"), "RunningText", "Running", Px(100)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Process.Infobases"), "Infobases", "Infobases", Px(80)),
             new TableColumn("●", string.Empty, null, Px(30))
         };
 
@@ -686,36 +785,36 @@ namespace Workspace1C
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.User"), "User", "User", Star(1.2)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Infobase"), "InfobaseName", "InfobaseName", Star(1.1)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Host"), "Host", "Host", Star(1.1)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.App"), "AppId", "AppId", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.StartedAt"), "StartedAtText", "StartedAtText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.LastActive"), "LastActiveAtText", "LastActiveAtText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.State"), "StateText", "State", Px(100)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.App"), "AppId", "AppId", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.StartedAt"), "StartedAtText", "StartedAtText", Px(150)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.LastActive"), "LastActiveAtText", "LastActiveAtText", Px(150)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.State"), "StateText", "State", Px(120)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Blocked"), "BlockedSymbol", "BlockedByLs", Px(40)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Memory"), "MemoryText", "MemoryText", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Duration"), "DurationAllText", "DurationAllText", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.DurationCurrent"), "DurationCurrentText", "DurationCurrentText", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Hibernate"), "HibernateText", "Hibernate", Px(80))
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Memory"), "MemoryText", "MemoryText", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Duration"), "DurationAllText", "DurationAllText", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.DurationCurrent"), "DurationCurrentText", "DurationCurrentText", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Session.Hibernate"), "HibernateText", "Hibernate", Px(100))
         };
 
         /// <summary>Колонки вкладки «Соединения».</summary>
         private static readonly IReadOnlyList<TableColumn> ConnectionColumns = new[]
         {
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Host"), "Host", "Host", Star(1.2)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Port"), "Port", "Port", Px(70)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Connector"), "Connector", "Connector", Px(100)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Established"), "EstablishedAtText", "EstablishedAtText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.LastActive"), "LastConnectionTimeText", "LastConnectionTimeText", Px(130)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Duration"), "DurationText", "DurationText", Px(100)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Port"), "Port", "Port", Px(90)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Connector"), "Connector", "Connector", Px(120)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Established"), "EstablishedAtText", "EstablishedAtText", Px(150)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.LastActive"), "LastConnectionTimeText", "LastConnectionTimeText", Px(150)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Duration"), "DurationText", "DurationText", Px(120)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Descr"), "Descr", "Descr", Star(1.3)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Blocked"), "BlockedText", "Blocked", Px(110))
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Connection.Blocked"), "BlockedText", "Blocked", Px(130))
         };
 
         /// <summary>Колонки вкладки «Блокировки».</summary>
         private static readonly IReadOnlyList<TableColumn> LockColumns = new[]
         {
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Object"), "Object", "Object", Star(2)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Waiting"), "WaitingSymbol", "Waiting", Px(90)),
-            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Blocking"), "BlockingSymbol", "Blocking", Px(90)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Waiting"), "WaitingSymbol", "Waiting", Px(110)),
+            new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Blocking"), "BlockingSymbol", "Blocking", Px(110)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Session"), "SessionId", "SessionId", Star(1.1)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Connection"), "ConnectionId", "ConnectionId", Star(1.1)),
             new TableColumn(LocalizationManager.T("ServerMonitor.Columns.Lock.Transaction"), "TransactionId", "TransactionId", Star(1.1))
@@ -874,12 +973,24 @@ namespace Workspace1C
             _infobasesList.Bind(ListBox.ItemsSourceProperty, new Binding("Infobases"));
             _infobasesList.Bind(ListBox.SelectedItemProperty, new Binding("SelectedInfobase", BindingMode.TwoWay));
 
+            // Сортировка списка баз (issue #3, 7OH 17.10): по алфавиту и обратная — иконки.
+            var sortAscButton = BuildIconButton(
+                "А↓", LocalizationManager.T("ServerMonitor.Infobase.SortAsc"), () => _vm.SortInfobases(false));
+            var sortDescButton = BuildIconButton(
+                "Я↓", LocalizationManager.T("ServerMonitor.Infobase.SortDesc"), () => _vm.SortInfobases(true));
+
+            // Порядок кнопок (issue #3): Добавить, Правка | А→Я, Я→А | Удалить.
             var toolbar = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                Spacing = 4,
                 Margin = new Thickness(0, 0, 0, 6),
-                Children = { addButton, editButton, deleteButton }
+                Children =
+                {
+                    addButton, editButton, BuildToolbarSeparator(),
+                    sortAscButton, sortDescButton, BuildToolbarSeparator(),
+                    deleteButton
+                }
             };
 
             var dock = new DockPanel { LastChildFill = true };
@@ -891,6 +1002,19 @@ namespace Workspace1C
             dock.Children.Add(_infobasesEmptyHint);
             dock.Children.Add(_infobasesList);
             return dock;
+        }
+
+        /// <summary>Вертикальный разделитель групп кнопок панели баз (issue #3).</summary>
+        private static Control BuildToolbarSeparator()
+        {
+            var separator = new Border
+            {
+                Width = 1,
+                Margin = new Thickness(3, 4),
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            ThemeBrushes.Bind(separator, Border.BackgroundProperty, "BorderColorBrush");
+            return separator;
         }
 
         /// <summary>Список баз: одна колонка с именем; выбор строки включает фильтр.</summary>
@@ -1104,6 +1228,27 @@ namespace Workspace1C
             AddCell(grid, CellText("ConnectionId"), 4);
             AddCell(grid, CellText("TransactionId"), 5);
             return grid;
+        }
+
+        /// <summary>
+        /// Вертикальные линии между колонками строки таблицы (issue #3, 7OH 17.10):
+        /// тонкая граница у правого края каждой ячейки, на всю высоту строки.
+        /// </summary>
+        private static void AddColumnLines(Grid grid, int columnCount)
+        {
+            for (var i = 0; i < columnCount; i++)
+            {
+                var line = new Border
+                {
+                    Width = 1,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    IsHitTestVisible = false
+                };
+                ThemeBrushes.Bind(line, Border.BackgroundProperty, "BorderColorBrush");
+                Grid.SetColumn(line, i);
+                grid.Children.Add(line);
+            }
         }
 
         private static void AddCell(Grid grid, Control control, int column)

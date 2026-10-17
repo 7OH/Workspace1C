@@ -2703,10 +2703,23 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        var window = new ServerMonitorWindow
+        // Без Owner (issue #3, 7OH 17.10): окно с владельцем в WPF всегда остаётся НАД
+        // главным окном, и вернуться к главному было нельзя — оно перекрывалось монитором.
+        // Немодальное рабочее окно — самостоятельное, со своей кнопкой в панели задач;
+        // открывается по центру главного окна.
+        var window = new ServerMonitorWindow();
+        var main = System.Windows.Application.Current.MainWindow;
+        if (main is { IsLoaded: true } && main.WindowState != System.Windows.WindowState.Minimized)
         {
-            Owner = System.Windows.Application.Current.MainWindow
-        };
+            window.WindowStartupLocation = System.Windows.WindowStartupLocation.Manual;
+            var mainLeft = main.WindowState == System.Windows.WindowState.Maximized ? 0 : main.Left;
+            var mainTop = main.WindowState == System.Windows.WindowState.Maximized ? 0 : main.Top;
+            var mainWidth = main.ActualWidth > 0 ? main.ActualWidth : main.Width;
+            var mainHeight = main.ActualHeight > 0 ? main.ActualHeight : main.Height;
+            var wa = System.Windows.SystemParameters.WorkArea;
+            window.Left = Math.Max(wa.Left, mainLeft + (mainWidth - window.Width) / 2);
+            window.Top = Math.Max(wa.Top, mainTop + (mainHeight - window.Height) / 2);
+        }
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_serverMonitorWindow, window))

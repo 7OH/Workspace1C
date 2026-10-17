@@ -130,6 +130,12 @@ namespace Workspace1C
         /// показывается у активной колонки, у остальных сбрасывается. Саму сортировку
         /// выполняет DataGrid (e.Handled = false), направление он переключает сам.
         /// </summary>
+        /// <summary>Список баз по алфавиту (issue #3, кнопка «А↓»).</summary>
+        private void OnSortInfobasesAsc_Click(object sender, RoutedEventArgs e) => _vm.SortInfobases(false);
+
+        /// <summary>Список баз в обратном порядке (issue #3, кнопка «Я↓»).</summary>
+        private void OnSortInfobasesDesc_Click(object sender, RoutedEventArgs e) => _vm.SortInfobases(true);
+
         private void OnGridSorting(object sender, DataGridSortingEventArgs e)
         {
             var grid = (DataGrid)sender;

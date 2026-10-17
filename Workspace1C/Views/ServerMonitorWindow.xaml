@@ -4,7 +4,7 @@
         xmlns:loc="clr-namespace:Workspace1C.Localization"
         Icon="{StaticResource AppIcon}"
         Height="680" Width="1400" MinHeight="480" MinWidth="1120"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         ShowInTaskbar="True"
         Background="{DynamicResource ContentBackgroundBrush}">
 
@@ -29,6 +29,20 @@
              Явный шаблон со стрелкой ▲/▼ (issue #3): тема DataGrid не показывала штатную
              индикацию сортировки, поэтому стрелка рисуется отдельным TextBlock, видимым
              только у колонки с заданным SortDirection. -->
+        <!-- Невидимая «ручка» изменения ширины колонки (issue #3): курсор ↔ у границы заголовка. -->
+        <Style x:Key="ColumnHeaderGripper" TargetType="Thumb">
+            <Setter Property="Width" Value="7"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Cursor" Value="SizeWE"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{TemplateBinding Background}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="CenteredColumnHeader" TargetType="DataGridColumnHeader"
                BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -37,17 +51,30 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="DataGridColumnHeader">
-                        <Grid Background="{TemplateBinding Background}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"/>
-                            <TextBlock Grid.Column="1" x:Name="SortArrow" Text="▲" FontSize="9"
-                                       Margin="4,0,6,0" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"
-                                       Visibility="Collapsed"/>
+                        <!-- Вертикальная линия справа и снизу заголовка (issue #3, 7OH 17.10)
+                             и «ручки» PART_LeftHeaderGripper/PART_RightHeaderGripper: без них
+                             DataGrid не даёт менять ширину колонок (пропало в 1.0.0.9 вместе
+                             с собственным шаблоном заголовка). -->
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="0,0,1,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
+                                                      Margin="{TemplateBinding Padding}"/>
+                                    <TextBlock Grid.Column="1" x:Name="SortArrow" Text="▲" FontSize="9"
+                                               Margin="4,0,6,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <Thumb x:Name="PART_LeftHeaderGripper" HorizontalAlignment="Left"
+                                   Style="{StaticResource ColumnHeaderGripper}"/>
+                            <Thumb x:Name="PART_RightHeaderGripper" HorizontalAlignment="Right"
+                                   Style="{StaticResource ColumnHeaderGripper}"/>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <DataTrigger Binding="{Binding SortDirection, RelativeSource={RelativeSource Self}}"
@@ -74,8 +101,8 @@
 
         <!-- Кнопка-иконка управления базами (issue #3): без текста, узкая, для строки из трёх кнопок. -->
         <Style x:Key="IconOnlyButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
             <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
@@ -84,7 +111,7 @@
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="280"/>
-            <ColumnDefinition Width="210"/>
+            <ColumnDefinition Width="230"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -167,7 +194,10 @@
              НЕ вкладка, а отдельный список слева от вкладок, на одной горизонтали с ними.
              Клик по строке включает фильтр сеансов/соединений/блокировок. Три кнопки
              управления — в одну строку, только иконки; у «Удалить» красная иконка. -->
-        <DockPanel Grid.Column="1" Grid.Row="0" Grid.RowSpan="7" Margin="0,0,16,0">
+        <!-- Компоновка (issue #3, скриншот 7OH 17.10): список баз начинается на одном уровне
+             со строкой фильтра и вкладками; кнопки действий и строка кластера — над ними
+             на всю ширину (Grid.ColumnSpan="2"). -->
+        <DockPanel Grid.Column="1" Grid.Row="2" Grid.RowSpan="5" Margin="0,0,12,0">
             <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" Margin="0,0,0,8"
                        Text="{Binding InfobasesHeaderText}"/>
             <!-- Три кнопки управления базами в одну строку (иконки + подсказки). -->
@@ -183,6 +213,19 @@
                         Click="OnEditInfobase_Click">
                     <TextBlock Text="✎" VerticalAlignment="Center"/>
                 </Button>
+                <!-- Сортировка списка баз (issue #3, 7OH 17.10): Добавить, Правка | А→Я, Я→А | Удалить. -->
+                <Border Width="1" Margin="0,4,6,4" Background="{DynamicResource BorderBrushColor}"/>
+                <Button x:Name="SortInfobasesAscButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Infobase.SortAsc}"
+                        Click="OnSortInfobasesAsc_Click">
+                    <TextBlock Text="А↓" VerticalAlignment="Center"/>
+                </Button>
+                <Button x:Name="SortInfobasesDescButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Infobase.SortDesc}"
+                        Click="OnSortInfobasesDesc_Click">
+                    <TextBlock Text="Я↓" VerticalAlignment="Center"/>
+                </Button>
+                <Border Width="1" Margin="0,4,6,4" Background="{DynamicResource BorderBrushColor}"/>
                 <!-- Кнопке удаления — красная иконка (issue #3). -->
                 <Button x:Name="DeleteInfobaseButton" Style="{StaticResource IconOnlyButton}"
                         ToolTip="{loc:Loc ServerMonitor.Infobase.Delete}"
@@ -229,7 +272,7 @@
 
         <!-- Первая строка правой панели (issue #3): кнопки «Подключиться», «Обновить»,
              «Диагностика сети». Подключение к кластеру выбранного сервера справочника. -->
-        <StackPanel Grid.Column="2" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
             <Button x:Name="ConnectButton" Style="{StaticResource ModernButton}"
                     Background="{DynamicResource ItemHoverBrush}" Padding="14,6" Margin="0,0,6,0"
                     Click="OnConnect_Click">
@@ -260,7 +303,7 @@
 
         <!-- Вторая строка правой панели (issue #3): выбор кластера, настройка
              автообновления и статус подключения. -->
-        <StackPanel Grid.Column="2" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+        <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="{loc:Loc ServerMonitor.Cluster}" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <!-- issue #324: явный ItemTemplate вместо DisplayMemberPath — с шаблоном
                  ModernComboBox закрытый ComboBox в ряде случаев показывал ToString()
@@ -332,7 +375,9 @@
                               HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                               CanUserSortColumns="True" Sorting="OnGridSorting"
                               ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
-                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="All" CanUserResizeColumns="True"
+                          HorizontalGridLinesBrush="{DynamicResource BorderBrushColor}"
+                          VerticalGridLinesBrush="{DynamicResource BorderBrushColor}"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
                           BorderThickness="0">
                     <DataGrid.CellStyle>
@@ -351,13 +396,13 @@
                                             Binding="{Binding InfobaseName}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="1.1*" Header="{loc:Loc ServerMonitor.Columns.Session.Host}"
                                             Binding="{Binding Host}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.App}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Session.App}"
                                             Binding="{Binding AppId}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Session.StartedAt}"
+                        <DataGridTextColumn Width="150" Header="{loc:Loc ServerMonitor.Columns.Session.StartedAt}"
                                             Binding="{Binding StartedAtText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Session.LastActive}"
+                        <DataGridTextColumn Width="150" Header="{loc:Loc ServerMonitor.Columns.Session.LastActive}"
                                             Binding="{Binding LastActiveAtText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Session.State}"
+                        <DataGridTextColumn Width="120" Header="{loc:Loc ServerMonitor.Columns.Session.State}"
                                             Binding="{Binding StateText}">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
@@ -382,15 +427,15 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Session.Blocked}"
+                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Session.Blocked}"
                                             Binding="{Binding BlockedSymbol}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.Memory}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Session.Memory}"
                                             Binding="{Binding MemoryText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.Duration}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Session.Duration}"
                                             Binding="{Binding DurationAllText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Session.DurationCurrent}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Session.DurationCurrent}"
                                             Binding="{Binding DurationCurrentText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Session.Hibernate}"
+                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Session.Hibernate}"
                                             Binding="{Binding HibernateText}" ElementStyle="{StaticResource CenteredCellText}"/>
                     </DataGrid.Columns>
                 </DataGrid>
@@ -415,7 +460,9 @@
                               HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                               CanUserSortColumns="True" Sorting="OnGridSorting"
                               ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
-                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="All" CanUserResizeColumns="True"
+                          HorizontalGridLinesBrush="{DynamicResource BorderBrushColor}"
+                          VerticalGridLinesBrush="{DynamicResource BorderBrushColor}"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
                           BorderThickness="0">
                     <DataGrid.CellStyle>
@@ -428,19 +475,19 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Width="1.2*" Header="{loc:Loc ServerMonitor.Columns.Connection.Host}"
                                             Binding="{Binding Host}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="70" Header="{loc:Loc ServerMonitor.Columns.Connection.Port}"
+                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Connection.Port}"
                                             Binding="{Binding Port}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Connection.Connector}"
+                        <DataGridTextColumn Width="120" Header="{loc:Loc ServerMonitor.Columns.Connection.Connector}"
                                             Binding="{Binding Connector}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Connection.Established}"
+                        <DataGridTextColumn Width="150" Header="{loc:Loc ServerMonitor.Columns.Connection.Established}"
                                             Binding="{Binding EstablishedAtText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Connection.LastActive}"
+                        <DataGridTextColumn Width="150" Header="{loc:Loc ServerMonitor.Columns.Connection.LastActive}"
                                             Binding="{Binding LastConnectionTimeText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Connection.Duration}"
+                        <DataGridTextColumn Width="120" Header="{loc:Loc ServerMonitor.Columns.Connection.Duration}"
                                             Binding="{Binding DurationText}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="1.3*" Header="{loc:Loc ServerMonitor.Columns.Connection.Descr}"
                                             Binding="{Binding Descr}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Connection.Blocked}"
+                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Connection.Blocked}"
                                             Binding="{Binding BlockedText}">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
@@ -464,7 +511,9 @@
                           HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                           CanUserSortColumns="True" Sorting="OnGridSorting"
                           ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
-                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="All" CanUserResizeColumns="True"
+                          HorizontalGridLinesBrush="{DynamicResource BorderBrushColor}"
+                          VerticalGridLinesBrush="{DynamicResource BorderBrushColor}"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
                           BorderThickness="0">
                     <DataGrid.CellStyle>
@@ -477,7 +526,7 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Width="2*" Header="{loc:Loc ServerMonitor.Columns.Lock.Object}"
                                             Binding="{Binding Object}" ElementStyle="{StaticResource CellTextAccent}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Lock.Waiting}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Lock.Waiting}"
                                             Binding="{Binding WaitingSymbol}">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
@@ -485,7 +534,7 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Lock.Blocking}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Lock.Blocking}"
                                             Binding="{Binding BlockingSymbol}">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock" BasedOn="{StaticResource CenteredCellText}">
@@ -509,7 +558,9 @@
                           HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                           CanUserSortColumns="True" Sorting="OnGridSorting"
                           ColumnHeaderStyle="{StaticResource CenteredColumnHeader}"
-                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                          SelectionMode="Single" SelectionUnit="FullRow" GridLinesVisibility="All" CanUserResizeColumns="True"
+                          HorizontalGridLinesBrush="{DynamicResource BorderBrushColor}"
+                          VerticalGridLinesBrush="{DynamicResource BorderBrushColor}"
                           RowHeight="34" AlternatingRowBackground="{DynamicResource CardBackgroundBrush}"
                           BorderThickness="0">
                     <DataGrid.CellStyle>
@@ -520,25 +571,25 @@
                         </Style>
                     </DataGrid.CellStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Process.Type}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Process.Type}"
                                             Binding="{Binding Type}" ElementStyle="{StaticResource CenteredCellText}"/>
                         <DataGridTextColumn Width="1.2*" Header="{loc:Loc ServerMonitor.Columns.Process.Host}"
                                             Binding="{Binding Host}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="70" Header="PID"
+                        <DataGridTextColumn Width="90" Header="PID"
                                             Binding="{Binding Pid}" ElementStyle="{StaticResource CellTextAccent}"/>
-                        <DataGridTextColumn Width="60" Header="{loc:Loc ServerMonitor.Columns.Process.Port}"
+                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Process.Port}"
                                             Binding="{Binding Port}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="130" Header="{loc:Loc ServerMonitor.Columns.Process.StartedAt}"
+                        <DataGridTextColumn Width="150" Header="{loc:Loc ServerMonitor.Columns.Process.StartedAt}"
                                             Binding="{Binding StartedAtText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="90" Header="{loc:Loc ServerMonitor.Columns.Process.Memory}"
+                        <DataGridTextColumn Width="110" Header="{loc:Loc ServerMonitor.Columns.Process.Memory}"
                                             Binding="{Binding MemorySizeText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Process.Threads}"
+                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Process.Threads}"
                                             Binding="{Binding Threads}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Process.Cpu}"
+                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Process.Cpu}"
                                             Binding="{Binding CpuText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Process.Running}"
+                        <DataGridTextColumn Width="100" Header="{loc:Loc ServerMonitor.Columns.Process.Running}"
                                             Binding="{Binding RunningText}" ElementStyle="{StaticResource CenteredCellText}"/>
-                        <DataGridTextColumn Width="60" Header="{loc:Loc ServerMonitor.Columns.Process.Infobases}"
+                        <DataGridTextColumn Width="80" Header="{loc:Loc ServerMonitor.Columns.Process.Infobases}"
                                             Binding="{Binding Infobases}" ElementStyle="{StaticResource CenteredCellText}"/>
                     </DataGrid.Columns>
                 </DataGrid>

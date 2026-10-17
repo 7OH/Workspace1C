@@ -409,6 +409,47 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// <summary>Есть ли хотя бы одна база в списке (для подсказки пустого списка).</summary>
     public bool HasInfobases => Infobases.Count > 0;
 
+    private bool _infobasesSortDescending;
+
+    /// <summary>
+    /// Порядок списка баз (issue #3, 7OH 17.10): базы всегда отсортированы по имени —
+    /// по алфавиту (А→Я) или в обратном порядке (Я→А); переключается кнопками над списком.
+    /// </summary>
+    public bool InfobasesSortDescending
+    {
+        get => _infobasesSortDescending;
+        private set => SetProperty(ref _infobasesSortDescending, value);
+    }
+
+    /// <summary>
+    /// Сортирует список баз по имени (кнопки «по алфавиту» / «обратная», issue #3).
+    /// Выбранная база и фильтр по ней сохраняются; rac не вызывается.
+    /// </summary>
+    public void SortInfobases(bool descending)
+    {
+        InfobasesSortDescending = descending;
+        var selected = _selectedInfobase;
+        var sorted = SortInfobaseRows(Infobases.ToList(), descending);
+        ReplaceRows(Infobases, sorted);
+        if (selected is not null && Infobases.Contains(selected))
+        {
+            _selectedInfobase = selected;
+            OnPropertyChanged(nameof(SelectedInfobase));
+        }
+    }
+
+    /// <summary>Чистая сортировка строк баз по имени без учёта регистра (issue #3).</summary>
+    internal static IReadOnlyList<RacInfobaseRow> SortInfobaseRows(
+        IEnumerable<RacInfobaseRow> rows, bool descending)
+    {
+        var comparer = StringComparer.Create(System.Globalization.CultureInfo.CurrentCulture, ignoreCase: true);
+        var list = rows.ToList();
+        return (descending
+                ? list.OrderByDescending(r => r.Name ?? string.Empty, comparer)
+                : list.OrderBy(r => r.Name ?? string.Empty, comparer))
+            .ToList();
+    }
+
     /// <summary>
     /// Выбранная база в списке «Базы»: при изменении сеансы/соединения/блокировки
     /// фильтруются на клиенте по выбранной базе (issue #3). Одновременно обновляется
@@ -1155,7 +1196,8 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             // Сеттеры не используем: восстановление НЕ должно запускать повторную
             // загрузку данных (иначе цикл «выбор → загрузка → восстановление»).
             var infobaseFilter = _selectedInfobaseId;
-            ReplaceRows(Infobases, infobases.Select(ib => new RacInfobaseRow(ib)));
+            ReplaceRows(Infobases, SortInfobaseRows(
+                infobases.Select(ib => new RacInfobaseRow(ib)), InfobasesSortDescending));
             OnPropertyChanged(nameof(HasInfobases));
             if (infobaseFilter is Guid fid2 && !_infobaseNames.ContainsKey(fid2))
                 infobaseFilter = null;
