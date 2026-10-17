@@ -370,6 +370,8 @@
     <!-- Чистый фильтр строк списка типовых конфигураций (issue #321, часть 2):
          обе платформы; подключается явно (имя не совпадает с глобом *.Avalonia.cs). -->
     <Compile Include="ViewModels\ConfigTypesFilter.cs" />
+    <!-- Сортировка списка типовых конфигураций (issue #12). -->
+    <Compile Include="ViewModels\ConfigTypesSorter.cs" />
     <!-- Строка выпадающего списка окна «Связать с конфигурацией» (issue #322):
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ConfigLinkItemViewModel.cs" />
