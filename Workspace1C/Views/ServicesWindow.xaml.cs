@@ -64,7 +64,9 @@ namespace Workspace1C
             DataContext = _vm;
             Title = LocalizationManager.T("Services.Title");
             PreviewKeyDown += OnWindowPreviewKeyDown;
-            Closed += (_, _) => { /* таймеров и подписок на коллекции нет — освобождать нечего */ };
+            // Выделение, назначенное VM (после загрузки/переноса), синхронизируется с деревом.
+            _vm.PropertyChanged += OnVmPropertyChanged;
+            Closed += (_, _) => _vm.PropertyChanged -= OnVmPropertyChanged;
 
             // «Настроить» — модальный чеклист служб системы; результат применяет VM.
             _vm.ServicesPickerProvider = ShowServicesPicker;
@@ -72,6 +74,9 @@ namespace Workspace1C
             // Редактирование групп (issue #11, итерация 2; окно — Задача 3): провайдер
             // открывает модальное окно группы и возвращает готовую группу или null.
             _vm.GroupEditorProvider = ShowGroupEditor;
+
+            // «Перенести в группу» (issue #11, 1.0.0.14): диалог выбора группы.
+            _vm.GroupPickerProvider = ShowGroupPicker;
 
             Loaded += async (_, _) => await _vm.LoadAsync();
         }
@@ -103,6 +108,17 @@ namespace Workspace1C
         {
             var window = new ServiceGroupEditWindow(editingGroup, availableServices) { Owner = this };
             return window.ShowDialog() == true ? window.Result : null;
+        }
+
+        /// <summary>
+        /// «Перенести в группу» (issue #11, 1.0.0.14): диалог выбора группы для службы.
+        /// null — отмена; «» (пусто) — «Без группы» (корневой список); иначе — имя группы.
+        /// </summary>
+        private string? ShowGroupPicker(string serviceName)
+        {
+            var window = new ServiceGroupPickerWindow(
+                serviceName, _vm.GetGroupNames(), _vm.CurrentGroupOf(serviceName)) { Owner = this };
+            return window.ShowDialog() == true ? window.SelectedGroupName : null;
         }
 
         // ===================== Кнопки =====================
@@ -173,7 +189,7 @@ namespace Workspace1C
         {
             // Правый клик по строке должен её выбрать (команды действуют на SelectedRow).
             if (e.OriginalSource is DependencyObject source &&
-                FindAncestor<ListBoxItem>(source) is { } item &&
+                FindAncestor<TreeViewItem>(source) is { } item &&
                 item.DataContext is ServiceListRow row)
             {
                 _vm.SelectedRow = row;
@@ -181,6 +197,64 @@ namespace Workspace1C
             }
 
             ServicesList.ContextMenu = BuildRowContextMenu();
+        }
+
+        /// <summary>Выбор строки в дереве → VM (команды действуют на SelectedRow).</summary>
+        private void OnServicesList_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        {
+            if (e.NewValue is ServiceListRow row && !ReferenceEquals(row, _vm.SelectedRow))
+                _vm.SelectedRow = row;
+        }
+
+        // ===================== «Свернуть/Развернуть все» и «Перенести в группу» (1.0.0.14) =====================
+
+        private void OnExpandAll_Click(object sender, RoutedEventArgs e) => _vm.ExpandAllCommand.Execute(null);
+
+        private void OnCollapseAll_Click(object sender, RoutedEventArgs e) => _vm.CollapseAllCommand.Execute(null);
+
+        private void OnMoveToGroup_Click(object sender, RoutedEventArgs e) => _vm.MoveToGroupCommand.Execute(null);
+
+        /// <summary>
+        /// VM назначила SelectedRow (загрузка, перенос в группу): синхронизируем дерево —
+        /// раскрываем родительскую папку и выделяем строку (отложенно, после layout).
+        /// </summary>
+        private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ServicesWindowViewModel.SelectedRow))
+                Dispatcher.BeginInvoke(new Action(() => SelectTreeRow(_vm.SelectedRow)));
+        }
+
+        private void SelectTreeRow(ServiceListRow? row)
+        {
+            if (row is null || ServicesList.Items.Count == 0)
+                return;
+            foreach (var node in ServicesList.Items)
+            {
+                var item = ServicesList.ItemContainerGenerator.ContainerFromItem(node) as TreeViewItem;
+                if (TrySelectTreeRow(item, row))
+                    return;
+            }
+        }
+
+        private bool TrySelectTreeRow(TreeViewItem? item, ServiceListRow row)
+        {
+            if (item is null)
+                return false;
+            if (ReferenceEquals(item.DataContext, row))
+            {
+                item.IsSelected = true;
+                item.BringIntoView();
+                return true;
+            }
+            if (item.HasItems && item.IsExpanded is false)
+                item.IsExpanded = true;
+            foreach (var child in item.Items)
+            {
+                var childItem = item.ItemContainerGenerator.ContainerFromItem(child) as TreeViewItem;
+                if (TrySelectTreeRow(childItem, row))
+                    return true;
+            }
+            return false;
         }
 
         private ContextMenu BuildRowContextMenu()
@@ -212,6 +286,9 @@ namespace Workspace1C
                 menu.Items.Add(CommandItem("Services.Continue", ServiceCommandGlyphs.ContinueGlyph, "#0EA5E9", _vm.ContinueCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartCommand));
+                menu.Items.Add(new Separator());
+                // «Перенести в группу» (issue #11, 1.0.0.14): только для службы.
+                menu.Items.Add(CommandItem("Services.MoveToGroup", "⇄", "#0EA5E9", _vm.MoveToGroupCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.MoveUp", "▲", "#2563EB", _vm.MoveUpCommand));
                 menu.Items.Add(CommandItem("Services.MoveDown", "▼", "#2563EB", _vm.MoveDownCommand));

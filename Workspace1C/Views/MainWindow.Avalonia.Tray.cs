@@ -31,6 +31,13 @@ namespace Workspace1C
         /// <summary>Нужен ли значок по настройкам: сам значок либо закрытие в трей.</summary>
         private bool TrayIconWanted => _vm is null || _vm.ShowTrayIcon || _vm.CloseToTray;
 
+        /// <summary>Кэш статусов служб для меню трея (issue #11, 1.0.0.14): без
+        /// блокирующего опроса systemctl при пересборке меню.</summary>
+        private Services.ServiceStatusCache? _serviceStatusCache;
+
+        /// <summary>Фоновое обновление кэша статусов служб.</summary>
+        private System.Threading.Timer? _servicesStatusTimer;
+
         /// <summary>
         /// Уводит окно в трей после успешного запуска, как это делает WPF-версия
         /// для обоих значений настройки. Выполняется через диспетчер: запрос
@@ -244,13 +251,12 @@ namespace Workspace1C
                     return null;
 
                 var data = store.Load();
+                // Статусы из кэша (мгновенно), обновление — фоном, UI не блокируется.
+                EnsureServicesStatusTimer();
+                RefreshServicesStatusesInBackground();
                 var items = new ServiceTrayMenuBuilder().Build(
                     data,
-                    name =>
-                    {
-                        try { return services.GetStatus(name).Status; }
-                        catch { return ServiceStatus.Unknown; }
-                    },
+                    name => ServicesStatusCache()?.GetStatus(name).Status ?? ServiceStatus.Unknown,
                     ServicePlatform.Linux);
 
                 var item = new NativeMenuItem(LocalizationManager.T("Tray.Services"));
@@ -386,10 +392,55 @@ namespace Workspace1C
         {
             if (_trayMenu is null)
                 return;
+            // Статусы изменились — кэш сбрасываем и опрашиваем заново в фоне.
+            _serviceStatusCache?.Invalidate();
+            RefreshServicesStatusesInBackground();
             // Статусы служб не входят в сигнатуру баз: сбрасываем отпечаток, чтобы
             // RefreshTrayMenu не отбросил пересборку по неизменённым базам.
             _traySignature = null;
             FillTrayMenu(_trayMenu);
+        }
+
+        /// <summary>Лениво создаёт кэш статусов служб.</summary>
+        private Services.ServiceStatusCache? ServicesStatusCache()
+        {
+            if (_serviceStatusCache is null)
+            {
+                var controller = AppServices.TryGetService<IServiceControllerService>();
+                if (controller is not null)
+                    _serviceStatusCache = new Services.ServiceStatusCache(controller);
+            }
+            return _serviceStatusCache;
+        }
+
+        /// <summary>Запускает фоновый таймер обновления кэша статусов служб (5 с).</summary>
+        private void EnsureServicesStatusTimer()
+        {
+            if (_servicesStatusTimer is not null)
+                return;
+            _servicesStatusTimer = new System.Threading.Timer(
+                _ => RefreshServicesStatusesInBackground(),
+                null,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(5));
+        }
+
+        /// <summary>Фоновое обновление кэша статусов по списку из services.json.</summary>
+        private void RefreshServicesStatusesInBackground()
+        {
+            var cache = ServicesStatusCache();
+            var store = AppServices.TryGetService<IServicesStore>();
+            if (cache is null || store is null)
+                return;
+            var data = store.Load();
+            var names = ServiceStoreData.NormalizeOrder(data)
+                .Where(k => !ServiceStoreData.IsGroupKey(k))
+                .Concat(data.Groups.SelectMany(g => g.Services))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (names.Count == 0)
+                return;
+            _ = cache.RefreshAsync(names);
         }
 
         /// <summary>

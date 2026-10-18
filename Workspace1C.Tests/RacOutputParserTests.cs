@@ -602,6 +602,24 @@ public sealed class RacOutputParserTests
     // ---------- ToInfobaseSummaries ----------
 
     [Fact]
+    public void ToInfobaseSummaries_FileBaseInCluster_HasEmptyDbmsAndPathInDbServer()
+    {
+        // File-база, зарегистрированная в кластере (issue #3, 1.0.0.14): rac отдаёт
+        // пустой «dbms» и путь каталога в «db-server». Парсер не должен искажать эти
+        // колонки — иначе диалог удаления покажет для файловой базы вариант
+        // «с удалением на сервере СУБД» (комментарий 7OH 18.10 17:16).
+        const string output =
+            "infobase\tname\tdescr\tdbms\tdb-server\tdb-name\tdb-user\tlocale\tsecurity-level\tlicensed\n" +
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\tФайловаяБД\t\t\tC:\\IBases\\ФайловаяБД\t1Cv8.1CD\t\tru\t0\t0\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal(string.Empty, infobase.Dbms);
+        Assert.Equal(@"C:\IBases\ФайловаяБД", infobase.DbServer);
+        Assert.Equal("1Cv8.1CD", infobase.DbName);
+    }
+
+    [Fact]
     public void ToInfobaseSummaries_ParsesSample()
     {
         const string output =

@@ -275,8 +275,15 @@ public sealed class ServiceStoreData
         var result = new ServiceStoreData();
         if (source is null)
             return result;
-        result.Services = NormalizeNames(source.Services);
         result.Groups = NormalizeGroups(source.Groups);
+        // Инвариант «служба ровно в одном месте» (1.0.0.14, issue #11): служба,
+        // попавшая в группу, не должна оставаться в корневом списке Services.
+        // Приоритет — группе (служба видна внутри папки-группы).
+        var inGroups = new HashSet<string>(
+            result.Groups.SelectMany(g => g.Services), StringComparer.OrdinalIgnoreCase);
+        result.Services = NormalizeNames(source.Services)
+            .Where(n => !inGroups.Contains(n))
+            .ToList();
         // Порядок нормализуем по ИСХОДНОМУ Order (у result.Order — пустой список по
         // умолчанию, иначе «порядок не задан» не отличить от «порядок пуст»).
         result.Order = NormalizeOrder(result.Services, result.Groups, source.Order);
@@ -369,10 +376,15 @@ public sealed class ServiceStoreData
         return result;
     }
 
-    /// <summary>Нормализует группы: Trim имени, пропуск пустых, удаление дубликатов имён (OrdinalIgnoreCase).</summary>
+    /// <summary>Нормализует группы: Trim имени, пропуск пустых, удаление дубликатов
+    /// имён (OrdinalIgnoreCase). Члены группы: Trim, пропуск пустых, удаление дубликатов
+    /// внутри группы И между группами — служба не может состоять в двух группах
+    /// (инвариант «служба ровно в одном месте», 1.0.0.14, issue #11); приоритет —
+    /// первой группе по порядку списка.</summary>
     private static List<ServiceGroup> NormalizeGroups(IReadOnlyList<ServiceGroup>? source)
     {
         var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var seenMembers = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
         var result = new List<ServiceGroup>();
         if (source is null)
             return result;
@@ -386,10 +398,19 @@ public sealed class ServiceStoreData
                 continue;
             if (!seen.Add(name))
                 continue;
+            var members = new List<string>();
+            foreach (var raw in group.Services ?? new List<string>())
+            {
+                var normalized = (raw ?? string.Empty).Trim();
+                if (normalized.Length == 0)
+                    continue;
+                if (seenMembers.Add(normalized))
+                    members.Add(normalized);
+            }
             result.Add(new ServiceGroup
             {
                 Name = name,
-                Services = NormalizeNames(group.Services)
+                Services = members
             });
         }
         return result;

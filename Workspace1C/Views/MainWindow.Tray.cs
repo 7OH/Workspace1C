@@ -35,6 +35,15 @@ namespace Workspace1C
         /// </summary>
         internal static Forms.NotifyIcon? TrayIconInstance { get; private set; }
 
+        /// <summary>Кэш статусов служб для меню трея (issue #11, 1.0.0.14): мгновенный
+        /// Ctrl+ПКМ без синхронного опроса статусов на UI-потоке.</summary>
+        private Services.ServiceStatusCache? _serviceStatusCache;
+
+        /// <summary>Фоновое обновление кэша статусов служб (5 с).</summary>
+        private System.Threading.Timer? _servicesStatusTimer;
+
+        private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
+
         private void InitializeTrayIcon()
         {
             try
@@ -645,6 +654,10 @@ namespace Workspace1C
 
         private void DisposeTrayIcon()
         {
+            // Останавливаем фоновое обновление статусов служб.
+            _servicesStatusTimer?.Dispose();
+            _servicesStatusTimer = null;
+            _serviceStatusCache = null;
             if (_trayIcon != null)
             {
                 _trayIcon.Visible = false;
@@ -697,9 +710,9 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Пункты подменю «Службы» по данным services.json и текущим статусам.
-        /// Опрос статусов блокирующий — допустимо: построение выполняется при
-        /// показе меню (Opening / набор пунктов).
+        /// Пункты подменю «Службы» по данным services.json и статусам из кэша
+        /// (issue #11, 1.0.0.14): построение не блокирует UI — статусы читаются
+        /// из <see cref="ServiceStatusCache"/> и обновляются фоном.
         /// </summary>
         private List<ServiceMenuItem> BuildServicesMenuItems()
         {
@@ -713,11 +726,55 @@ namespace Workspace1C
                 // и «Все сервисы» с пустым набором.
                 return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Windows);
             }
-            return builder.Build(data, name =>
+            // Мгновенный показ: статусы из кэша (фоновый таймер держит их свежими).
+            var cache = ServicesStatusCache();
+            EnsureServicesStatusTimer();
+            return builder.Build(data,
+                name => cache?.GetStatus(name) ?? new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown },
+                ServicePlatform.Windows);
+        }
+
+        /// <summary>Лениво создаёт кэш статусов (контроллер уже проверен вызывающим).</summary>
+        private Services.ServiceStatusCache? ServicesStatusCache()
+        {
+            if (_serviceStatusCache is null)
             {
-                try { return services.GetStatus(name); }
-                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
-            }, ServicePlatform.Windows);
+                var controller = AppServices.TryGetService<IServiceControllerService>();
+                if (controller is not null)
+                    _serviceStatusCache = new Services.ServiceStatusCache(controller);
+            }
+            return _serviceStatusCache;
+        }
+
+        /// <summary>Запускает фоновый таймер обновления кэша статусов (5 с).
+        /// Опросы — в рабочих потоках, UI не блокируется.</summary>
+        private void EnsureServicesStatusTimer()
+        {
+            if (_servicesStatusTimer is not null)
+                return;
+            _servicesStatusTimer = new System.Threading.Timer(
+                _ => RefreshServicesStatusesInBackground(),
+                null,
+                TimeSpan.FromSeconds(1),
+                ServicesStatusRefreshInterval);
+        }
+
+        /// <summary>Фоновое обновление кэша статусов по списку из services.json.</summary>
+        private void RefreshServicesStatusesInBackground()
+        {
+            var cache = ServicesStatusCache();
+            var store = AppServices.TryGetService<IServicesStore>();
+            if (cache is null || store is null)
+                return;
+            var data = store.Load();
+            var names = ServiceStoreData.NormalizeOrder(data)
+                .Where(k => !ServiceStoreData.IsGroupKey(k))
+                .Concat(data.Groups.SelectMany(g => g.Services))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (names.Count == 0)
+                return;
+            _ = cache.RefreshAsync(names);
         }
 
         /// <summary>Подменю «Службы» для штатного меню трея (WinForms-адаптер модели ServiceTrayMenuBuilder).</summary>
@@ -913,6 +970,9 @@ namespace Workspace1C
         /// <summary>Пересборка меню трея после операции со службами (статусы обновились).</summary>
         private void RebuildTrayMenuFromServices()
         {
+            // Статусы изменились — сбрасываем кэш и опрашиваем заново в фоне.
+            _serviceStatusCache?.Invalidate();
+            RefreshServicesStatusesInBackground();
             if (_trayIcon?.ContextMenuStrip is { } menu)
                 RebuildTrayMenu(menu);
         }

@@ -124,6 +124,7 @@ public sealed class ServiceGroupRow : ServiceListRow
     private GroupStatusKind _groupStatus = GroupStatusKind.Unknown;
     private string _statusText = string.Empty;
     private string _statusColorHex = ServiceGroupStatusDisplay.ColorHex(GroupStatusKind.Unknown);
+    private bool _isExpanded = true;
 
     /// <param name="group">Группа из хранилища (имя + состав).</param>
     /// <param name="statuses">Статусы служб (по имени) для расчёта агрегированного статуса.</param>
@@ -132,6 +133,13 @@ public sealed class ServiceGroupRow : ServiceListRow
         Name = group.Name;
         ChildServices = group.Services.ToList();
         UpdateChildrenStatuses(statuses);
+        // Дети-строки для иерархического списка (issue #11, 1.0.0.14): службы
+        // показываются ВНУТРИ папки-группы, как базы внутри групп в основном окне.
+        foreach (var memberName in ChildServices)
+        {
+            if (statuses is not null && statuses.TryGetValue(memberName, out var memberInfo))
+                Children.Add(new ServiceInfoRow(memberInfo));
+        }
     }
 
     /// <summary>Имя группы (описание; уникально — используется как ключ сохранения).</summary>
@@ -142,6 +150,19 @@ public sealed class ServiceGroupRow : ServiceListRow
 
     /// <summary>Имена служб группы в порядке пользователя.</summary>
     public IReadOnlyList<string> ChildServices { get; }
+
+    /// <summary>Строки-службы ВНУТРИ папки-группы (иерархический список, issue #11, 1.0.0.14).</summary>
+    public ObservableCollection<ServiceInfoRow> Children { get; } = new();
+
+    /// <summary>Есть ли службы в группе (для шаблона узла дерева).</summary>
+    public bool HasChildren => Children.Count > 0;
+
+    /// <summary>Развёрнута ли папка-группа в дереве (команды «Свернуть/Развернуть все»).</summary>
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set => SetProperty(ref _isExpanded, value);
+    }
 
     /// <summary>Агрегированный статус группы (все запущены / частично / не запущены / неизвестно).</summary>
     public GroupStatusKind GroupStatus
@@ -294,8 +315,12 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     private ICommand? _addGroupCommand;
     private ICommand? _editGroupCommand;
     private ICommand? _deleteGroupCommand;
+    private ICommand? _expandAllCommand;
+    private ICommand? _collapseAllCommand;
+    private ICommand? _moveToGroupCommand;
 
     private Func<ServiceGroup?, IReadOnlyList<string>, ServiceGroup?>? _groupEditorProvider;
+    private Func<string, string?>? _groupPickerProvider;
 
     /// <param name="services">Платформенный сервис управления службами.</param>
     /// <param name="store">Хранилище списка служб (services.json).</param>
@@ -405,6 +430,9 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// <summary>Можно ли удалить выбранную группу.</summary>
     public bool CanDeleteGroup { get; private set; }
 
+    /// <summary>Можно ли перенести выбранную службу в группу (или обратно «Без группы»).</summary>
+    public bool CanMoveToGroup { get; private set; }
+
     /// <summary>
     /// Провайдер модального окна «Настроить» (чеклист служб): возвращает выбранные
     /// имена или null при отмене. Устанавливается окном «Управление службами».
@@ -426,6 +454,23 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             if (_groupEditorProvider == value)
                 return;
             _groupEditorProvider = value;
+            RefreshCommandStates();
+        }
+    }
+
+    /// <summary>
+    /// Провайдер диалога «Перенести в группу» (issue #11, 1.0.0.14): вход — имя службы,
+    /// выход — имя целевой группы (null — «Без группы», корневой список) или null при
+    /// отмене. Устанавливается окном «Управление службами».
+    /// </summary>
+    public Func<string, string?>? GroupPickerProvider
+    {
+        get => _groupPickerProvider;
+        set
+        {
+            if (_groupPickerProvider == value)
+                return;
+            _groupPickerProvider = value;
             RefreshCommandStates();
         }
     }
@@ -501,6 +546,27 @@ public sealed class ServicesWindowViewModel : ViewModelBase
 
     /// <summary>«Удалить группу» — выбранную группу (с подтверждением).</summary>
     public ICommand DeleteGroupCommand => _deleteGroupCommand ??= new RelayCommand(async () => await DeleteGroupAsync());
+
+    /// <summary>«Развернуть все» — раскрыть все папки-группы в дереве (issue #11, 1.0.0.14).</summary>
+    public ICommand ExpandAllCommand =>
+        _expandAllCommand ??= new RelayCommand(() => SetAllGroupsExpanded(true), () => CanExpandAllGroups);
+
+    /// <summary>«Свернуть все» — свернуть все папки-группы в дереве.</summary>
+    public ICommand CollapseAllCommand =>
+        _collapseAllCommand ??= new RelayCommand(() => SetAllGroupsExpanded(false), () => CanExpandAllGroups);
+
+    /// <summary>«Перенести в группу»: диалог выбора группы через <see cref="GroupPickerProvider"/>.</summary>
+    public ICommand MoveToGroupCommand => _moveToGroupCommand ??= new RelayCommand(async () =>
+    {
+        if (SelectedRow is not ServiceInfoRow serviceRow)
+            return;
+        if (GroupPickerProvider is not { } picker)
+            return;
+        var target = picker.Invoke(serviceRow.ServiceName);
+        if (target is null)
+            return; // отменено пользователем
+        await MoveToGroupAsync(serviceRow.ServiceName, target);
+    });
 
     // ===================== Загрузка =====================
 
@@ -811,12 +877,20 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         await RefreshAsync();
     }
 
+    /// <summary>
+    /// Все строки-службы: корневые службы + члены групп (иерархический список,
+    /// issue #11, 1.0.0.14). «Все сервисы» обязаны охватывать и службы в группах.
+    /// </summary>
+    private IEnumerable<ServiceInfoRow> AllServiceRows() =>
+        Rows.OfType<ServiceInfoRow>()
+            .Concat(Rows.OfType<ServiceGroupRow>().SelectMany(g => g.Children));
+
     /// <summary>Строки-цели операции: выбранная (если применима) или все применимые для «Все сервисы».</summary>
     private List<ServiceInfoRow> CollectTargets(ServiceAction action, bool all)
     {
         if (all)
         {
-            return Rows.OfType<ServiceInfoRow>()
+            return AllServiceRows()
                 .Where(r => ServiceActionAvailability.CanExecute(action, r.StatusKind, r.CanPauseAndContinue, r.CanStop, _platform))
                 .ToList();
         }
@@ -871,6 +945,13 @@ public sealed class ServicesWindowViewModel : ViewModelBase
 
         var data = _store.Load();
         data.Groups.Add(group);
+        // Члены новой группы уходят из корневого списка (инвариант «служба ровно
+        // в одном месте», issue #11, 1.0.0.14) — из Services и ключей Order.
+        foreach (var memberName in group.Services)
+        {
+            data.Services.RemoveAll(n => string.Equals(n, memberName, StringComparison.OrdinalIgnoreCase));
+            data.Order.RemoveAll(k => string.Equals(k, memberName, StringComparison.OrdinalIgnoreCase));
+        }
         data.Order = InsertGroupAtStart(data, group.Name);
         _store.Save(data);
         await RebuildRowsAsync(_store.Load());
@@ -913,6 +994,26 @@ public sealed class ServicesWindowViewModel : ViewModelBase
                 .Select(k => string.Equals(k, oldKey, StringComparison.OrdinalIgnoreCase) ? newKey : k)
                 .ToList();
         }
+        // Члены обновлённой группы уходят из корневого списка (инвариант «служба
+        // ровно в одном месте», issue #11, 1.0.0.14).
+        foreach (var memberName in newGroup.Services)
+        {
+            data.Services.RemoveAll(n => string.Equals(n, memberName, StringComparison.OrdinalIgnoreCase));
+            data.Order.RemoveAll(k => string.Equals(k, memberName, StringComparison.OrdinalIgnoreCase));
+        }
+        // Исключённые из группы члены возвращаются в корневой список (и его порядок):
+        // служба не должна «исчезать» из окна.
+        var removedMembers = (group.Services ?? new List<string>())
+            .Where(n => !string.IsNullOrWhiteSpace(n) &&
+                        !newGroup.Services.Contains(n, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var memberName in removedMembers)
+        {
+            if (!data.Services.Contains(memberName, StringComparer.OrdinalIgnoreCase))
+                data.Services.Add(memberName);
+            if (!data.Order.Contains(memberName, StringComparer.OrdinalIgnoreCase))
+                data.Order.Add(memberName);
+        }
         _store.Save(data);
         await RebuildRowsAsync(_store.Load());
         SelectedRow = Rows.OfType<ServiceGroupRow>()
@@ -940,9 +1041,10 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Список служб, доступных для выбора в окне редактирования группы (Задача 3):
-    /// общий список (службы вне групп + члены всех групп) минус службы, уже
-    /// используемые в ДРУГИХ группах; свои члены остаются доступными.
+    /// Список служб, доступных для выбора в окне редактирования группы (issue #11, 1.0.0.14):
+    /// только те службы, которые НЕ состоят в других группах И НЕ состоят в этой же группе
+    /// (требование 7OH 18.10). Члены редактируемой группы остаются в «Управляемом списке»,
+    /// в «Все службы» они не дублируются.
     /// </summary>
     public IReadOnlyList<string> AvailableServicesForGroup(ServiceGroup? group)
     {
@@ -950,9 +1052,12 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var g in data.Groups)
         {
-            if (group is not null && string.Equals(g.Name, group.Name, StringComparison.OrdinalIgnoreCase))
-                continue; // свои члены доступны для выбора
             foreach (var serviceName in g.Services)
+                used.Add(serviceName);
+        }
+        if (group is not null)
+        {
+            foreach (var serviceName in group.Services)
                 used.Add(serviceName);
         }
 
@@ -965,6 +1070,62 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             .Where(n => !used.Contains(n))
             .ToList();
     }
+
+    /// <summary>Имена групп для диалога «Перенести в группу» (порядок — как в списке).</summary>
+    public IReadOnlyList<string> GetGroupNames() =>
+        Rows.OfType<ServiceGroupRow>().Select(g => g.Name).ToList();
+
+    /// <summary>Группа, в которой сейчас состоит служба; null — служба вне групп.</summary>
+    public string? CurrentGroupOf(string serviceName) =>
+        Rows.OfType<ServiceGroupRow>()
+            .FirstOrDefault(g => g.ChildServices.Contains(serviceName, StringComparer.OrdinalIgnoreCase))
+            ?.Name;
+
+    /// <summary>
+    /// Перенос службы между корнем («Без группы») и группами (issue #11, 1.0.0.14):
+    /// служба может находиться ровно в одном месте; из текущего места удаляется,
+    /// в целевое — добавляется, порядок сохраняется. После перестроения выбирается
+    /// новое место службы (корневая строка или папка-группа).
+    /// </summary>
+    public async Task MoveToGroupAsync(string serviceName, string? targetGroupName)
+    {
+        var data = _store.Load();
+        data.Services.RemoveAll(n => string.Equals(n, serviceName, StringComparison.OrdinalIgnoreCase));
+        foreach (var g in data.Groups)
+            g.Services.RemoveAll(n => string.Equals(n, serviceName, StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(targetGroupName))
+        {
+            // «Без группы» — корневой список; ключ службы возвращается в порядок строк.
+            data.Services.Add(serviceName);
+            if (!data.Order.Contains(serviceName, StringComparer.OrdinalIgnoreCase))
+                data.Order.Add(serviceName);
+        }
+        else
+        {
+            var target = data.Groups.FirstOrDefault(g => string.Equals(g.Name, targetGroupName, StringComparison.OrdinalIgnoreCase));
+            if (target is null)
+                return;
+            target.Services.Add(serviceName);
+            // Внутри папки ключ верхнего уровня не нужен (служба не корневая).
+            data.Order.RemoveAll(k => string.Equals(k, serviceName, StringComparison.OrdinalIgnoreCase));
+        }
+        _store.Save(data);
+        await RebuildRowsAsync(_store.Load());
+        RestoreSelection(string.IsNullOrWhiteSpace(targetGroupName)
+            ? serviceName
+            : ServiceStoreData.GroupKey(targetGroupName));
+    }
+
+    /// <summary>Раскрывает/сворачивает все папки-группы (команды «Развернуть/Свернуть все»).</summary>
+    private void SetAllGroupsExpanded(bool isExpanded)
+    {
+        foreach (var group in Rows.OfType<ServiceGroupRow>())
+            group.IsExpanded = isExpanded;
+    }
+
+    /// <summary>Есть ли группы в списке (доступность «Свернуть/Развернуть все»).</summary>
+    public bool CanExpandAllGroups => Rows.OfType<ServiceGroupRow>().Any();
 
     /// <summary>
     /// Вставляет ключ новой группы в начало общего порядка (комментарий 7OH).
@@ -1102,8 +1263,8 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             CanStartGroup = CanStopGroup = CanPauseGroup = CanContinueGroup = CanRestartGroup = false;
         }
 
-        // «Все сервисы» — по строкам-службам.
-        var infos = Rows.OfType<ServiceInfoRow>().Select(r => new ServiceInfo
+        // «Все сервисы» — по ВСЕМ строкам-службам (корневые + члены групп, issue #11, 1.0.0.14).
+        var infos = AllServiceRows().Select(r => new ServiceInfo
         {
             ServiceName = r.ServiceName,
             Status = r.StatusKind,
@@ -1117,6 +1278,19 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         // Управление группами.
         CanEditGroup = GroupEditorProvider is not null && row is ServiceGroupRow;
         CanDeleteGroup = row is ServiceGroupRow;
+
+        // «Перенести в группу»: для строки-службы, если есть куда переносить (есть
+        // группы, либо служба уже в группе — тогда доступен вариант «Без группы»).
+        if (row is ServiceInfoRow serviceRow)
+        {
+            var inGroup = Rows.OfType<ServiceGroupRow>()
+                .Any(g => g.ChildServices.Contains(serviceRow.ServiceName, StringComparer.OrdinalIgnoreCase));
+            CanMoveToGroup = Rows.OfType<ServiceGroupRow>().Any() || inGroup;
+        }
+        else
+        {
+            CanMoveToGroup = false;
+        }
 
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(CanStop));
@@ -1136,6 +1310,11 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanAddGroup));
         OnPropertyChanged(nameof(CanEditGroup));
         OnPropertyChanged(nameof(CanDeleteGroup));
+        OnPropertyChanged(nameof(CanMoveToGroup));
+        OnPropertyChanged(nameof(CanExpandAllGroups));
+        OnPropertyChanged(nameof(ExpandAllCommand));
+        OnPropertyChanged(nameof(CollapseAllCommand));
+        OnPropertyChanged(nameof(MoveToGroupCommand));
     }
 
     /// <summary>Применяет действие в UI-потоке (dispatch) или сразу (тесты).</summary>

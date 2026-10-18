@@ -33,7 +33,7 @@ namespace Workspace1C
         protected override bool SupportsMaximizeButton => true;
 
         private readonly ServicesWindowViewModel _vm;
-        private readonly ListBox _servicesList;
+        private readonly TreeView _servicesList;
 
         public ServicesWindow()
         {
@@ -65,6 +65,9 @@ namespace Workspace1C
             // открывает модальное окно группы и возвращает готовую группу или null.
             _vm.GroupEditorProvider = ShowGroupEditor;
 
+            // «Перенести в группу» (issue #11, 1.0.0.14): диалог выбора группы.
+            _vm.GroupPickerProvider = ShowGroupPicker;
+
             // ---- Первая строка: «Настроить» и «Системный диалог» (скрыт на Linux). ----
             var configureButton = BuildActionButton(
                 LocalizationManager.T("Services.Configure"), "⚙", () => _vm.ConfigureCommand.Execute(null), "#6B7280");
@@ -95,6 +98,15 @@ namespace Workspace1C
             // ---- Строка кнопок над списком (issue #11, итерация 2 — группы служб). ----
             // Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже»
             // работает для строк обоих типов (службы и группы).
+            // «Свернуть все»/«Развернуть все» (issue #11, 1.0.0.14): как в основном окне,
+            // иконками, с разделителем после них (перед «Переместить выше/ниже»).
+            var expandAllButton = BuildIconButton("⏷", LocalizationManager.T("Services.ExpandAll"),
+                () => _vm.ExpandAllCommand.Execute(null), "#2563EB");
+            expandAllButton.Bind(Button.IsEnabledProperty, new Binding("CanExpandAllGroups"));
+            var collapseAllButton = BuildIconButton("⏶", LocalizationManager.T("Services.CollapseAll"),
+                () => _vm.CollapseAllCommand.Execute(null), "#2563EB");
+            collapseAllButton.Bind(Button.IsEnabledProperty, new Binding("CanExpandAllGroups"));
+
             var moveUpButton = BuildIconButton("▲", LocalizationManager.T("Services.MoveUp"),
                 () => _vm.MoveUpCommand.Execute(null), "#2563EB");
             moveUpButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveUp"));
@@ -109,6 +121,10 @@ namespace Workspace1C
             var editGroupButton = BuildIconButton("✎", LocalizationManager.T("Services.GroupEditHint"),
                 () => _vm.EditGroupCommand.Execute(null), "#7C3AED");
             editGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanEditGroup"));
+            // «Перенести в группу» (issue #11, 1.0.0.14): рядом с кнопкой правки.
+            var moveToGroupButton = BuildIconButton("⇄", LocalizationManager.T("Services.MoveToGroupHint"),
+                () => _vm.MoveToGroupCommand.Execute(null), "#0EA5E9");
+            moveToGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveToGroup"));
             var deleteGroupButton = BuildIconButton("🗑", LocalizationManager.T("Services.GroupDeleteHint"),
                 () => _vm.DeleteGroupCommand.Execute(null), "#DC2626");
             deleteGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanDeleteGroup"));
@@ -172,11 +188,15 @@ namespace Workspace1C
                 Margin = new Thickness(0, 0, 0, 6),
                 Children =
                 {
+                    expandAllButton,
+                    collapseAllButton,
+                    Divider(),
                     moveUpButton,
                     moveDownButton,
                     Divider(),
                     addGroupButton,
                     editGroupButton,
+                    moveToGroupButton,
                     deleteGroupButton,
                     Divider(),
                     refreshButton,
@@ -204,22 +224,26 @@ namespace Workspace1C
                 [!IsVisibleProperty] = new Binding("!HasRows")
             };
 
-            // ---- Список служб и групп (смешанные строки, issue #11, итерация 2). ----
-            _servicesList = new ListBox
-            {
-                ItemTemplate = new FuncDataTemplate<ServiceListRow>((row, _) => BuildRow(row))
-            };
-            _servicesList.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
+            // ---- Список служб — иерархический (issue #11, 1.0.0.14): службы вне групп —
+            //      корневые строки, группы — папки со службами внутри, как в основном окне. ----
+            _servicesList = new TreeView();
+            // Папка-группа (дети — службы группы) и строка-служба — по типу элемента.
+            _servicesList.DataTemplates.Add(
+                new FuncTreeDataTemplate<ServiceGroupRow>((row, _) => BuildRow(row), o => o.Children));
+            _servicesList.DataTemplates.Add(
+                new FuncDataTemplate<ServiceInfoRow>((row, _) => BuildRow(row)));
+            _servicesList.Styles.Add(new Style(x => x.OfType<TreeViewItem>())
             {
                 Setters =
                 {
-                    new Setter(ListBoxItem.MinHeightProperty, 26d),
-                    new Setter(ListBoxItem.PaddingProperty, new Thickness(8, 2)),
-                    new Setter(ListBoxItem.VerticalContentAlignmentProperty, VerticalAlignment.Center)
+                    new Setter(TreeViewItem.MinHeightProperty, 26d),
+                    new Setter(TreeViewItem.PaddingProperty, new Thickness(8, 2)),
+                    // Раскрытие папок-групп связано с VM (команды «Свернуть/Развернуть все»).
+                    new Setter(TreeViewItem.IsExpandedProperty, new Binding("IsExpanded", BindingMode.TwoWay))
                 }
             });
             _servicesList.Bind(ItemsControl.ItemsSourceProperty, new Binding("Rows"));
-            _servicesList.Bind(ListBox.SelectedItemProperty, new Binding("SelectedRow", BindingMode.TwoWay));
+            _servicesList.Bind(TreeView.SelectedItemProperty, new Binding("SelectedRow", BindingMode.TwoWay));
 
             // ---- Статус-строка окна. ----
             var statusText = new TextBlock
@@ -274,6 +298,19 @@ namespace Workspace1C
             if (!window.ShowSync(this))
                 return null;
             return window.Result;
+        }
+
+        /// <summary>
+        /// «Перенести в группу» (issue #11, 1.0.0.14): диалог выбора места для службы.
+        /// null — отмена; «» (пусто) — «Без группы»; иначе — имя группы.
+        /// </summary>
+        private string? ShowGroupPicker(string serviceName)
+        {
+            var window = new ServiceGroupPickerWindow(
+                serviceName, _vm.GetGroupNames(), _vm.CurrentGroupOf(serviceName));
+            if (!window.ShowSync(this))
+                return null;
+            return window.SelectedGroupName;
         }
 
         // ===================== Построители =====================
@@ -456,46 +493,64 @@ namespace Workspace1C
 
             // Контекстное меню строки: для службы — команды службы; для группы — команды
             // группы + «Изменить/Удалить группу» + перемещение (issue #11, итерация 2).
+            // Пункты с цветными иконками — как контекстное меню основного окна (1.0.0.14).
             var menu = new ContextMenu();
             if (row.IsGroup)
             {
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Start"), _vm.StartGroupCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Stop"), _vm.StopGroupCommand);
+                AddRowMenuCommand(menu, "Services.Start", _vm.StartGroupCommand, "▶", "#16A34A");
+                AddRowMenuCommand(menu, "Services.Stop", _vm.StopGroupCommand, "■", "#DC2626");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Pause"), _vm.PauseGroupCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Continue"), _vm.ContinueGroupCommand);
+                AddRowMenuCommand(menu, "Services.Pause", _vm.PauseGroupCommand, "❚❚", "#D97706");
+                AddRowMenuCommand(menu, "Services.Continue", _vm.ContinueGroupCommand, ServiceCommandGlyphs.ContinueGlyph, "#0EA5E9");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Restart"), _vm.RestartGroupCommand);
+                AddRowMenuCommand(menu, "Services.Restart", _vm.RestartGroupCommand, "⟲", "#2563EB");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.EditGroup"), _vm.EditGroupCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.DeleteGroup"), _vm.DeleteGroupCommand);
+                AddRowMenuCommand(menu, "Services.EditGroup", _vm.EditGroupCommand, "✎", "#7C3AED");
+                AddRowMenuCommand(menu, "Services.DeleteGroup", _vm.DeleteGroupCommand, "🗑", "#DC2626");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveUp"), _vm.MoveUpCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveDown"), _vm.MoveDownCommand);
+                AddRowMenuCommand(menu, "Services.MoveUp", _vm.MoveUpCommand, "▲", "#2563EB");
+                AddRowMenuCommand(menu, "Services.MoveDown", _vm.MoveDownCommand, "▼", "#2563EB");
             }
             else
             {
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Start"), _vm.StartCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Stop"), _vm.StopCommand);
+                AddRowMenuCommand(menu, "Services.Start", _vm.StartCommand, "▶", "#16A34A");
+                AddRowMenuCommand(menu, "Services.Stop", _vm.StopCommand, "■", "#DC2626");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Pause"), _vm.PauseCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Continue"), _vm.ContinueCommand);
+                AddRowMenuCommand(menu, "Services.Pause", _vm.PauseCommand, "❚❚", "#D97706");
+                AddRowMenuCommand(menu, "Services.Continue", _vm.ContinueCommand, ServiceCommandGlyphs.ContinueGlyph, "#0EA5E9");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.Restart"), _vm.RestartCommand);
+                AddRowMenuCommand(menu, "Services.Restart", _vm.RestartCommand, "⟲", "#2563EB");
                 menu.Items.Add(new Separator());
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveUp"), _vm.MoveUpCommand);
-                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveDown"), _vm.MoveDownCommand);
+                // «Перенести в группу» (issue #11, 1.0.0.14): только для службы.
+                AddRowMenuCommand(menu, "Services.MoveToGroup", _vm.MoveToGroupCommand, "⇄", "#0EA5E9");
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, "Services.MoveUp", _vm.MoveUpCommand, "▲", "#2563EB");
+                AddRowMenuCommand(menu, "Services.MoveDown", _vm.MoveDownCommand, "▼", "#2563EB");
             }
             grid.ContextMenu = menu;
 
             return grid;
         }
 
-        private static void AddRowMenuCommand(ContextMenu menu, string header, System.Windows.Input.ICommand command)
+        private static void AddRowMenuCommand(
+            ContextMenu menu, string textKey, System.Windows.Input.ICommand command,
+            string? icon = null, string? colorHex = null)
         {
             // Пункт добавляется с командой VM (не биндингом): контекстное меню лежит вне
-            // визуального дерева, команда уже резолвлена в конструкторе строки.
-            menu.Items.Add(new MenuItem { Header = header, Command = command });
+            // визуального дерева, команда уже резолвлена в конструкторе строки. Иконка —
+            // цветной глиф, как в контекстном меню основного окна (issue #11, 1.0.0.14).
+            var item = new MenuItem { Header = LocalizationManager.T(textKey), Command = command };
+            if (icon is not null)
+            {
+                item.Icon = new TextBlock
+                {
+                    Text = icon,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = colorHex is null ? null : new SolidColorBrush(Color.Parse(colorHex))
+                };
+            }
+            menu.Items.Add(item);
         }
     }
 }

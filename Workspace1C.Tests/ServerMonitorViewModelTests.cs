@@ -1020,15 +1020,34 @@ public sealed class ServerMonitorViewModelTests
     {
         // Вариант «с удалением на сервере СУБД» доступен только клиент-серверным базам
         // (комментарий 7OH от 2026-10-17); для файловых — только «просто удалить из кластера».
+        // С 1.0.0.14 — «белый список» известных СУБД (issue #3, 18.10 17:16): файловая база
+        // больше не получает вариант «с удалением на сервере СУБД», даже если rac отдал
+        // в «dbms» нестандартное значение.
         Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.MssqlServer })));
         Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "postgresql" })));
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.IbmDb2 })));
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.OracleDatabase })));
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.Sqlite })));
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.ServerOdbc })));
 
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.File })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = "File" })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = string.Empty })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = "   " })));
+        // Незнакомое значение (например, версия rac отдаёт путь или иное «dbms» для
+        // файловой базы) — консервативно считаем файловой/неизвестной (1.0.0.14).
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = "FileBase" })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(null));
     }
 

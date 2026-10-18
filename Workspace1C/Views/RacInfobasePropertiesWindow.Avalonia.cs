@@ -33,7 +33,8 @@ namespace Workspace1C
             DataContext = vm;
             Title = T("ServerMonitor.Infobase.Props.Title");
             Width = 820;
-            // 2 вкладки (issue #3, 18.10 08:51) — окно ниже, прокрутка не нужна.
+            // 2 вкладки (issue #3, 18.10 08:51); с 1.0.0.14 первой открывается
+            // «Настройки», контент вкладок прокручивается (ScrollViewer).
             Height = 660;
             MinWidth = 680;
             MinHeight = 520;
@@ -139,6 +140,14 @@ namespace Workspace1C
             };
             basicPanel.Children.Add(Group(adminPanel));
 
+            // «Разрешить выдачу лицензий» вынесено выше (issue #3, 1.0.0.14):
+            // раньше на малых разрешениях чекбокс обрезался низом формы.
+            var license = Check(T("ServerMonitor.Infobase.Props.LicenseDistribution"),
+                nameof(RacInfobasePropertiesViewModel.LicenseDistributionAllowed));
+            license.Margin = new Thickness(0, 8, 0, 0);
+            license.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
+            basicPanel.Children.Add(license);
+
             basicPanel.Children.Add(TwoColumns(
                 Field(T("ServerMonitor.Infobase.Name"), Text(nameof(RacInfobasePropertiesViewModel.Name), readOnly: true)),
                 Field(T("ServerMonitor.Infobase.Props.SecureConnection"),
@@ -161,12 +170,6 @@ namespace Workspace1C
                 Field(T("ServerMonitor.Infobase.DbName"), Text(nameof(RacInfobasePropertiesViewModel.DbName))),
                 Field(T("ServerMonitor.Infobase.DbUser"), Text(nameof(RacInfobasePropertiesViewModel.DbUser))),
                 Field(T("ServerMonitor.Infobase.DbPassword"), dbPassword)));
-
-            var license = Check(T("ServerMonitor.Infobase.Props.LicenseDistribution"),
-                nameof(RacInfobasePropertiesViewModel.LicenseDistributionAllowed));
-            license.Margin = new Thickness(0, 10, 0, 0);
-            license.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
-            basicPanel.Children.Add(license);
 
             var settingsPanel = new StackPanel { Spacing = 2 };
 
@@ -215,20 +218,23 @@ namespace Workspace1C
             extra.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
             settingsPanel.Children.Add(extra);
 
+            // Первой открывается «Настройки» (issue #3, 1.0.0.14): там чаще всего
+            // вносят исправления; контент вкладок прокручивается (ScrollViewer) —
+            // форма компактнее, но при малом разрешении ничего не теряется.
             var tabs = new TabControl { Margin = new Thickness(0, 6, 0, 0) };
-            tabs.Items.Add(new TabItem
-            {
-                Header = T("ServerMonitor.Infobase.Props.Tab.Basic"),
-                Padding = new Thickness(14, 6),
-                FontSize = 12.5,
-                Content = basicPanel
-            });
             tabs.Items.Add(new TabItem
             {
                 Header = T("ServerMonitor.Infobase.Props.Tab.Settings"),
                 Padding = new Thickness(14, 6),
                 FontSize = 12.5,
-                Content = settingsPanel
+                Content = new ScrollViewer { Content = settingsPanel }
+            });
+            tabs.Items.Add(new TabItem
+            {
+                Header = T("ServerMonitor.Infobase.Props.Tab.Basic"),
+                Padding = new Thickness(14, 6),
+                FontSize = 12.5,
+                Content = new ScrollViewer { Content = basicPanel }
             });
             root.Children.Add(tabs);
             return root;
@@ -254,7 +260,8 @@ namespace Workspace1C
             Text = text,
             FontSize = 12,
             FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(0, 8, 0, 3)
+            // Компактнее (issue #3, 1.0.0.14): часть полей не помещалась по высоте.
+            Margin = new Thickness(0, 4, 0, 2)
         };
 
         private static TextBox Text(string path, bool readOnly = false)
@@ -325,7 +332,7 @@ namespace Workspace1C
             {
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(10, 4, 10, 10),
+                Padding = new Thickness(10, 2, 10, 8),
                 Child = content
             };
             ThemeBrushes.Bind(border, Border.BorderBrushProperty, "BorderColorBrush");

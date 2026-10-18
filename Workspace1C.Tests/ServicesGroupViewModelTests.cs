@@ -182,9 +182,12 @@ public sealed class ServicesGroupViewModelTests
         var group = env.Store.Stored.Groups.Single();
         Assert.Equal("Новая", group.Name);
         Assert.Equal(new[] { "a", "b" }, group.Services);
-        // Позиция группы сохранена; ключ Order обновлён при переименовании.
-        Assert.Equal(new[] { "group:Новая", "a" }, env.Store.Stored.Order);
+        // Позиция группы сохранена; ключ Order обновлён при переименовании. Члены группы
+        // (a, b) — только внутри папки: корневых ключей «a»/«b» нет (инвариант «служба
+        // ровно в одном месте», issue #11, 1.0.0.14).
+        Assert.Equal(new[] { "group:Новая" }, env.Store.Stored.Order);
         Assert.Equal("Новая", ((ServiceGroupRow)env.Vm.Rows[0]).Name);
+        Assert.Equal(new[] { "a", "b" }, ((ServiceGroupRow)env.Vm.Rows[0]).Children.Select(r => r.ServiceName));
     }
 
     [Fact]
@@ -254,7 +257,7 @@ public sealed class ServicesGroupViewModelTests
     }
 
     [Fact]
-    public void AvailableServicesForGroup_ExcludesOtherGroupsMembers_KeepsOwnMembers()
+    public void AvailableServicesForGroup_ExcludesOtherGroupsAndOwnMembers()
     {
         var env = Create();
         env.Fake.Services["s1"] = Info("s1", "S1", ServiceStatus.Running);
@@ -275,13 +278,14 @@ public sealed class ServicesGroupViewModelTests
         // Новая группа: занятые ДРУГИМИ группами (все) исключаются — остаётся только s2.
         Assert.Equal(new[] { "s2" }, env.Vm.AvailableServicesForGroup(null));
 
-        // Правка Г1: свои члены (s1, g1x) доступны, члены Г2 (g2x) исключены.
+        // Правка Г1: доступны ТОЛЬКО службы «не в других группах И не в этой же группе»
+        // (требование 7OH, 1.0.0.14): свои члены (s1, g1x) в списке «Все службы» не дублируются.
         var g1 = env.Store.Stored.Groups[0];
-        Assert.Equal(new[] { "s1", "s2", "g1x" }, env.Vm.AvailableServicesForGroup(g1));
+        Assert.Equal(new[] { "s2" }, env.Vm.AvailableServicesForGroup(g1));
 
-        // Правка Г2: свои члены (g2x) доступны, члены Г1 (s1, g1x) исключены.
+        // Правка Г2: свои члены (g2x) не дублируются, члены Г1 исключены.
         var g2 = env.Store.Stored.Groups[1];
-        Assert.Equal(new[] { "s2", "g2x" }, env.Vm.AvailableServicesForGroup(g2));
+        Assert.Equal(new[] { "s2" }, env.Vm.AvailableServicesForGroup(g2));
     }
 
     [Fact]
@@ -432,9 +436,12 @@ public sealed class ServicesGroupViewModelTests
 
         await env.Vm.EditGroupAsync();
 
-        Assert.Equal(new[] { "group:Г1", "a", "group:Г2 обновлена", "b" }, env.Store.Stored.Order);
+        // Старый ключ заменён на той же позиции; ключ «b» убран из верхнего порядка —
+        // b остаётся членом группы Г2 (инвариант «служба ровно в одном месте», 1.0.0.14).
+        Assert.Equal(new[] { "group:Г1", "a", "group:Г2 обновлена" }, env.Store.Stored.Order);
         Assert.Equal("Г2 обновлена", env.Store.Stored.Groups[1].Name);
         Assert.Equal("Г2 обновлена", ((ServiceGroupRow)env.Vm.Rows[2]).Name);
+        Assert.Equal(new[] { "b" }, ((ServiceGroupRow)env.Vm.Rows[2]).Children.Select(r => r.ServiceName));
     }
 
     [Fact]
@@ -532,6 +539,138 @@ public sealed class ServicesGroupViewModelTests
 
         // После исключения s2 из Г1 она снова доступна для новой группы.
         Assert.Equal(new[] { "s2", "s3" }, env.Vm.AvailableServicesForGroup(null));
+    }
+
+    [Fact]
+    public async Task LoadAsync_GroupChildrenAreBuiltInsideFolder()
+    {
+        // Иерархический список (issue #11, 1.0.0.14): службы группы — внутри папки;
+        // корневые службы — отдельные строки.
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Stopped);
+        env.Fake.Services["c"] = Info("c", "C", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "c" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a", "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г", "c" }.ToList()
+        };
+
+        await env.Vm.LoadAsync();
+
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        Assert.Equal(new[] { "a", "b" }, group.Children.Select(r => r.ServiceName));
+        Assert.True(group.HasChildren);
+        Assert.Equal("c", env.Vm.Rows.OfType<ServiceInfoRow>().Single().ServiceName);
+    }
+
+    [Fact]
+    public async Task ExpandAndCollapseAll_ToggleGroupNodes()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г", "a" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        Assert.True(group.IsExpanded);
+
+        env.Vm.CollapseAllCommand.Execute(null);
+        Assert.False(group.IsExpanded);
+
+        env.Vm.ExpandAllCommand.Execute(null);
+        Assert.True(group.IsExpanded);
+    }
+
+    [Fact]
+    public async Task MoveToGroup_MovesServiceBetweenRootAndGroups()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a", "b" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new List<string>() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "a", "b" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        // Перенос корневой службы в группу.
+        await env.Vm.MoveToGroupAsync("a", "Г1");
+        Assert.Equal(new[] { "a" }, env.Store.Stored.Groups.Single(g => g.Name == "Г1").Services);
+        Assert.Equal(new[] { "b" }, env.Store.Stored.Services);
+        Assert.DoesNotContain("a", env.Store.Stored.Order);
+        // Выделена папка-группа — новое место службы.
+        Assert.Equal("Г1", ((ServiceGroupRow?)env.Vm.SelectedRow)?.Name);
+
+        // Перенос службы из группы обратно «Без группы».
+        await env.Vm.MoveToGroupAsync("a", null);
+        Assert.Empty(env.Store.Stored.Groups.Single(g => g.Name == "Г1").Services);
+        Assert.Equal(new[] { "b", "a" }, env.Store.Stored.Services);
+        Assert.Contains("a", env.Store.Stored.Order);
+        Assert.Equal("a", ((ServiceInfoRow?)env.Vm.SelectedRow)?.ServiceName);
+    }
+
+    [Fact]
+    public async Task EditGroup_RemovedMember_ReturnsToRootList()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "b" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "b" }.ToList()
+        };
+
+        env.Vm.GroupEditorProvider = (_, _) => new ServiceGroup { Name = "Г1", Services = new List<string>() };
+        await env.Vm.LoadAsync();
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        await env.Vm.EditGroupAsync();
+
+        // Исключённый член возвращается в корневой список и его порядок (не «теряется»).
+        Assert.Contains("a", env.Store.Stored.Services);
+        Assert.Contains("a", env.Store.Stored.Order);
+    }
+
+    [Fact]
+    public void Normalize_ServiceInGroup_RemovedFromRootAndSingleGroupOnly()
+    {
+        // Инвариант «служба ровно в одном месте» (issue #11, 1.0.0.14): служба в группе
+        // не остаётся в корневом списке; в двух группах — только в первой.
+        var normalized = ServiceStoreData.Normalize(new ServiceStoreData
+        {
+            Services = new[] { "a", "b", "dupe" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a", "dupe" }.ToList() },
+                new ServiceGroup { Name = "Г2", Services = new[] { "dupe" }.ToList() }
+            }.ToList()
+        });
+
+        Assert.Equal(new[] { "b" }, normalized.Services);
+        Assert.Equal(new[] { "a", "dupe" }, normalized.Groups[0].Services);
+        Assert.Empty(normalized.Groups[1].Services);
     }
 
     // ===================== Вспомогательное =====================

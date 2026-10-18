@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.13</Version>
-    <AssemblyVersion>1.0.0.13</AssemblyVersion>
-    <FileVersion>1.0.0.13</FileVersion>
-    <InformationalVersion>1.0.0.13</InformationalVersion>
+    <Version>1.0.0.14</Version>
+    <AssemblyVersion>1.0.0.14</AssemblyVersion>
+    <FileVersion>1.0.0.14</FileVersion>
+    <InformationalVersion>1.0.0.14</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -272,6 +272,9 @@
          исключается, Avalonia-версия (ServiceGroupEditWindow.Avalonia.cs) подключается
          глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\ServiceGroupEditWindow.xaml.cs" />
+    <!-- Диалог «Перенести в группу» (issue #11, 1.0.0.14): WPF code-behind исключается,
+         Avalonia-версия (ServiceGroupPickerWindow.Avalonia.cs) подключается глобом ниже. -->
+    <Compile Remove="Views\ServiceGroupPickerWindow.xaml.cs" />
     <!-- Диалог создания информационной базы в кластере (issue #3): WPF code-behind
          исключается, Avalonia-версия (RacInfobaseCreateWindow.Avalonia.cs) подключается
          глобом *Window.Avalonia.cs ниже. -->

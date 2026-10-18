@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -339,7 +340,11 @@ namespace Workspace1C
             }, ServicePlatform.Windows);
         }
 
-        /// <summary>Адаптер пункта модели меню служб к WPF-элементу ContextMenu.</summary>
+        /// <summary>
+        /// Адаптер пункта модели меню служб к WPF-элементу ContextMenu: те же иконки,
+        /// что в контекстном меню основного окна — кружок статуса для службы, папка
+        /// для группы, шестерёнка у «Настроить…», цветные глифы команд (1.0.0.14).
+        /// </summary>
         private object ToWpfServiceMenuItem(ServiceMenuItem item)
         {
             switch (item.Kind)
@@ -350,15 +355,27 @@ namespace Workspace1C
                 case ServiceMenuItemKind.Settings:
                 {
                     var settings = new MenuItem { Header = item.Text };
+                    settings.Icon = MenuIconText("⚙", "#6B7280");
                     settings.Click += (_, _) => ShowServicesSettings();
                     return settings;
                 }
 
                 case ServiceMenuItemKind.ServiceSubmenu:
+                {
+                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    if (!string.IsNullOrWhiteSpace(item.StatusColorHex))
+                        submenu.Icon = MenuStatusCircle(item.StatusColorHex);
+                    foreach (var child in item.Children)
+                        submenu.Items.Add(ToWpfServiceMenuItem(child));
+                    return submenu;
+                }
+
                 case ServiceMenuItemKind.GroupSubmenu:
                 case ServiceMenuItemKind.AllServicesSubmenu:
                 {
                     var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    submenu.Icon = MenuIconText(
+                        item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
                     foreach (var child in item.Children)
                         submenu.Items.Add(ToWpfServiceMenuItem(child));
                     return submenu;
@@ -370,6 +387,7 @@ namespace Workspace1C
                 {
                     var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
                     var action = item.Action ?? ServiceAction.Start;
+                    command.Icon = MenuIconText(ServiceCommandGlyphs.Glyph(action), ServiceCommandGlyphs.ColorHex(action));
                     var target = item.Target;
                     var targetName = item.TargetName;
                     var names = item.ServiceNames;
@@ -381,6 +399,25 @@ namespace Workspace1C
                     return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
             }
         }
+
+        /// <summary>Цветная иконка пункта меню (глиф-текст, как в контекстном меню основного окна).</summary>
+        private static TextBlock MenuIconText(string text, string colorHex) => new()
+        {
+            Text = text,
+            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        /// <summary>Кружок статуса службы в пункте меню (цвет StatusColorHex).</summary>
+        private static Border MenuStatusCircle(string colorHex) => new()
+        {
+            Width = 9,
+            Height = 9,
+            CornerRadius = new CornerRadius(4.5),
+            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
+            VerticalAlignment = VerticalAlignment.Center
+        };
 
         /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>
         private void ShowServicesSettings()

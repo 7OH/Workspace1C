@@ -1137,7 +1137,8 @@ namespace Workspace1C
             }, ServicePlatform.Linux);
         }
 
-        /// <summary>Адаптер пункта модели меню служб к элементу Avalonia ContextMenu.</summary>
+        /// <summary>Адаптер пункта модели меню служб к элементу Avalonia ContextMenu:
+        /// те же иконки, что в контекстном меню основного окна (1.0.0.14).</summary>
         private object ToAvaloniaMenuItem(ServiceMenuItem item)
         {
             switch (item.Kind)
@@ -1148,6 +1149,7 @@ namespace Workspace1C
                 case ServiceMenuItemKind.Settings:
                 {
                     var settings = new MenuItem { Header = item.Text };
+                    settings.Icon = MenuIcon("⚙", "#6B7280");
                     settings.Click += (_, _) => ShowServicesSettings();
                     return settings;
                 }
@@ -1157,6 +1159,9 @@ namespace Workspace1C
                 case ServiceMenuItemKind.AllServicesSubmenu:
                 {
                     var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    submenu.Icon = item.Kind == ServiceMenuItemKind.ServiceSubmenu
+                        ? StatusCircle(item.StatusColorHex)
+                        : MenuIcon(item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
                     foreach (var child in item.Children)
                         submenu.Items.Add(ToAvaloniaMenuItem(child));
                     return submenu;
@@ -1168,6 +1173,9 @@ namespace Workspace1C
                 {
                     var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
                     var action = item.Action ?? Services.ServiceAction.Start;
+                    command.Icon = MenuIcon(
+                        ViewModels.ServiceCommandGlyphs.Glyph(action),
+                        ViewModels.ServiceCommandGlyphs.ColorHex(action));
                     var target = item.Target;
                     var targetName = item.TargetName;
                     var names = item.ServiceNames;
@@ -1178,6 +1186,34 @@ namespace Workspace1C
                 default:
                     return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
             }
+        }
+
+        /// <summary>Цветной глиф-иконка пункта меню (Avalonia).</summary>
+        private static Control MenuIcon(string text, string colorHex) => new TextBlock
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            FontSize = 13,
+            Foreground = new SolidColorBrush(Color.Parse(colorHex))
+        };
+
+        /// <summary>Кружок статуса службы в пункте меню (цвет StatusColorHex).</summary>
+        private static Control StatusCircle(string colorHex)
+        {
+            var circle = new Border
+            {
+                Width = 9,
+                Height = 9,
+                CornerRadius = new CornerRadius(4.5),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            if (!string.IsNullOrWhiteSpace(colorHex))
+            {
+                try { circle.Background = new SolidColorBrush(Color.Parse(colorHex)); }
+                catch { circle.Background = Brushes.Gray; }
+            }
+            return circle;
         }
 
         /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>

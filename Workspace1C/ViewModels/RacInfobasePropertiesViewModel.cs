@@ -85,10 +85,13 @@ public sealed class RacInfobasePropertiesViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Типы СУБД для выбора.</summary>
+    /// <summary>Типы СУБД для выбора. Файловая база кластера — тоже допустимое
+    /// значение (issue #3, 1.0.0.14): правка файловой базы не должна подменять
+    /// тип на MSSQLServer.</summary>
     public static string[] DbmsOptions { get; } =
     {
         RacDbms.MssqlServer, RacDbms.PostgreSql, RacDbms.IbmDb2, RacDbms.OracleDatabase,
+        RacDbms.Sqlite, RacDbms.ServerOdbc, RacDbms.File,
     };
 
     public string Name { get => _name; private set => SetProperty(ref _name, value); }
@@ -328,7 +331,9 @@ public sealed class RacInfobasePropertiesViewModel : ViewModelBase
         return false;
     }
 
-    /// <summary>Приводит тип СУБД из вывода rac к значению списка (регистронезависимо).</summary>
+    /// <summary>Приводит тип СУБД из вывода rac к значению списка (регистронезависимо).
+    /// Пустое значение — файловая база кластера (issue #3, 1.0.0.14): раньше пустота
+    /// подменялась на MSSQLServer, и правка файловой базы портила её тип.</summary>
     public static string NormalizeDbms(string? dbms)
     {
         var value = (dbms ?? string.Empty).Trim();
@@ -337,6 +342,6 @@ public sealed class RacInfobasePropertiesViewModel : ViewModelBase
             if (string.Equals(option, value, StringComparison.OrdinalIgnoreCase))
                 return option;
         }
-        return value.Length == 0 ? RacDbms.MssqlServer : value;
+        return value.Length == 0 ? RacDbms.File : value;
     }
 }

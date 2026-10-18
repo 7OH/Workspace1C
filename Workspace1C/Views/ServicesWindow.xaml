@@ -88,8 +88,22 @@
              Изменить группу / Удалить группу / Переместить выше / ниже») скрыты —
              место зарезервировано комментарием (итерация 2 issue #11). -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+            <!-- «Свернуть все»/«Развернуть все» (issue #11, 1.0.0.14): как в основном
+                 окне, в виде иконок, с разделителем после них. -->
+            <Button x:Name="ExpandAllButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.ExpandAll}" IsEnabled="{Binding CanExpandAllGroups}"
+                    Click="OnExpandAll_Click">
+                <TextBlock Text="⏷" VerticalAlignment="Center" Foreground="#2563EB"/>
+            </Button>
+            <Button x:Name="CollapseAllButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.CollapseAll}" IsEnabled="{Binding CanExpandAllGroups}"
+                    Click="OnCollapseAll_Click">
+                <TextBlock Text="⏶" VerticalAlignment="Center" Foreground="#2563EB"/>
+            </Button>
+            <Border Style="{StaticResource ToolbarSeparator}"/>
             <!-- Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже»
-                 работает для строк обоих типов (службы и группы). -->
+                 для корневых строк списка (службы вне групп и папки-группы); порядок служб
+                 внутри группы задаётся в редакторе группы. -->
             <Button x:Name="MoveUpButton" Style="{StaticResource IconOnlyButton}"
                     ToolTip="{loc:Loc Services.MoveUp}" IsEnabled="{Binding CanMoveUp}"
                     Click="OnMoveUp_Click">
@@ -113,6 +127,12 @@
                     ToolTip="{loc:Loc Services.GroupEditHint}" IsEnabled="{Binding CanEditGroup}"
                     Click="OnEditGroup_Click">
                 <TextBlock Text="✎" VerticalAlignment="Center" Foreground="#7C3AED"/>
+            </Button>
+            <!-- «Перенести в группу» (issue #11, 1.0.0.14): рядом с кнопкой правки. -->
+            <Button x:Name="MoveToGroupButton" Style="{StaticResource IconOnlyButton}"
+                    ToolTip="{loc:Loc Services.MoveToGroupHint}" IsEnabled="{Binding CanMoveToGroup}"
+                    Click="OnMoveToGroup_Click">
+                <TextBlock Text="⇄" VerticalAlignment="Center" Foreground="#0EA5E9"/>
             </Button>
             <Button x:Name="DeleteGroupButton" Style="{StaticResource IconOnlyButton}"
                     ToolTip="{loc:Loc Services.GroupDeleteHint}" IsEnabled="{Binding CanDeleteGroup}"
@@ -189,22 +209,27 @@
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    Text="{Binding StatusText}" TextWrapping="Wrap"/>
 
-        <!-- Список служб (заполняет остаток, ~15 строк; кружок зелёный = запущена). -->
-        <ListBox x:Name="ServicesList" ItemsSource="{Binding Rows}"
-                 SelectedItem="{Binding SelectedRow}"
-                 ContextMenuOpening="OnServicesList_ContextMenuOpening"
-                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                 Background="{DynamicResource CardBackgroundBrush}">
-            <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem">
+        <!-- Список служб — иерархический (issue #11, 1.0.0.14): службы вне групп —
+             корневые строки, группы — папки, внутри которых службы, как базы внутри
+             групп в основном окне. Заполняет остаток окна. -->
+        <TreeView x:Name="ServicesList" ItemsSource="{Binding Rows}"
+                  SelectedItemChanged="OnServicesList_SelectedItemChanged"
+                  ContextMenuOpening="OnServicesList_ContextMenuOpening"
+                  BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                  Background="{DynamicResource CardBackgroundBrush}">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                     <Setter Property="MinHeight" Value="26"/>
                     <Setter Property="FontSize" Value="13"/>
                     <Setter Property="Padding" Value="8,2"/>
                     <Setter Property="VerticalContentAlignment" Value="Center"/>
                 </Style>
-            </ListBox.ItemContainerStyle>
-            <ListBox.ItemTemplate>
-                <DataTemplate>
+            </TreeView.ItemContainerStyle>
+            <TreeView.Resources>
+                <!-- Папка-группа: кружок статуса + иконка-папка + имя + статус;
+                     дети — службы группы (ItemsSource на Children). -->
+                <HierarchicalDataTemplate DataType="{x:Type vm:ServiceGroupRow}" ItemsSource="{Binding Children}">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -215,21 +240,8 @@
                         <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,8,0"
                                  VerticalAlignment="Center"
                                  Fill="{Binding StatusColorHex, Converter={StaticResource BrushFromHex}}"/>
-                        <!-- Иконка-индикатор группы (issue #11, итерация 2): видна только
-                             для строк-групп (DataTrigger на IsGroup). -->
                         <TextBlock Grid.Column="1" Text="📦" Margin="0,0,6,0"
-                                   VerticalAlignment="Center" Foreground="#7C3AED">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsGroup}" Value="True">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                                   VerticalAlignment="Center" Foreground="#7C3AED"/>
                         <TextBlock Grid.Column="2" Text="{Binding DisplayName}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Grid.Column="3" Text="{Binding StatusText}"
@@ -237,8 +249,27 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    Margin="12,0,0,0"/>
                     </Grid>
+                </HierarchicalDataTemplate>
+                <!-- Служба (корневая или внутри группы). -->
+                <DataTemplate DataType="{x:Type vm:ServiceInfoRow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,8,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding StatusColorHex, Converter={StaticResource BrushFromHex}}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Column="2" Text="{Binding StatusText}"
+                                   VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Margin="12,0,0,0"/>
+                    </Grid>
                 </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+            </TreeView.Resources>
+        </TreeView>
     </DockPanel>
 </Window>

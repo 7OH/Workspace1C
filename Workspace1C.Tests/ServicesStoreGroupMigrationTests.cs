@@ -277,35 +277,37 @@ public sealed class ServicesStoreGroupMigrationTests
     }
 
     [Fact]
-    public void SaveWithGroups_RoundTrip_PreservesOrderExactly()
+    public void SaveWithGroups_RoundTrip_KeepsMembersInGroupsAndDropsTheirRootKeys()
     {
-        // Полный round-trip данных с группами: Save → Load — эквивалентны, и Order
-        // сохраняется ТОЧНО (смешанная последовательность ключей групп и служб,
-        // Задача 5, issue #11).
+        // Полный round-trip данных с группами: Save → Load — группы и их члены сохраняются;
+        // члены групп НЕ остаются в корневом списке и в верхнем Order (инвариант «служба
+        // ровно в одном месте» в иерархическом списке, issue #11, 1.0.0.14).
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
         var data = new ServiceStoreData
         {
-            Services = new[] { "a", "b", "c", "d" }.ToList(),
+            Services = new[] { "x" }.ToList(),
             Groups = new[]
             {
                 new ServiceGroup { Name = "Группа 1", Services = new[] { "a", "c" }.ToList() },
                 new ServiceGroup { Name = "Группа 2", Services = new[] { "b", "d" }.ToList() }
             }.ToList(),
-            Order = new[] { "group:Группа 1", "c", "a", "group:Группа 2", "d", "b" }.ToList()
+            // «c», «a», «d», «b» — ключи членов в верхнем Order (устаревший вид данных):
+            // при нормализации они отбрасываются, остаются группы и корневая «x».
+            Order = new[] { "group:Группа 1", "c", "a", "group:Группа 2", "d", "b", "x" }.ToList()
         };
 
         store.Save(data);
 
         var loaded = store.Load();
-        Assert.Equal(data.Services, loaded.Services);
+        Assert.Equal(new[] { "x" }, loaded.Services);
         Assert.Equal(data.Groups.Count, loaded.Groups.Count);
         for (var i = 0; i < data.Groups.Count; i++)
         {
             Assert.Equal(data.Groups[i].Name, loaded.Groups[i].Name);
             Assert.Equal(data.Groups[i].Services, loaded.Groups[i].Services);
         }
-        Assert.Equal(data.Order, loaded.Order);
+        Assert.Equal(new[] { "group:Группа 1", "group:Группа 2", "x" }, loaded.Order);
     }
 
     [Fact]
