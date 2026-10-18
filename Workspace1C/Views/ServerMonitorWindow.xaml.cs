@@ -1,11 +1,14 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
 using Workspace1C.ViewModels;
-using System.Windows.Controls;
 
 namespace Workspace1C
 {
@@ -228,10 +231,24 @@ namespace Workspace1C
             string.Equals(value, "—", StringComparison.Ordinal) ? string.Empty : value;
 
         /// <summary>
-        /// «Удалить базу»: подтверждение (в VM) → rac «infobase drop» → обновление.
+        /// «Удалить базу» (issue #3, комментарий 7OH от 2026-10-17): диалог удаления
+        /// с выбором «Просто удалить из кластера» / «Удалить с удалением на сервере
+        /// СУБД» (клиент-серверные базы; файловым доступен только первый вариант) →
+        /// rac «infobase drop [--drop-database]» → обновление.
         /// </summary>
-        private void OnDeleteInfobase_Click(object sender, RoutedEventArgs e) =>
-            _vm.DropInfobaseCommand.Execute(null);
+        private async void OnDeleteInfobase_Click(object sender, RoutedEventArgs e)
+        {
+            if (_vm.SelectedInfobase is not { } row)
+                return;
+            var dialog = new RacInfobaseDropWindow(
+                row.Name, ServerMonitorViewModel.CanDropDatabaseOnServer(row))
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() != true)
+                return;
+            await _vm.DropSelectedInfobaseAsync(dialog.DropDatabase);
+        }
 
         // ===================== Справочник «Сервера управления» (issue #3) =====================
 
@@ -277,5 +294,149 @@ namespace Workspace1C
             User = source.User,
             Password = source.Password,
         };
+
+        // ===================== Кнопка «СЛУЖБЫ» (issue #3, 18.10 08:57) =====================
+        // Кнопка внизу левой колонки справочника серверов показывает подменю служб —
+        // то же, что в трее по Ctrl+ПКМ. Данные строит переиспользуемый
+        // ServiceTrayMenuBuilder, результат адаптируется к WPF ContextMenu.
+
+        /// <summary>«СЛУЖБЫ»: показывает подменю служб у кнопки (переиспользование построителя трей-меню).</summary>
+        private void OnServicesMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button)
+                return;
+            var menu = new ContextMenu
+            {
+                PlacementTarget = button,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom
+            };
+            foreach (var item in BuildServicesMenuItems())
+                menu.Items.Add(ToWpfServiceMenuItem(item));
+            menu.IsOpen = true;
+        }
+
+        /// <summary>
+        /// Пункты подменю «Службы» по данным services.json и текущим статусам —
+        /// как в трее (ServiceTrayMenuBuilder). Опрос статусов блокирующий: построение
+        /// выполняется при показе меню.
+        /// </summary>
+        private List<ServiceMenuItem> BuildServicesMenuItems()
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            var store = AppServices.TryGetService<IServicesStore>();
+            var data = store?.Load() ?? new ServiceStoreData();
+            var builder = new ServiceTrayMenuBuilder();
+            if (services is null)
+            {
+                // Контроллер недоступен — команды неактивны; остаются «Настроить…»
+                // и «Все сервисы» с пустым набором.
+                return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Windows);
+            }
+            return builder.Build(data, name =>
+            {
+                try { return services.GetStatus(name); }
+                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
+            }, ServicePlatform.Windows);
+        }
+
+        /// <summary>Адаптер пункта модели меню служб к WPF-элементу ContextMenu.</summary>
+        private object ToWpfServiceMenuItem(ServiceMenuItem item)
+        {
+            switch (item.Kind)
+            {
+                case ServiceMenuItemKind.Separator:
+                    return new Separator();
+
+                case ServiceMenuItemKind.Settings:
+                {
+                    var settings = new MenuItem { Header = item.Text };
+                    settings.Click += (_, _) => ShowServicesSettings();
+                    return settings;
+                }
+
+                case ServiceMenuItemKind.ServiceSubmenu:
+                case ServiceMenuItemKind.GroupSubmenu:
+                case ServiceMenuItemKind.AllServicesSubmenu:
+                {
+                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    foreach (var child in item.Children)
+                        submenu.Items.Add(ToWpfServiceMenuItem(child));
+                    return submenu;
+                }
+
+                case ServiceMenuItemKind.ServiceCommand:
+                case ServiceMenuItemKind.GroupCommand:
+                case ServiceMenuItemKind.AllServicesCommand:
+                {
+                    var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var action = item.Action ?? ServiceAction.Start;
+                    var target = item.Target;
+                    var targetName = item.TargetName;
+                    var names = item.ServiceNames;
+                    command.Click += (_, _) => ExecuteServicesOperation(action, target, targetName, names);
+                    return command;
+                }
+
+                default:
+                    return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+            }
+        }
+
+        /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>
+        private void ShowServicesSettings()
+        {
+            var window = new ServicesWindow { Owner = this };
+            window.ShowDialog();
+        }
+
+        /// <summary>
+        /// Выполняет операцию над целевыми службами (отдельная служба / члены группы /
+        /// все службы списка): ServiceController блокирующий — работа в фоновом потоке.
+        /// </summary>
+        private static void ExecuteServicesOperation(
+            ServiceAction action,
+            ServiceMenuItemTarget target,
+            string targetName,
+            IReadOnlyList<string> serviceNames)
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            if (services is null)
+                return;
+
+            var names = target switch
+            {
+                ServiceMenuItemTarget.Group or ServiceMenuItemTarget.All => serviceNames.ToList(),
+                _ => new List<string> { targetName }
+            };
+            if (names.Count == 0)
+                return;
+
+            Task.Run(() =>
+            {
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        // Статусы актуализируем на момент операции: доступность могла измениться.
+                        var info = services.GetStatus(name);
+                        if (!ServiceActionAvailability.CanExecute(
+                                action, info.Status, info.CanPauseAndContinue, info.CanStop, ServicePlatform.Windows))
+                            continue;
+                        switch (action)
+                        {
+                            case ServiceAction.Start: services.Start(name); break;
+                            case ServiceAction.Stop: services.Stop(name); break;
+                            case ServiceAction.Pause: services.Pause(name); break;
+                            case ServiceAction.Continue: services.Continue(name); break;
+                            case ServiceAction.Restart: services.Restart(name); break;
+                        }
+                    }
+                    catch
+                    {
+                        // Отдельная служба не должна останавливать остальные.
+                    }
+                }
+            });
+        }
     }
 }

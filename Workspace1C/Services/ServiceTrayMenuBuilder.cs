@@ -124,16 +124,19 @@ public sealed class ServiceMenuItem
 /// 13:30 и 13:47). Результат <see cref="Build(ServiceStoreData, Func{string, ServiceStatus}, ServicePlatform)"/> —
 /// плоский список пунктов подменю «Службы»:
 /// <list type="number">
-/// <item>«Настроить…» (<see cref="ServiceMenuItemKind.Settings"/>) — открывает окно «Управление службами»;</item>
+/// <item>«Настроить…» (<see cref="ServiceMenuItemKind.Settings"/>) — открывает окно
+/// «Управление службами»; после него — разделитель (замечание 7OH 18.10);</item>
 /// <item>строки списка в порядке <c>data.Order</c>: служба → подменю с командами
-/// Запустить/Остановить/Пауза/Восстановить/Перезапустить (доступность — по
-/// <see cref="ServiceActionAvailability.CanExecute"/> текущего статуса); группа →
-/// подменю, где СНАЧАЛА команды действий над всеми членами, затем разделитель,
-/// затем каждый член группы как подменю с его командами; у пункта группы —
-/// статус группы (цвет кружка по <see cref="ServiceGroupStatusResolver"/>, текст
-/// «Все запущены/Частично/Не запущены»);</item>
+/// Запустить/Остановить/Пауза/Восстановить/Перезапустить (структура и доступность —
+/// как в контекстном меню окна «Управление службами», замечание 7OH 18.10: разделители
+/// после Остановить и Восстановить, доступность по <see cref="ServiceActionAvailability.CanExecute"/>
+/// текущего статуса); группа → подменю, где СНАЧАЛА команды действий над всеми членами
+/// (тем же порядком с разделителями), затем разделитель, затем каждый член группы как
+/// подменю с его командами; у пункта группы — статус группы (цвет кружка по
+/// <see cref="ServiceGroupStatusResolver"/>, текст «Все запущены/Частично/Не запущены»);</item>
 /// <item>разделитель и подменю «Все сервисы» с командами Запустить/Остановить/
-/// Перезапустить (плюс Пауза/Восстановить, если применимо) по всем службам списка.</item>
+/// Перезапустить (плюс Пауза/Восстановить, если применимо) по всем службам списка —
+/// тем же порядком с разделителями, что и команды службы.</item>
 /// </list>
 /// Класс не имеет платформенных зависимостей (ни WinForms, ни Avalonia): меню
 /// строят адаптеры в <c>MainWindow.Tray.cs</c> (WinForms) и
@@ -141,13 +144,6 @@ public sealed class ServiceMenuItem
 /// </summary>
 public sealed class ServiceTrayMenuBuilder
 {
-    /// <summary>Фиксированный порядок команд службы/группы (как в окне «Управление службами»).</summary>
-    private static readonly ServiceAction[] ActionOrder =
-    {
-        ServiceAction.Start, ServiceAction.Stop, ServiceAction.Pause,
-        ServiceAction.Continue, ServiceAction.Restart
-    };
-
     private readonly Func<string, string> _t;
 
     /// <param name="t">Резолвер локализованного текста по ключу; по умолчанию — <see cref="LocalizationManager.T"/>.</param>
@@ -177,7 +173,7 @@ public sealed class ServiceTrayMenuBuilder
         var menu = new List<ServiceMenuItem>
         {
             // 1) «Настроить…» — окно «Управление службами» (требование 7OH: кнопка
-            // настройки сверху).
+            // настройки сверху); после него — разделитель (замечание 7OH 18.10).
             new ServiceMenuItem
             {
                 Kind = ServiceMenuItemKind.Settings,
@@ -185,8 +181,10 @@ public sealed class ServiceTrayMenuBuilder
                 IsEnabled = true
             }
         };
+        menu.Add(Separator());
 
         // 2) Строки списка в порядке data.Order: службы и группы.
+        var rows = new List<ServiceMenuItem>();
         foreach (var key in order)
         {
             if (ServiceStoreData.IsGroupKey(key))
@@ -195,16 +193,20 @@ public sealed class ServiceTrayMenuBuilder
                 var group = data.Groups.FirstOrDefault(g =>
                     string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
                 if (group is not null)
-                    menu.Add(BuildGroupItem(group, statuses, platform));
+                    rows.Add(BuildGroupItem(group, statuses, platform));
             }
             else if (statuses.TryGetValue(key, out var info))
             {
-                menu.Add(BuildServiceItem(key, info, platform));
+                rows.Add(BuildServiceItem(key, info, platform));
             }
         }
+        menu.AddRange(rows);
 
         // 3) Разделитель и подменю «Все сервисы» (как в окне «Управление службами»).
-        menu.Add(Separator());
+        // При пустом списке дополнительный разделитель не добавляем: разделитель после
+        // «Настроить…» уже есть (иначе — два разделителя подряд).
+        if (rows.Count > 0)
+            menu.Add(Separator());
         menu.Add(BuildAllServicesItem(order, statuses, platform));
 
         return menu;
@@ -244,7 +246,12 @@ public sealed class ServiceTrayMenuBuilder
         }, platform);
     }
 
-    /// <summary>Пункт «Служба»: подменю с командами Запустить/Остановить/Пауза/Восстановить/Перезапустить.</summary>
+    /// <summary>
+    /// Пункт «Служба»: подменю с командами Запустить/Остановить/Пауза/Восстановить/
+    /// Перезапустить (структура — как контекстное меню строки окна «Управление
+    /// службами»: Запустить/Остановить, разделитель, Пауза/Восстановить, разделитель,
+    /// Перезапустить; замечание 7OH 18.10).
+    /// </summary>
     private static ServiceMenuItem BuildServiceItem(
         string serviceName,
         ServiceInfo info,
@@ -260,26 +267,22 @@ public sealed class ServiceTrayMenuBuilder
             StatusText = LocalizationManager.T(ServiceStatusTextKey(info.Status))
         };
 
-        foreach (var action in ActionOrder)
-        {
-            item.Children.Add(new ServiceMenuItem
-            {
-                Kind = ServiceMenuItemKind.ServiceCommand,
-                Target = ServiceMenuItemTarget.Service,
-                TargetName = serviceName,
-                Action = action,
-                Text = L(action),
-                IsEnabled = ServiceActionAvailability.CanExecute(
-                    action, info.Status, info.CanPauseAndContinue, info.CanStop, platform)
-            });
-        }
+        AddActionCommands(
+            item.Children,
+            ServiceMenuItemKind.ServiceCommand,
+            ServiceMenuItemTarget.Service,
+            serviceName,
+            Array.Empty<string>(),
+            action => ServiceActionAvailability.CanExecute(
+                action, info.Status, info.CanPauseAndContinue, info.CanStop, platform));
         return item;
     }
 
     /// <summary>
     /// Пункт «Группа»: команды действий над ВСЕМИ членами (по статусам членов, в
-    /// порядке списка группы), затем разделитель, затем каждый член группы как
-    /// подменю с его командами (комментарий 7OH 13:47).
+    /// порядке списка группы; структура с разделителями — как контекстное меню
+    /// группы окна «Управление службами», замечание 7OH 18.10), затем разделитель,
+    /// затем каждый член группы как подменю с его командами (комментарий 7OH 13:47).
     /// </summary>
     private static ServiceMenuItem BuildGroupItem(
         ServiceGroup group,
@@ -303,19 +306,13 @@ public sealed class ServiceTrayMenuBuilder
 
         // Сначала — команды над всеми членами группы (доступность — CanExecuteAny,
         // как команды группы в окне «Управление службами»).
-        foreach (var action in ActionOrder)
-        {
-            item.Children.Add(new ServiceMenuItem
-            {
-                Kind = ServiceMenuItemKind.GroupCommand,
-                Target = ServiceMenuItemTarget.Group,
-                TargetName = group.Name,
-                Action = action,
-                Text = L(action),
-                IsEnabled = ServiceActionAvailability.CanExecuteAny(members, action, platform),
-                ServiceNames = group.Services
-            });
-        }
+        AddActionCommands(
+            item.Children,
+            ServiceMenuItemKind.GroupCommand,
+            ServiceMenuItemTarget.Group,
+            group.Name,
+            group.Services,
+            action => ServiceActionAvailability.CanExecuteAny(members, action, platform));
 
         // Затем разделитель и все элементы группы ниже — как в общем списке.
         item.Children.Add(Separator());
@@ -327,7 +324,9 @@ public sealed class ServiceTrayMenuBuilder
 
     /// <summary>
     /// Подменю «Все сервисы»: команды по всем службам ОБЩЕГО списка (не по членам
-    /// групп) — как в окне «Управление службами» (<c>Rows.OfType<ServiceInfoRow></c>).
+    /// групп) — как в окне «Управление службами» (<c>Rows.OfType<ServiceInfoRow></c>),
+    /// с разделителями между группами команд (Запустить/Остановить | Пауза/Восстановить |
+    /// Перезапустить — как контекстное меню окна; замечание 7OH 18.10).
     /// Пауза/Восстановление добавляются, только если применимы хотя бы к одной службе.
     /// </summary>
     private static ServiceMenuItem BuildAllServicesItem(
@@ -349,24 +348,74 @@ public sealed class ServiceTrayMenuBuilder
             IsEnabled = services.Count > 0
         };
 
-        foreach (var action in ActionOrder)
-        {
-            // «(+Пауза/Восстановить, если применимо)» — пункты добавляем только
-            // если операция осуществима хотя бы для одной службы списка.
-            if (!ServiceActionAvailability.CanExecuteAny(services, action, platform))
-                continue;
+        AddActionCommands(
+            item.Children,
+            ServiceMenuItemKind.AllServicesCommand,
+            ServiceMenuItemTarget.All,
+            string.Empty,
+            services.Select(s => s.ServiceName).ToList(),
+            action => ServiceActionAvailability.CanExecuteAny(services, action, platform),
+            allServices: true);
 
-            item.Children.Add(new ServiceMenuItem
-            {
-                Kind = ServiceMenuItemKind.AllServicesCommand,
-                Target = ServiceMenuItemTarget.All,
-                Action = action,
-                Text = LAll(action),
-                IsEnabled = true,
-                ServiceNames = services.Select(s => s.ServiceName).ToList()
-            });
-        }
         return item;
+    }
+
+    /// <summary>
+    /// Добавляет команды службы/группы/«Все сервисы» в порядке контекстного меню окна
+    /// «Управление службами» (замечание 7OH 18.10): Запустить, Остановить, разделитель,
+    /// Пауза, Восстановить, разделитель, Перезапустить — с разделителями между группами
+    /// команд. Для «Все сервисы» (<paramref name="allServices"/>) тексты команд —
+    /// «Запустить все/Остановить все/Перезапустить все», а сами команды включаются,
+    /// только если операция применима хотя бы к одной службе списка. Пустая средняя
+    /// группа (Пауза/Восстановить неприменимы) не порождает двойных разделителей.
+    /// </summary>
+    private static void AddActionCommands(
+        List<ServiceMenuItem> target,
+        ServiceMenuItemKind kind,
+        ServiceMenuItemTarget menuTarget,
+        string targetName,
+        IReadOnlyList<string> serviceNames,
+        Func<ServiceAction, bool> isEnabled,
+        bool allServices = false)
+    {
+        // Три визуальные группы команд — как в контекстном меню окна «Управление
+        // службами»: Запустить/Остановить | Пауза/Восстановить | Перезапустить.
+        ServiceAction[][] groups =
+        {
+            new[] { ServiceAction.Start, ServiceAction.Stop },
+            new[] { ServiceAction.Pause, ServiceAction.Continue },
+            new[] { ServiceAction.Restart }
+        };
+
+        var groupsAdded = 0;
+        foreach (var group in groups)
+        {
+            var items = new List<ServiceMenuItem>();
+            foreach (var action in group)
+            {
+                // «Все сервисы»: команда добавляется, только если применима хотя бы
+                // к одной службе; службы/группы — всегда (доступность — IsEnabled).
+                if (allServices && !isEnabled(action))
+                    continue;
+                items.Add(new ServiceMenuItem
+                {
+                    Kind = kind,
+                    Target = menuTarget,
+                    TargetName = targetName,
+                    Action = action,
+                    Text = allServices ? LAll(action) : L(action),
+                    IsEnabled = isEnabled(action),
+                    ServiceNames = serviceNames
+                });
+            }
+
+            if (items.Count == 0)
+                continue;
+            if (groupsAdded > 0)
+                target.Add(Separator());
+            target.AddRange(items);
+            groupsAdded++;
+        }
     }
 
     /// <summary>Опрашивает статусы всех служб списка и членов групп (с защитой от сбоев отдельных служб).</summary>

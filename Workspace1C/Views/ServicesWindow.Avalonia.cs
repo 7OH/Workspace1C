@@ -114,21 +114,29 @@ namespace Workspace1C
             deleteGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanDeleteGroup"));
             var refreshButton = BuildIconButton("⟳", LocalizationManager.T("Services.Refresh"),
                 () => _vm.RefreshCommand.Execute(null), "#2563EB");
-            // Команды — цветные иконки с подписями (issue #11, 7OH 17.10).
-            var startButton = BuildActionButton(LocalizationManager.T("Services.Start"), "▶",
-                () => _vm.StartCommand.Execute(null), "#16A34A");
+            // Команды — только цветные иконки, без подписей (замечание 7OH 18.10);
+            // подписи — подсказками, в контекстном меню подписи остаются.
+            // «Восстановить» — треугольник с палочкой справа (ServiceCommandGlyphs.
+            // ContinueGlyph): палочку дорисовать к текущему глифу «Запустить».
+            var startButton = BuildCommandIconButton(ServiceCommandGlyphs.StartGlyph,
+                LocalizationManager.T("Services.Start"),
+                () => _vm.StartCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Start));
             startButton.Bind(Button.IsEnabledProperty, new Binding("CanStart"));
-            var stopButton = BuildActionButton(LocalizationManager.T("Services.Stop"), "■",
-                () => _vm.StopCommand.Execute(null), "#DC2626");
+            var stopButton = BuildCommandIconButton(ServiceCommandGlyphs.StopGlyph,
+                LocalizationManager.T("Services.Stop"),
+                () => _vm.StopCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Stop));
             stopButton.Bind(Button.IsEnabledProperty, new Binding("CanStop"));
-            var pauseButton = BuildActionButton(LocalizationManager.T("Services.Pause"), "❚❚",
-                () => _vm.PauseCommand.Execute(null), "#D97706");
+            var pauseButton = BuildCommandIconButton(ServiceCommandGlyphs.PauseGlyph,
+                LocalizationManager.T("Services.Pause"),
+                () => _vm.PauseCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Pause));
             pauseButton.Bind(Button.IsEnabledProperty, new Binding("CanPause"));
-            var continueButton = BuildActionButton(LocalizationManager.T("Services.Continue"), "▶",
-                () => _vm.ContinueCommand.Execute(null), "#0EA5E9");
+            var continueButton = BuildCommandIconButton(ServiceCommandGlyphs.ContinueGlyph,
+                LocalizationManager.T("Services.Continue"),
+                () => _vm.ContinueCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Continue));
             continueButton.Bind(Button.IsEnabledProperty, new Binding("CanContinue"));
-            var restartButton = BuildActionButton(LocalizationManager.T("Services.Restart"), "⟲",
-                () => _vm.RestartCommand.Execute(null), "#2563EB");
+            var restartButton = BuildCommandIconButton(ServiceCommandGlyphs.RestartGlyph,
+                LocalizationManager.T("Services.Restart"),
+                () => _vm.RestartCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Restart));
             restartButton.Bind(Button.IsEnabledProperty, new Binding("CanRestart"));
 
             // Подменю «Все сервисы» (Запустить / Остановить / Перезапустить).
@@ -311,6 +319,34 @@ namespace Workspace1C
                     Foreground = iconColorHex is null ? null : new SolidColorBrush(Color.Parse(iconColorHex))
                 },
                 Padding = new Thickness(8, 5)
+            };
+            ToolTip.SetTip(button, tooltip);
+            button.Styled(ControlThemes.ModernButton);
+            ThemeBrushes.Bind(button, Button.BackgroundProperty, "ItemHoverBrush");
+            button.Click += (_, _) => onClick();
+            return button;
+        }
+
+        /// <summary>
+        /// Кнопка команды службы: только цветная иконка, без подписи (замечание 7OH
+        /// 18.10: «выключить надписи у кнопок управления состоянием на панели»);
+        /// подпись — подсказкой. По ширине чуть больше кнопки «Добавить группу»
+        /// (Padding 13,5 и MinWidth 44 против 8,5 у обычной кнопки-иконки).
+        /// </summary>
+        private static Button BuildCommandIconButton(string icon, string tooltip, Action onClick, string iconColorHex)
+        {
+            var button = new Button
+            {
+                Content = new TextBlock
+                {
+                    Text = icon,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontSize = 13,
+                    Foreground = new SolidColorBrush(Color.Parse(iconColorHex))
+                },
+                Padding = new Thickness(13, 5),
+                MinWidth = 44
             };
             ToolTip.SetTip(button, tooltip);
             button.Styled(ControlThemes.ModernButton);

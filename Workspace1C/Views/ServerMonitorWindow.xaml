@@ -166,6 +166,17 @@
                     </Style>
                 </TextBlock.Style>
             </TextBlock>
+            <!-- Кнопка «СЛУЖБЫ» (issue #3, 18.10 08:57): внизу левой колонки, на всю
+                 ширину; подменю служб — то же, что в трее по Ctrl+ПКМ (ServiceTrayMenuBuilder). -->
+            <Button DockPanel.Dock="Bottom" x:Name="ServicesMenuButton"
+                    Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}"
+                    Margin="0,8,0,0" Padding="0,8"
+                    Click="OnServicesMenu_Click">
+                <TextBlock Text="{loc:Loc ServerMonitor.Servers.Services}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontWeight="SemiBold"/>
+            </Button>
             <ListBox x:Name="ServersList" ItemsSource="{Binding Servers}"
                      SelectedItem="{Binding SelectedServer}"
                      MouseDoubleClick="OnServersList_MouseDoubleClick"

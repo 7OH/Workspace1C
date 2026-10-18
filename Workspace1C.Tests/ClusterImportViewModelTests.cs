@@ -494,7 +494,7 @@ public sealed class ClusterImportViewModelTests
 
         public Task<bool> DropInfobaseAsync(
             RacConnectionParams parameters, System.Guid clusterId, System.Guid infobaseId,
-            CancellationToken cancellationToken = default) =>
+            bool dropDatabase = false, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
     }
 }

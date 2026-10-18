@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Workspace1C.Localization;
 using Workspace1C.ViewModels;
 using Xunit;
@@ -96,5 +97,66 @@ public sealed class RacClusterPropertyRowTests
         Assert.Equal("General", RacClusterPropertyRow.GroupKey("name"));
         Assert.Equal("Security", RacClusterPropertyRow.GroupKey("security-level"));
         Assert.Equal("Other", RacClusterPropertyRow.GroupKey("uzzy-unknown"));
+    }
+
+    [Fact]
+    public void ToDictionaryKeyForm_MatchesDictionaryKeys()
+    {
+        // Ключи словаря хранятся в форме «первая буква строчная» (ru.json/en.json):
+        // дефисы устранены, первая буква после разделителя — заглавная.
+        Assert.Equal("expirationTimeout", RacClusterPropertyRow.ToDictionaryKeyForm("expiration-timeout"));
+        Assert.Equal("hostName", RacClusterPropertyRow.ToDictionaryKeyForm("hostName"));
+        Assert.Equal("name", RacClusterPropertyRow.ToDictionaryKeyForm("name"));
+        Assert.Equal("securitySessionIdleTimeout", RacClusterPropertyRow.ToDictionaryKeyForm("security-session-idle-timeout"));
+        Assert.Equal("cluster", RacClusterPropertyRow.ToDictionaryKeyForm("cluster"));
+    }
+
+    [Fact]
+    public void KnownClusterPropertyKeys_HaveRussianTranslationsInDictionary()
+    {
+        // issue #3 (18.10 08:57): названия параметров вкладки «Информация о кластере»
+        // на русском. Словарь локализации (ru.json) хранит ключи в форме
+        // «первая буква строчная» — для каждого известного rac-параметра такой ключ
+        // обязан существовать и содержать перевод (не «голый» ключ).
+        // В тестовой среде LocalizationManager не инициализирован (T возвращает ключ),
+        // поэтому словарь читаем напрямую из файла, как тесты покрытия локализации.
+        var ru = ReadRuStrings();
+
+        foreach (var raw in new[] { "name", "hostName", "expiration-timeout", "cluster", "host", "security-session-idle-timeout" })
+        {
+            var key = "ServerMonitor.ClusterProperty." + RacClusterPropertyRow.ToDictionaryKeyForm(raw);
+            Assert.True(ru.TryGetValue(key, out var value), $"Нет перевода «{key}» в ru.json");
+            Assert.False(string.IsNullOrWhiteSpace(value), $"Пустой перевод «{key}» в ru.json");
+            Assert.NotEqual(key, value);
+        }
+    }
+
+    [Fact]
+    public void DisplayName_UnknownKey_FallsBackToRawKey()
+    {
+        Assert.Equal("someUnknownKey", new RacClusterPropertyRow("someUnknownKey", "1", false).DisplayName);
+    }
+
+    /// <summary>Словарь строк ru.json (как тесты покрытия локализации) из корня репозитория.</summary>
+    private static Dictionary<string, string> ReadRuStrings()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, "Workspace1C", "Views")) &&
+                Directory.Exists(Path.Combine(dir.FullName, "Workspace1C.Tests")))
+            {
+                var json = File.ReadAllText(
+                    Path.Combine(dir.FullName, "Workspace1C", "Localization", "Languages", "ru.json"));
+                using var doc = JsonDocument.Parse(json);
+                var map = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var property in doc.RootElement.GetProperty("strings").EnumerateObject())
+                    map[property.Name] = property.Value.GetString() ?? string.Empty;
+                return map;
+            }
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Корень репозитория не найден из тестового каталога.");
     }
 }

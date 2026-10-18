@@ -793,7 +793,9 @@ namespace Workspace1C
                 case ServiceMenuItemKind.ServiceSubmenu:
                 {
                     var node = CreateTrayItem(item.Text, TrayIconKind.Service, null);
-                    // Статус службы отражается кружком (цвет StatusColorHex).
+                    // Статус службы отражается кружком (цвет StatusColorHex) — как кружок
+                    // статуса строки на панели окна «Управление службами» (иконки в трее
+                    // = иконки панели, замечание 7OH 18.10).
                     node.Image = DrawStatusDot(item.StatusColorHex) ?? node.Image;
                     node.ToolTipText = item.StatusText;
                     ApplyModernDropDownStyle(node.DropDown);
@@ -805,9 +807,9 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupSubmenu:
                 {
                     var node = CreateTrayItem(item.Text, TrayIconKind.Group, null);
-                    // У пункта группы — статус группы: цвет кружка по
-                    // ServiceGroupStatusResolver + текст («Все запущены»/«Частично»/…).
-                    node.Image = DrawStatusDot(item.StatusColorHex) ?? node.Image;
+                    // Значок группы — папка (как иконка-индикатор 📦 на панели), НЕ кружок
+                    // статуса (замечание 7OH 18.10: «иконки в трее — такие же как на панели»);
+                    // статус группы — подсказкой (текст «Все запущены»/«Частично»/…).
                     node.ToolTipText = item.StatusText;
                     ApplyModernDropDownStyle(node.DropDown);
                     foreach (var child in item.Children)
@@ -835,16 +837,18 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Пункт-команда меню служб: кружок цвета операции (те же цвета, что у
-        /// иконок окна «Управление службами»: ▶ зелёный, ■ красный, ❚❚ оранжевый,
-        /// ⟲ синий), доступность — IsEnabled построителя.
+        /// Пункт-команда меню служб: иконка — та же, что у кнопки панели окна
+        /// «Управление службами» (▶ зелёный, ■ красный, ❚❚ оранжевый, ▶| синий,
+        /// ⟲ синий; замечание 7OH 18.10 «иконки в трее — такие же как на панели»),
+        /// доступность — IsEnabled построителя.
         /// </summary>
         private Forms.ToolStripMenuItem BuildServiceCommandItem(ServiceMenuItem item)
         {
+            var action = item.Action ?? ServiceAction.Start;
             var command = new Forms.ToolStripMenuItem(item.Text)
             {
                 Enabled = item.IsEnabled,
-                Image = DrawStatusDot(CommandColorHex(item.Action)) ?? GetTrayIcon(TrayIconKind.Open),
+                Image = GetCommandGlyph(action),
                 ImageScaling = Forms.ToolStripItemImageScaling.None,
                 DisplayStyle = Forms.ToolStripItemDisplayStyle.ImageAndText,
                 ImageAlign = Drawing.ContentAlignment.MiddleLeft,
@@ -852,7 +856,6 @@ namespace Workspace1C
                 Padding = new Forms.Padding(2, 3, 4, 3),
                 AutoSize = true
             };
-            var action = item.Action ?? ServiceAction.Start;
             var target = item.Target;
             var targetName = item.TargetName;
             var names = item.ServiceNames.ToList();
@@ -925,19 +928,100 @@ namespace Workspace1C
                 _ => false
             };
 
-        /// <summary>Цвет кружка операции (как цветные иконки окна «Управление службами»).</summary>
-        private static string CommandColorHex(ServiceAction? action) => action switch
-        {
-            ServiceAction.Start => "#16A34A",
-            ServiceAction.Stop => "#DC2626",
-            ServiceAction.Pause => "#D97706",
-            ServiceAction.Continue => "#0EA5E9",
-            ServiceAction.Restart => "#2563EB",
-            _ => "#6B7280"
-        };
+        /// <summary>Цвет глифа операции (единый источник — <see cref="ServiceCommandGlyphs"/>).</summary>
+        private static string CommandColorHex(ServiceAction? action)
+            => ServiceCommandGlyphs.ColorHex(action ?? ServiceAction.Start);
 
         /// <summary>Кэш кружков статуса/команд по цвету (#RRGGBB).</summary>
         private static readonly Dictionary<string, Drawing.Image> StatusDotCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Кэш глифов команд служб по операции.</summary>
+        private static readonly Dictionary<ServiceAction, Drawing.Image> CommandGlyphCache = new();
+
+        /// <summary>
+        /// Глиф команды службы 16×16 — тот же, что у кнопки панели окна «Управление
+        /// службами» (замечание 7OH 18.10: «иконки в трее — такие же как на панели»):
+        /// ▶ (Запустить), ■ (Остановить), ❚❚ (Пауза), ▶| (Восстановить — треугольник
+        /// с палочкой справа), ⟲ (Перезапустить). Рисуется через GDI+ по геометрии
+        /// глифов — без зависимости от шрифтов и WPF visual tree.
+        /// </summary>
+        private static Drawing.Image GetCommandGlyph(ServiceAction action)
+        {
+            if (CommandGlyphCache.TryGetValue(action, out var cached))
+                return cached;
+            var img = DrawCommandGlyph(action, 16);
+            CommandGlyphCache[action] = img;
+            return img;
+        }
+
+        private static Drawing.Image DrawCommandGlyph(ServiceAction action, int size)
+        {
+            var bmp = new Drawing.Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var g = Drawing.Graphics.FromImage(bmp);
+            g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.Clear(Drawing.Color.Transparent);
+
+            var color = Drawing.ColorTranslator.FromHtml(CommandColorHex(action));
+            using var brush = new Drawing.SolidBrush(color);
+            using var pen = new Drawing.Pen(color, Math.Max(1.4f, size / 11f))
+            {
+                StartCap = Drawing.Drawing2D.LineCap.Round,
+                EndCap = Drawing.Drawing2D.LineCap.Round,
+                LineJoin = Drawing.Drawing2D.LineJoin.Round
+            };
+
+            float s = size;
+            switch (action)
+            {
+                case ServiceAction.Start:
+                    // ▶ — зелёный треугольник (как кнопка «Запустить»).
+                    g.FillPolygon(brush, new[]
+                    {
+                        new Drawing.PointF(s * 0.26f, s * 0.18f),
+                        new Drawing.PointF(s * 0.82f, s * 0.50f),
+                        new Drawing.PointF(s * 0.26f, s * 0.82f)
+                    });
+                    break;
+
+                case ServiceAction.Stop:
+                    // ■ — красный квадрат (как кнопка «Остановить»).
+                    g.FillRectangle(brush, s * 0.22f, s * 0.22f, s * 0.56f, s * 0.56f);
+                    break;
+
+                case ServiceAction.Pause:
+                    // ❚❚ — оранжевые две палочки (как кнопка «Пауза»).
+                    g.FillRectangle(brush, s * 0.22f, s * 0.18f, s * 0.18f, s * 0.64f);
+                    g.FillRectangle(brush, s * 0.60f, s * 0.18f, s * 0.18f, s * 0.64f);
+                    break;
+
+                case ServiceAction.Continue:
+                    // ▶| — синий треугольник «Запустить» + вертикальная палочка справа
+                    // (замечание 7OH 18.10: «палочку дорисовать к треугольнику»).
+                    g.FillPolygon(brush, new[]
+                    {
+                        new Drawing.PointF(s * 0.18f, s * 0.18f),
+                        new Drawing.PointF(s * 0.66f, s * 0.50f),
+                        new Drawing.PointF(s * 0.18f, s * 0.82f)
+                    });
+                    g.FillRectangle(brush, s * 0.74f, s * 0.18f, s * 0.16f, s * 0.64f);
+                    break;
+
+                case ServiceAction.Restart:
+                default:
+                    // ⟲ — синяя круговая стрелка (как кнопка «Перезапустить»).
+                    g.DrawArc(pen, s * 0.18f, s * 0.18f, s * 0.64f, s * 0.64f, -40, 200);
+                    g.FillPolygon(brush, new[]
+                    {
+                        new Drawing.PointF(s * 0.72f, s * 0.12f),
+                        new Drawing.PointF(s * 0.92f, s * 0.32f),
+                        new Drawing.PointF(s * 0.62f, s * 0.34f)
+                    });
+                    break;
+            }
+
+            return bmp;
+        }
 
         /// <summary>Рисует кружок 16×16 цвета #RRGGBB (статус службы/группы, цвет команды).</summary>
         private static Drawing.Image? DrawStatusDot(string? colorHex)

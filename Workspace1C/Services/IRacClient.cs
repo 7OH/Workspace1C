@@ -169,9 +169,16 @@ public interface IRacClient
 
     /// <summary>
     /// Удаление информационной базы из кластера (команда «infobase drop --cluster=...
-    /// --infobase=...», issue #3, вкладка «Базы»). Возвращает true при ExitCode 0;
-    /// при неудаче — false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.
+    /// --infobase=... [--drop-database]», issue #3, вкладка «Базы»): подтверждение и
+    /// выбор варианта («просто удалить из кластера» / «удалить с удалением БД на сервере
+    /// СУБД») выполняет диалог удаления; сюда передаётся итог — флаг
+    /// <paramref name="dropDatabase"/>. Возвращает true при ExitCode 0; при неудаче —
+    /// false и текст ошибки (включая stderr rac) в <see cref="LastActionError"/>.
     /// </summary>
+    Task<bool> DropInfobaseAsync(
+        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
+        bool dropDatabase = false, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Полные свойства информационной базы (команда «infobase info», issue #3): нужны
     /// учётные данные администратора ИБ, если в базе есть пользователи. Возвращает null
@@ -182,10 +189,6 @@ public interface IRacClient
         RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
         string? infobaseUser, string? infobasePassword, CancellationToken cancellationToken = default)
         => Task.FromResult<RacInfobaseInfo?>(null);
-
-    Task<bool> DropInfobaseAsync(
-        RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Текст последней ошибки действия (<see cref="TerminateSessionAsync"/> /

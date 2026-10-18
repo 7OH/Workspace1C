@@ -1,12 +1,12 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.12-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.13-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.12**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.13**.
 
 ## 📣 Telegram-канал
 
@@ -126,6 +126,16 @@
   подменю каждой службы и группы (у группы — сначала команды действий, затем её службы),
   «Все сервисы» (Windows и Linux); на Windows Ctrl+правый клик по иконке трея открывает
   меню служб.
+- **«Серверы 1С»: кнопка «СЛУЖБЫ» (1.0.0.13, issue #3, Windows и Linux)** — внизу левой
+  колонки окна «Серверы 1С» добавлена кнопка «СЛУЖБЫ» (на всю ширину, текст по центру) —
+  открывает подменю служб, как в трее по Ctrl+клик.
+- **«Серверы 1С»: свойства базы на двух вкладках (1.0.0.13, issue #3, Windows и Linux)** —
+  диалог «Свойства информационной базы» разбит на 2 вкладки — «Основная» и «Настройки»
+  (меньше высота, без прокрутки).
+- **«Серверы 1С»: удаление базы с выбором варианта (1.0.0.13, issue #3, Windows и Linux)** —
+  при удалении базы предлагается «Просто удалить из кластера» или «Удалить с удалением на
+  сервере СУБД» (для файловых баз доступен только первый вариант); команда rac
+  `infobase drop --drop-database`.
 
 > История изменений по выпускам — в [`CHANGELOG.md`](CHANGELOG.md).
 

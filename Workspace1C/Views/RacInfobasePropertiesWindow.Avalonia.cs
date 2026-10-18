@@ -33,9 +33,10 @@ namespace Workspace1C
             DataContext = vm;
             Title = T("ServerMonitor.Infobase.Props.Title");
             Width = 820;
-            Height = 800;
+            // 2 вкладки (issue #3, 18.10 08:51) — окно ниже, прокрутка не нужна.
+            Height = 660;
             MinWidth = 680;
-            MinHeight = 560;
+            MinHeight = 520;
             FontSize = 13;
             CanResize = true;
             Content = BuildRoot();
@@ -107,7 +108,12 @@ namespace Workspace1C
             DockPanel.SetDock(status, Dock.Bottom);
             root.Children.Add(status);
 
-            var form = new StackPanel { Spacing = 2 };
+            // ===================== 2 вкладки (issue #3, 18.10 08:51) =====================
+            // «Основная» — общие/подключение: администратор ИБ, имя, защищённое соединение,
+            // описание, сервер СУБД и тип, база/пользователь/пароль СУБД, «Разрешить выдачу
+            // лицензий». «Настройки» — блокировка сеансов и регламентных, внешнее управление
+            // сеансами и его обязательность, профили безопасности.
+            var basicPanel = new StackPanel { Spacing = 2 };
 
             // Администратор информационной базы.
             var adminPassword = new PasswordBox { Height = 32 }.Styled(ControlThemes.ModernPasswordBox);
@@ -131,27 +137,27 @@ namespace Workspace1C
                     }
                 }
             };
-            form.Children.Add(Group(adminPanel));
+            basicPanel.Children.Add(Group(adminPanel));
 
-            form.Children.Add(TwoColumns(
+            basicPanel.Children.Add(TwoColumns(
                 Field(T("ServerMonitor.Infobase.Name"), Text(nameof(RacInfobasePropertiesViewModel.Name), readOnly: true)),
                 Field(T("ServerMonitor.Infobase.Props.SecureConnection"),
                     Text(nameof(RacInfobasePropertiesViewModel.SecureConnectionText), readOnly: true))));
-            form.Children.Add(Field(T("ServerMonitor.Infobase.Description"), Text(nameof(RacInfobasePropertiesViewModel.Description))));
+            basicPanel.Children.Add(Field(T("ServerMonitor.Infobase.Description"), Text(nameof(RacInfobasePropertiesViewModel.Description))));
 
             var dbms = new ComboBox { Height = 32, HorizontalAlignment = HorizontalAlignment.Stretch };
             dbms.Styled(ControlThemes.ModernComboBox);
             dbms.ItemsSource = RacInfobasePropertiesViewModel.DbmsOptions;
             dbms.Bind(ComboBox.SelectedItemProperty,
                 new Binding(nameof(RacInfobasePropertiesViewModel.Dbms), BindingMode.TwoWay));
-            form.Children.Add(TwoColumns(
+            basicPanel.Children.Add(TwoColumns(
                 Field(T("ServerMonitor.Infobase.DbServer"), Text(nameof(RacInfobasePropertiesViewModel.DbServer))),
                 Field(T("ServerMonitor.Infobase.Dbms"), dbms)));
 
             var dbPassword = new PasswordBox { Height = 32 }.Styled(ControlThemes.ModernPasswordBox);
             ToolTip.SetTip(dbPassword, T("ServerMonitor.Infobase.Props.DbPasswordHint"));
             dbPassword.PasswordChanged += (_, _) => _vm.DbPassword = dbPassword.Password ?? string.Empty;
-            form.Children.Add(ThreeColumns(
+            basicPanel.Children.Add(ThreeColumns(
                 Field(T("ServerMonitor.Infobase.DbName"), Text(nameof(RacInfobasePropertiesViewModel.DbName))),
                 Field(T("ServerMonitor.Infobase.DbUser"), Text(nameof(RacInfobasePropertiesViewModel.DbUser))),
                 Field(T("ServerMonitor.Infobase.DbPassword"), dbPassword)));
@@ -160,7 +166,9 @@ namespace Workspace1C
                 nameof(RacInfobasePropertiesViewModel.LicenseDistributionAllowed));
             license.Margin = new Thickness(0, 10, 0, 0);
             license.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
-            form.Children.Add(license);
+            basicPanel.Children.Add(license);
+
+            var settingsPanel = new StackPanel { Spacing = 2 };
 
             // Блокировка начала сеансов.
             var deniedFrom = Text(nameof(RacInfobasePropertiesViewModel.DeniedFromText));
@@ -184,11 +192,11 @@ namespace Workspace1C
             var lockGroup = Group(lockPanel);
             lockGroup.Margin = new Thickness(0, 10, 0, 0);
             lockGroup.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
-            form.Children.Add(lockGroup);
+            settingsPanel.Children.Add(lockGroup);
 
             var jobs = Check(T("ServerMonitor.Infobase.Props.ScheduledJobsDeny"), nameof(RacInfobasePropertiesViewModel.ScheduledJobsDeny));
             jobs.Margin = new Thickness(0, 10, 0, 0);
-            form.Children.Add(jobs);
+            settingsPanel.Children.Add(jobs);
 
             var extra = new StackPanel
             {
@@ -205,13 +213,24 @@ namespace Workspace1C
                 }
             };
             extra.Bind(IsEnabledProperty, new Binding(nameof(RacInfobasePropertiesViewModel.IsFullyLoaded)));
-            form.Children.Add(extra);
+            settingsPanel.Children.Add(extra);
 
-            root.Children.Add(new ScrollViewer
+            var tabs = new TabControl { Margin = new Thickness(0, 6, 0, 0) };
+            tabs.Items.Add(new TabItem
             {
-                Content = form,
-                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+                Header = T("ServerMonitor.Infobase.Props.Tab.Basic"),
+                Padding = new Thickness(14, 6),
+                FontSize = 12.5,
+                Content = basicPanel
             });
+            tabs.Items.Add(new TabItem
+            {
+                Header = T("ServerMonitor.Infobase.Props.Tab.Settings"),
+                Padding = new Thickness(14, 6),
+                FontSize = 12.5,
+                Content = settingsPanel
+            });
+            root.Children.Add(tabs);
             return root;
         }
 

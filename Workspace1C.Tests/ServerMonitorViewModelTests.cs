@@ -964,8 +964,10 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
-    public async Task DropSelectedInfobase_Confirm_CallsClient_WithCorrectArguments()
+    public async Task DropSelectedInfobase_FromClusterOnly_PassesFalse()
     {
+        // «Просто удалить из кластера» (диалог удаления с выбором, issue #3):
+        // rac «infobase drop» без флага «--drop-database».
         var client = new FakeRacClient();
         var dialogs = new RecordingDialogs();
         var vm = new ServerMonitorViewModel(client, dialogs);
@@ -973,30 +975,61 @@ public sealed class ServerMonitorViewModelTests
         await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
 
         vm.SelectedInfobase = vm.Infobases.Single();
-        await vm.DropSelectedInfobaseAsync();
+        await vm.DropSelectedInfobaseAsync(dropDatabase: false);
 
-        Assert.Single(dialogs.Confirms);
         Assert.Empty(dialogs.Warnings);
         var call = Assert.Single(client.DropInfobaseCalls);
         Assert.Equal(FakeRacClient.FirstClusterId, call.clusterId);
         Assert.Equal(FakeRacClient.FirstInfobaseId, call.infobaseId);
+        Assert.False(call.dropDatabase);
         Assert.NotEmpty(vm.StatusText);
     }
 
     [Fact]
-    public async Task DropSelectedInfobase_Cancelled_DoesNotCallClient()
+    public async Task DropSelectedInfobase_WithDatabase_PassesTrue()
     {
+        // «Удалить с удалением на сервере СУБД»: rac «infobase drop --drop-database».
         var client = new FakeRacClient();
-        var dialogs = new RecordingDialogs { ConfirmResult = false };
+        var dialogs = new RecordingDialogs();
         var vm = new ServerMonitorViewModel(client, dialogs);
         await vm.ConnectAsync();
         await vm.LoadClusterDataAsync(FakeRacClient.FirstClusterId);
 
         vm.SelectedInfobase = vm.Infobases.Single();
-        await vm.DropSelectedInfobaseAsync();
+        await vm.DropSelectedInfobaseAsync(dropDatabase: true);
 
-        Assert.Single(dialogs.Confirms);
+        Assert.Empty(dialogs.Warnings);
+        var call = Assert.Single(client.DropInfobaseCalls);
+        Assert.True(call.dropDatabase);
+    }
+
+    [Fact]
+    public async Task DropSelectedInfobase_NoSelection_DoesNotCallClient()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        await vm.ConnectAsync();
+
+        await vm.DropSelectedInfobaseAsync(dropDatabase: true);
+
         Assert.Empty(client.DropInfobaseCalls);
+    }
+
+    [Fact]
+    public void CanDropDatabaseOnServer_ClientServer_True_File_False()
+    {
+        // Вариант «с удалением на сервере СУБД» доступен только клиент-серверным базам
+        // (комментарий 7OH от 2026-10-17); для файловых — только «просто удалить из кластера».
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.MssqlServer })));
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = "postgresql" })));
+
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.File })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = string.Empty })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(null));
     }
 
     // ===================== Заголовки с количеством строк и фильтр (issue #3) =====================
@@ -1208,8 +1241,8 @@ public sealed class ServerMonitorViewModelTests
         /// <summary>Вызовы «infobase create»: (clusterId, запрос).</summary>
         public List<(System.Guid clusterId, RacInfobaseCreateRequest request)> CreateInfobaseCalls { get; } = new();
 
-        /// <summary>Вызовы «infobase drop»: (clusterId, infobaseId).</summary>
-        public List<(System.Guid clusterId, System.Guid infobaseId)> DropInfobaseCalls { get; } = new();
+        /// <summary>Вызовы «infobase drop»: (clusterId, infobaseId, dropDatabase).</summary>
+        public List<(System.Guid clusterId, System.Guid infobaseId, bool dropDatabase)> DropInfobaseCalls { get; } = new();
 
         public Task<IReadOnlyList<RacCluster>> GetClustersAsync(
             RacConnectionParams parameters, CancellationToken cancellationToken = default)
@@ -1502,9 +1535,9 @@ public sealed class ServerMonitorViewModelTests
         /// <summary>«infobase drop»: фиксирует вызов; «неудача» настраивается, как у остальных действий.</summary>
         public Task<bool> DropInfobaseAsync(
             RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
-            CancellationToken cancellationToken = default)
+            bool dropDatabase = false, CancellationToken cancellationToken = default)
         {
-            DropInfobaseCalls.Add((clusterId, infobaseId));
+            DropInfobaseCalls.Add((clusterId, infobaseId, dropDatabase));
             if (_throwOnAction)
                 throw new RacClientException("нет прав администратора");
             if (_actionFails)

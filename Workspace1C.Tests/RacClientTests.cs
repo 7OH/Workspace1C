@@ -916,6 +916,34 @@ public sealed class RacClientTests
     }
 
     [Fact]
+    public void InfobaseDropArgs_FromClusterOnly_NoDropDatabaseFlag()
+    {
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+
+        Assert.Equal(
+            new[] { "infobase", "drop", $"--cluster={clusterId}", $"--infobase={infobaseId}" },
+            RacClient.InfobaseDropArgs(clusterId, infobaseId, dropDatabase: false));
+    }
+
+    [Fact]
+    public void InfobaseDropArgs_WithDatabase_IncludesDropDatabaseFlag()
+    {
+        // Диалог удаления с выбором (issue #3, 7OH от 2026-10-17): вариант
+        // «Удалить с удалением на сервере СУБД» добавляет к команде «--drop-database».
+        var clusterId = Guid.NewGuid();
+        var infobaseId = Guid.NewGuid();
+
+        Assert.Equal(
+            new[]
+            {
+                "infobase", "drop", $"--cluster={clusterId}", $"--infobase={infobaseId}",
+                "--drop-database"
+            },
+            RacClient.InfobaseDropArgs(clusterId, infobaseId, dropDatabase: true));
+    }
+
+    [Fact]
     public void MaskRacPassword_HidesDbAndInfobasePasswords()
     {
         var masked = SensitiveDataMasker.MaskRacPassword(

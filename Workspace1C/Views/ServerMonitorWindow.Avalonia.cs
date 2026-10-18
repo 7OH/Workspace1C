@@ -158,6 +158,25 @@ namespace Workspace1C
             };
 
             var serversPanel = new DockPanel { LastChildFill = true };
+            // Кнопка «СЛУЖБЫ» (issue #3, 18.10 08:57): внизу левой колонки, на всю
+            // ширину; показывается то же подменю служб, что и в трее (ServiceTrayMenuBuilder).
+            var servicesButton = new Button
+            {
+                Content = new TextBlock
+                {
+                    Text = LocalizationManager.T("ServerMonitor.Servers.Services"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontWeight = FontWeight.SemiBold
+                },
+                Padding = new Thickness(0, 8),
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            servicesButton.Styled(ControlThemes.ModernButton);
+            ThemeBrushes.Bind(servicesButton, Button.BackgroundProperty, "ItemHoverBrush");
+            servicesButton.Click += (_, _) => ShowServicesMenu(servicesButton);
+            DockPanel.SetDock(servicesButton, Dock.Bottom);
+
             var serversTitle = new TextBlock
             {
                 Text = LocalizationManager.T("ServerMonitor.Servers.Title"),
@@ -180,6 +199,8 @@ namespace Workspace1C
             serversPanel.Children.Add(serversTitle);
             serversPanel.Children.Add(serverButtons);
             serversPanel.Children.Add(serversEmptyHint);
+            // «СЛУЖБЫ» — до списка (последний ребёнок заполняет остаток).
+            serversPanel.Children.Add(servicesButton);
             serversPanel.Children.Add(_serversList);
 
             // ---- Список информационных баз кластера (issue #3, 7OH от 2026-10-17):
@@ -945,7 +966,7 @@ namespace Workspace1C
                 "✎", LocalizationManager.T("ServerMonitor.Infobase.Edit"), OnEditInfobase);
             var deleteButton = BuildIconButton(
                 "🗑", LocalizationManager.T("ServerMonitor.Infobase.Delete"),
-                () => _vm.DropInfobaseCommand.Execute(null), red: true);
+                OnDeleteInfobase, red: true);
             // Кнопки «Изменить»/«Удалить» активны только при выбранной базе и подключении
             // (issue #3: раньше кнопка «Удалить» оставалась неактивной — CanDropInfobase
             // теперь уведомляет об изменении выбора).
@@ -1065,6 +1086,155 @@ namespace Workspace1C
             if (!dialog.ShowSync(this) || dialog.Result is not { } update)
                 return;
             _ = _vm.UpdateSelectedInfobaseAsync(update);
+        }
+
+        /// <summary>
+        /// «Удалить базу» (issue #3, комментарий 7OH от 2026-10-17): диалог удаления
+        /// с выбором «Просто удалить из кластера» / «Удалить с удалением на сервере
+        /// СУБД» (клиент-серверные базы) → rac «infobase drop [--drop-database]».
+        /// </summary>
+        private async void OnDeleteInfobase()
+        {
+            if (_vm.SelectedInfobase is not { } row)
+                return;
+            var dialog = new RacInfobaseDropWindow(
+                row.Name, ServerMonitorViewModel.CanDropDatabaseOnServer(row));
+            if (!dialog.ShowSync(this))
+                return;
+            await _vm.DropSelectedInfobaseAsync(dialog.DropDatabase);
+        }
+
+        // ===================== Кнопка «СЛУЖБЫ» (issue #3, 18.10 08:57) =====================
+        // Кнопка внизу левой колонки справочника серверов показывает подменю служб —
+        // то же, что в трее (ServiceTrayMenuBuilder); результат адаптируется к ContextMenu.
+
+        /// <summary>«СЛУЖБЫ»: показывает подменю служб у кнопки.</summary>
+        private void ShowServicesMenu(Button anchor)
+        {
+            var menu = new ContextMenu();
+            foreach (var item in BuildServicesMenuItems())
+                menu.Items.Add(ToAvaloniaMenuItem(item));
+            menu.Open(anchor);
+        }
+
+        /// <summary>Пункты подменю «Службы» по services.json и статусам (как в трее).</summary>
+        private List<ServiceMenuItem> BuildServicesMenuItems()
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            var store = AppServices.TryGetService<IServicesStore>();
+            var data = store?.Load() ?? new ServiceStoreData();
+            var builder = new ServiceTrayMenuBuilder();
+            if (services is null)
+            {
+                // Контроллер недоступен — команды неактивны; остаются «Настроить…»
+                // и «Все сервисы».
+                return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Linux);
+            }
+            return builder.Build(data, name =>
+            {
+                try { return services.GetStatus(name); }
+                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
+            }, ServicePlatform.Linux);
+        }
+
+        /// <summary>Адаптер пункта модели меню служб к элементу Avalonia ContextMenu.</summary>
+        private object ToAvaloniaMenuItem(ServiceMenuItem item)
+        {
+            switch (item.Kind)
+            {
+                case ServiceMenuItemKind.Separator:
+                    return new Separator();
+
+                case ServiceMenuItemKind.Settings:
+                {
+                    var settings = new MenuItem { Header = item.Text };
+                    settings.Click += (_, _) => ShowServicesSettings();
+                    return settings;
+                }
+
+                case ServiceMenuItemKind.ServiceSubmenu:
+                case ServiceMenuItemKind.GroupSubmenu:
+                case ServiceMenuItemKind.AllServicesSubmenu:
+                {
+                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    foreach (var child in item.Children)
+                        submenu.Items.Add(ToAvaloniaMenuItem(child));
+                    return submenu;
+                }
+
+                case ServiceMenuItemKind.ServiceCommand:
+                case ServiceMenuItemKind.GroupCommand:
+                case ServiceMenuItemKind.AllServicesCommand:
+                {
+                    var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var action = item.Action ?? Services.ServiceAction.Start;
+                    var target = item.Target;
+                    var targetName = item.TargetName;
+                    var names = item.ServiceNames;
+                    command.Click += (_, _) => ExecuteServicesOperation(action, target, targetName, names);
+                    return command;
+                }
+
+                default:
+                    return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+            }
+        }
+
+        /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>
+        private void ShowServicesSettings()
+        {
+            var window = new ServicesWindow();
+            window.ShowSync(this);
+        }
+
+        /// <summary>
+        /// Выполняет операцию над целевыми службами (отдельная служба / члены группы /
+        /// все службы списка): systemctl блокирующий — работа в фоновом потоке.
+        /// </summary>
+        private static void ExecuteServicesOperation(
+            ServiceAction action,
+            ServiceMenuItemTarget target,
+            string targetName,
+            IReadOnlyList<string> serviceNames)
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            if (services is null)
+                return;
+
+            var names = target switch
+            {
+                ServiceMenuItemTarget.Group or ServiceMenuItemTarget.All => serviceNames.ToList(),
+                _ => new List<string> { targetName }
+            };
+            if (names.Count == 0)
+                return;
+
+            Task.Run(() =>
+            {
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        // Статусы актуализируем на момент операции: доступность могла измениться.
+                        var info = services.GetStatus(name);
+                        if (!ServiceActionAvailability.CanExecute(
+                                action, info.Status, info.CanPauseAndContinue, info.CanStop, ServicePlatform.Linux))
+                            continue;
+                        switch (action)
+                        {
+                            case Services.ServiceAction.Start: services.Start(name); break;
+                            case Services.ServiceAction.Stop: services.Stop(name); break;
+                            case Services.ServiceAction.Pause: services.Pause(name); break;
+                            case Services.ServiceAction.Continue: services.Continue(name); break;
+                            case Services.ServiceAction.Restart: services.Restart(name); break;
+                        }
+                    }
+                    catch
+                    {
+                        // Отдельная служба не должна останавливать остальные.
+                    }
+                }
+            });
         }
 
         /// <summary>Строит «infobase summary» из строки списка для предзаполнения диалога правки.</summary>

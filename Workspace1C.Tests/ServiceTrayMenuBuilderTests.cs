@@ -1,16 +1,21 @@
 using System.Collections.Generic;
 using System.Linq;
 using Workspace1C.Services;
+using Workspace1C.ViewModels;
 using Xunit;
 
 namespace Workspace1C.Tests;
 
 /// <summary>
 /// Тесты построителя меню служб системного трея (issue #11, итерация 2 — группы
-/// служб, релиз 1.0.0.12; требования 7OH к issue #11 от 13:30/13:47): порядок
-/// пунктов (Настроить → группы/службы по Order → разделитель → Все сервисы),
-/// состав подменю группы (команды → разделитель → члены), доступность команд по
-/// статусам (ServiceActionAvailability), статус группы в пункте, пустой список.
+/// служб, релиз 1.0.0.12; требования 7OH к issue #11 от 13:30/13:47 и замечания
+/// 7OH от 18.10): порядок пунктов (Настроить → разделитель → группы/службы по
+/// Order → разделитель → Все сервисы), разделитель после «Настроить…», структура
+/// команд с разделителями как в контекстном меню окна «Управление службами»
+/// (Запустить/Остановить | Пауза/Восстановить | Перезапустить), состав подменю
+/// группы (команды → разделитель → члены), доступность команд по статусам
+/// (ServiceActionAvailability), статус группы в пункте, пустой список, глифы
+/// команд (единый источник ServiceCommandGlyphs).
 /// </summary>
 public sealed class ServiceTrayMenuBuilderTests
 {
@@ -38,6 +43,18 @@ public sealed class ServiceTrayMenuBuilderTests
         _ => ServiceStatus.Unknown
     };
 
+    /// <summary>Первый пункт заданного вида в плоском списке верхнего уровня.</summary>
+    private static ServiceMenuItem First(IReadOnlyList<ServiceMenuItem> items, ServiceMenuItemKind kind)
+    {
+        var item = items.FirstOrDefault(i => i.Kind == kind);
+        Assert.NotNull(item);
+        return item!;
+    }
+
+    /// <summary>Команды подменю заданного вида (разделители отбрасываются).</summary>
+    private static List<ServiceMenuItem> Commands(IReadOnlyList<ServiceMenuItem> children, ServiceMenuItemKind kind)
+        => children.Where(c => c.Kind == kind).ToList();
+
     // ===================== Структура верхнего списка =====================
 
     [Fact]
@@ -48,16 +65,33 @@ public sealed class ServiceTrayMenuBuilderTests
         // 1) «Настроить…» — первым (требование 7OH: кнопка настройки сверху).
         Assert.Equal(ServiceMenuItemKind.Settings, items[0].Kind);
 
-        // 2) Строки в порядке data.Order: сначала группа, затем служба web.
-        Assert.Equal(ServiceMenuItemKind.GroupSubmenu, items[1].Kind);
-        Assert.Equal("База данных", items[1].TargetName);
-        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, items[2].Kind);
-        Assert.Equal("web.service", items[2].TargetName);
+        // 2) После «Настроить…» — разделитель (замечание 7OH 18.10).
+        Assert.Equal(ServiceMenuItemKind.Separator, items[1].Kind);
 
-        // 3) Разделитель и подменю «Все сервисы» в конце.
-        Assert.Equal(ServiceMenuItemKind.Separator, items[3].Kind);
-        Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, items[4].Kind);
-        Assert.Equal(5, items.Count);
+        // 3) Строки в порядке data.Order: сначала группа, затем служба web.
+        Assert.Equal(ServiceMenuItemKind.GroupSubmenu, items[2].Kind);
+        Assert.Equal("База данных", items[2].TargetName);
+        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, items[3].Kind);
+        Assert.Equal("web.service", items[3].TargetName);
+
+        // 4) Разделитель и подменю «Все сервисы» в конце.
+        Assert.Equal(ServiceMenuItemKind.Separator, items[4].Kind);
+        Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, items[5].Kind);
+        Assert.Equal(6, items.Count);
+    }
+
+    [Fact]
+    public void Build_SeparatorAfterSettings_ForEmptyListOnlyOneSeparator()
+    {
+        // Пустой список: «Настроить…», разделитель и «Все сервисы» — лишних
+        // разделителей нет (замечание 7OH 18.10: разделитель после «Настроить…»).
+        var items = Builder().Build(new ServiceStoreData(), _ => ServiceStatus.Unknown, Windows);
+
+        Assert.Equal(3, items.Count);
+        Assert.Equal(ServiceMenuItemKind.Settings, items[0].Kind);
+        Assert.Equal(ServiceMenuItemKind.Separator, items[1].Kind);
+        Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, items[2].Kind);
+        Assert.Single(items, i => i.IsSeparator);
     }
 
     // ===================== Подменю службы =====================
@@ -66,11 +100,10 @@ public sealed class ServiceTrayMenuBuilderTests
     public void ServiceSubmenu_CommandsFollowFixedOrderAndCanExecuteDependsOnStatus()
     {
         var items = Builder().Build(SampleData(), StatusOf, Windows);
-        var web = items[2]; // web.service — Stopped
-        var commands = web.Children;
+        var web = First(items, ServiceMenuItemKind.ServiceSubmenu); // web.service — Stopped
+        var commands = Commands(web.Children, ServiceMenuItemKind.ServiceCommand);
 
         Assert.Equal(5, commands.Count);
-        Assert.All(commands, c => Assert.Equal(ServiceMenuItemKind.ServiceCommand, c.Kind));
         Assert.All(commands, c => Assert.Equal(ServiceMenuItemTarget.Service, c.Target));
         Assert.All(commands, c => Assert.Equal("web.service", c.TargetName));
         Assert.Equal(
@@ -86,12 +119,33 @@ public sealed class ServiceTrayMenuBuilderTests
     }
 
     [Fact]
+    public void ServiceSubmenu_CommandsSeparatedLikeMainWindowContextMenu()
+    {
+        // Замечание 7OH 18.10: меню службы в трее — по виду как контекстное меню
+        // строки окна «Управление службами»: Запустить/Остановить | Пауза/Восстановить |
+        // Перезапустить (разделители между группами команд).
+        var items = Builder().Build(SampleData(), StatusOf, Windows);
+        var web = First(items, ServiceMenuItemKind.ServiceSubmenu);
+        var children = web.Children;
+
+        Assert.Equal(7, children.Count);
+        Assert.Equal(ServiceAction.Start, children[0].Action);
+        Assert.Equal(ServiceAction.Stop, children[1].Action);
+        Assert.Equal(ServiceMenuItemKind.Separator, children[2].Kind);
+        Assert.Equal(ServiceAction.Pause, children[3].Action);
+        Assert.Equal(ServiceAction.Continue, children[4].Action);
+        Assert.Equal(ServiceMenuItemKind.Separator, children[5].Kind);
+        Assert.Equal(ServiceAction.Restart, children[6].Action);
+    }
+
+    [Fact]
     public void Linux_StoppedServiceRestartEnabled()
     {
         // Linux: systemctl restart допустим и для остановленного unit'а (раздел 3.1 плана).
         var data = new ServiceStoreData { Services = { "web.service" } };
         var items = Builder().Build(data, StatusOf, Linux);
-        var commands = items[1].Children; // ServiceSubmenu(web)
+        var web = First(items, ServiceMenuItemKind.ServiceSubmenu);
+        var commands = Commands(web.Children, ServiceMenuItemKind.ServiceCommand);
         Assert.True(commands[4].IsEnabled); // Restart при Stopped
     }
 
@@ -112,7 +166,8 @@ public sealed class ServiceTrayMenuBuilderTests
             },
             Windows);
 
-        var commands = items[1].Children;
+        var mail = First(items, ServiceMenuItemKind.ServiceSubmenu);
+        var commands = Commands(mail.Children, ServiceMenuItemKind.ServiceCommand);
         Assert.False(commands[0].IsEnabled); // Start (Running)
         Assert.True(commands[1].IsEnabled);  // Stop
         Assert.True(commands[2].IsEnabled);  // Pause
@@ -126,20 +181,28 @@ public sealed class ServiceTrayMenuBuilderTests
     public void GroupSubmenu_CommandsFirstThenSeparatorThenMembersInOrder()
     {
         var items = Builder().Build(SampleData(), StatusOf, Windows);
-        var group = items[1];
+        var group = First(items, ServiceMenuItemKind.GroupSubmenu);
         var children = group.Children;
 
-        // 5 команд группы + разделитель + 2 члена (в порядке списка группы).
-        Assert.Equal(8, children.Count);
-        Assert.Equal(Enumerable.Repeat(ServiceMenuItemKind.GroupCommand, 5), children.Take(5).Select(c => c.Kind));
-        Assert.Equal(ServiceMenuItemKind.Separator, children[5].Kind);
-        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, children[6].Kind);
-        Assert.Equal("pgsql.service", children[6].TargetName);
-        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, children[7].Kind);
-        Assert.Equal("redis.service", children[7].TargetName);
+        // 5 команд группы (с разделителями между группами команд) + разделитель
+        // перед членами + 2 члена (в порядке списка группы).
+        var commands = Commands(children, ServiceMenuItemKind.GroupCommand);
+        Assert.Equal(5, commands.Count);
+        Assert.Equal(
+            new[] { ServiceAction.Start, ServiceAction.Stop, ServiceAction.Pause, ServiceAction.Continue, ServiceAction.Restart },
+            commands.Select(c => c.Action!.Value));
+
+        // Разделители: после Остановить, после Восстановить и перед членами.
+        Assert.Equal(3, children.Count(c => c.IsSeparator));
+        var memberSeparator = children.Last(c => c.IsSeparator);
+        var memberStart = children.IndexOf(memberSeparator) + 1;
+        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, children[memberStart].Kind);
+        Assert.Equal("pgsql.service", children[memberStart].TargetName);
+        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, children[memberStart + 1].Kind);
+        Assert.Equal("redis.service", children[memberStart + 1].TargetName);
 
         // Все команды группы направлены на группу и содержат список членов в порядке группы.
-        Assert.All(children.Take(5), c =>
+        Assert.All(commands, c =>
         {
             Assert.Equal(ServiceMenuItemTarget.Group, c.Target);
             Assert.Equal("База данных", c.TargetName);
@@ -147,8 +210,8 @@ public sealed class ServiceTrayMenuBuilderTests
         });
 
         // Статусы членов: pgsql Running + redis Stopped → Start (redis) и Stop (pgsql) доступны.
-        Assert.True(children[0].IsEnabled); // Start
-        Assert.True(children[1].IsEnabled); // Stop
+        Assert.True(commands[0].IsEnabled); // Start
+        Assert.True(commands[1].IsEnabled); // Stop
     }
 
     [Fact]
@@ -156,7 +219,7 @@ public sealed class ServiceTrayMenuBuilderTests
     {
         // pgsql Running + redis Stopped → Partial: жёлтый кружок и текст статуса.
         var items = Builder().Build(SampleData(), StatusOf, Windows);
-        var group = items[1];
+        var group = First(items, ServiceMenuItemKind.GroupSubmenu);
         Assert.Equal("#F59E0B", group.StatusColorHex);
         Assert.False(string.IsNullOrEmpty(group.StatusText));
 
@@ -168,7 +231,7 @@ public sealed class ServiceTrayMenuBuilderTests
             },
             _ => ServiceStatus.Running,
             Windows);
-        Assert.Equal("#22C55E", allRunning[1].StatusColorHex);
+        Assert.Equal("#22C55E", First(allRunning, ServiceMenuItemKind.GroupSubmenu).StatusColorHex);
 
         // Ни один не Running → серый кружок.
         var noneRunning = Builder().Build(
@@ -178,7 +241,7 @@ public sealed class ServiceTrayMenuBuilderTests
             },
             _ => ServiceStatus.Stopped,
             Windows);
-        Assert.Equal("#6B7280", noneRunning[1].StatusColorHex);
+        Assert.Equal("#6B7280", First(noneRunning, ServiceMenuItemKind.GroupSubmenu).StatusColorHex);
     }
 
     [Fact]
@@ -196,23 +259,22 @@ public sealed class ServiceTrayMenuBuilderTests
         };
 
         var items = Builder().Build(data, _ => ServiceStatus.NotFound, Windows);
-        var group = items[1];
+        var group = First(items, ServiceMenuItemKind.GroupSubmenu);
 
         Assert.Equal(ServiceMenuItemKind.GroupSubmenu, group.Kind);
         Assert.Equal("#6B7280", group.StatusColorHex);
 
         // Все 5 команд группы недоступны.
-        Assert.All(group.Children.Take(5), c =>
+        Assert.All(Commands(group.Children, ServiceMenuItemKind.GroupCommand), c =>
         {
             Assert.Equal(ServiceMenuItemKind.GroupCommand, c.Kind);
             Assert.False(c.IsEnabled);
         });
 
         // Член-подменю — красный (NotFound), все его команды тоже недоступны.
-        var member = group.Children[6];
-        Assert.Equal(ServiceMenuItemKind.ServiceSubmenu, member.Kind);
+        var member = group.Children.Last(c => c.Kind == ServiceMenuItemKind.ServiceSubmenu);
         Assert.Equal("#EF4444", member.StatusColorHex);
-        Assert.All(member.Children, c => Assert.False(c.IsEnabled));
+        Assert.All(Commands(member.Children, ServiceMenuItemKind.ServiceCommand), c => Assert.False(c.IsEnabled));
     }
 
     // ===================== «Все сервисы» =====================
@@ -230,18 +292,52 @@ public sealed class ServiceTrayMenuBuilderTests
         var all = items[items.Count - 1];
         Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, all.Kind);
 
+        var commands = Commands(all.Children, ServiceMenuItemKind.AllServicesCommand);
+
         // Start (web Stopped), Stop (pgsql Running) и Restart (pgsql Running);
         // Pause/Continue неприменимы (CanPauseAndContinue у обеих нет) — отсутствуют.
         Assert.Equal(
             new[] { ServiceAction.Start, ServiceAction.Stop, ServiceAction.Restart },
-            all.Children.Select(c => c.Action!.Value));
+            commands.Select(c => c.Action!.Value));
 
-        Assert.All(all.Children, c =>
+        Assert.All(commands, c =>
         {
             Assert.Equal(ServiceMenuItemKind.AllServicesCommand, c.Kind);
             Assert.Equal(ServiceMenuItemTarget.All, c.Target);
             Assert.Equal(new[] { "pgsql.service", "web.service" }, c.ServiceNames);
         });
+    }
+
+    [Fact]
+    public void AllServices_CommandsSeparatedLikeMainWindowMenu()
+    {
+        // Замечание 7OH 18.10: меню «Все сервисы» в трее — по виду как меню «Все
+        // сервисы» окна «Управление службами»: Запустить/Остановить | ... | Перезапустить.
+        var data = new ServiceStoreData
+        {
+            Services = { "web.service", "db.service" },
+            Order = { "web.service", "db.service" }
+        };
+        // web.service — Stopped, db.service — Running (обе без поддержки паузы).
+        var items = Builder().Build(
+            data,
+            name => name switch
+            {
+                "web.service" => ServiceStatus.Stopped,
+                "db.service" => ServiceStatus.Running,
+                _ => ServiceStatus.Unknown
+            },
+            Windows);
+        var all = items[items.Count - 1];
+
+        // Start (web Stopped) + Stop (db Running) + Restart (db Running) — без
+        // Pause/Continue: средняя группа пуста — двойных разделителей нет.
+        var children = all.Children;
+        Assert.Equal(4, children.Count);
+        Assert.Equal(ServiceAction.Start, children[0].Action);
+        Assert.Equal(ServiceAction.Stop, children[1].Action);
+        Assert.Equal(ServiceMenuItemKind.Separator, children[2].Kind);
+        Assert.Equal(ServiceAction.Restart, children[3].Action);
     }
 
     [Fact]
@@ -256,9 +352,10 @@ public sealed class ServiceTrayMenuBuilderTests
         var all = items[items.Count - 1];
         Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, all.Kind);
         Assert.True(all.IsEnabled);
-        Assert.True(all.Children.Single(c => c.Action == ServiceAction.Restart).IsEnabled);
-        Assert.True(all.Children.Single(c => c.Action == ServiceAction.Start).IsEnabled);
-        Assert.DoesNotContain(all.Children, c => c.Action == ServiceAction.Stop);
+        var commands = Commands(all.Children, ServiceMenuItemKind.AllServicesCommand);
+        Assert.True(commands.Single(c => c.Action == ServiceAction.Restart).IsEnabled);
+        Assert.True(commands.Single(c => c.Action == ServiceAction.Start).IsEnabled);
+        Assert.DoesNotContain(commands, c => c.Action == ServiceAction.Stop);
     }
 
     [Fact]
@@ -279,7 +376,8 @@ public sealed class ServiceTrayMenuBuilderTests
             },
             Windows);
 
-        var commands = items[1].Children;
+        var mail = First(items, ServiceMenuItemKind.ServiceSubmenu);
+        var commands = Commands(mail.Children, ServiceMenuItemKind.ServiceCommand);
         Assert.False(commands[1].IsEnabled); // Stop: CanStop=false
         Assert.True(commands[2].IsEnabled);  // Pause: CanPauseAndContinue=true и Running
         Assert.True(commands[4].IsEnabled);  // Restart: Running
@@ -300,7 +398,7 @@ public sealed class ServiceTrayMenuBuilderTests
         Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, items[2].Kind);
         Assert.Empty(items[2].Children);
         // «Все сервисы» без служб неактивно (Задача 5, issue #11); ровно один
-        // разделитель — перед «Все сервисы», лишние разделители не висят.
+        // разделитель — после «Настроить…» (замечание 7OH 18.10), лишних нет.
         Assert.False(items[2].IsEnabled);
         Assert.Single(items, i => i.IsSeparator);
     }
@@ -320,5 +418,37 @@ public sealed class ServiceTrayMenuBuilderTests
         Assert.Equal(ServiceMenuItemKind.Settings, empty[0].Kind);
         Assert.Equal(ServiceMenuItemKind.Separator, empty[^2].Kind);
         Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, empty[^1].Kind);
+    }
+
+    // ===================== Глифы команд (замечание 7OH 18.10) =====================
+
+    [Fact]
+    public void CommandGlyphs_ContinueDiffersFromStartByVerticalBar()
+    {
+        // «Восстановить» — треугольник «Запустить» + палочка справа (7OH 18.10):
+        // глиф Continue начинается с глифа Start и отличается добавленной чертой.
+        var start = ServiceCommandGlyphs.Glyph(ServiceAction.Start);
+        var cont = ServiceCommandGlyphs.Glyph(ServiceAction.Continue);
+        Assert.Equal(ServiceCommandGlyphs.StartGlyph, start);
+        Assert.StartsWith(start, cont);
+        Assert.Contains("|", cont);
+        Assert.NotEqual(start, cont);
+    }
+
+    [Fact]
+    public void CommandGlyphs_AllActionsHaveGlyphAndColor()
+    {
+        foreach (var action in new[] { ServiceAction.Start, ServiceAction.Stop, ServiceAction.Pause, ServiceAction.Continue, ServiceAction.Restart })
+        {
+            Assert.False(string.IsNullOrWhiteSpace(ServiceCommandGlyphs.Glyph(action)));
+            Assert.False(string.IsNullOrWhiteSpace(ServiceCommandGlyphs.ColorHex(action)));
+        }
+
+        // Цвета соответствуют кнопкам панели окна «Управление службами».
+        Assert.Equal("#16A34A", ServiceCommandGlyphs.ColorHex(ServiceAction.Start));
+        Assert.Equal("#DC2626", ServiceCommandGlyphs.ColorHex(ServiceAction.Stop));
+        Assert.Equal("#D97706", ServiceCommandGlyphs.ColorHex(ServiceAction.Pause));
+        Assert.Equal("#0EA5E9", ServiceCommandGlyphs.ColorHex(ServiceAction.Continue));
+        Assert.Equal("#2563EB", ServiceCommandGlyphs.ColorHex(ServiceAction.Restart));
     }
 }

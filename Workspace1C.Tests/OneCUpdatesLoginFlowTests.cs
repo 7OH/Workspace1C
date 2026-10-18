@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -1156,6 +1157,229 @@ public sealed class OneCUpdatesLoginFlowTests
 
         Assert.Equal(PortalFetchStatus.AuthRequired, result.Status);
         Assert.Equal(0, handler.PostLoginCount);
+    }
+
+    // ---------- Изоляция сессии/состояния входа по учётной записи (issue #13) ----------
+
+    [Fact]
+    public async Task DifferentAccounts_DoNotShareSessionCookies()
+    {
+        // issue #13: сессия портала изолирована по учётной записи. После входа под «Основной»
+        // учёткой контейнер cookie ДРУГОЙ учётки остаётся пустым; вход под другой учёткой
+        // кладёт cookie только в ЕЁ контейнер. Раньше (общий CookieContainer) cookie сессии
+        // «Основной» учётки видели все последующие проверки — симптом «в окне корректная
+        // учётка, в дампе страницы — другая».
+        var handler = new PerAccountSessionHandler(
+            ("main@its", "main-pass"),
+            ("cfg@its", "cfg-pass"));
+        var service = CreateServiceWithAccounts(handler,
+            new ItsAccount { Id = "main", Name = "Основная", Login = "main@its", Password = "main-pass", IsPrimary = true },
+            new ItsAccount { Id = "cfg1", Name = "Конфигурация", Login = "cfg@its", Password = "cfg-pass" });
+
+        // Проверка под «Основной» учёткой: полный вход, cookie — только в ЕЁ сессии.
+        var mainPage = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "main");
+        Assert.Equal(PortalFetchStatus.Ok, mainPage.Status);
+
+        // Контейнер «Основной» содержит сессионную cookie; контейнер «cfg1» — ПУСТ.
+        Assert.Contains("SESSION", service.DescribeContainerCookies("main"));
+        Assert.DoesNotContain("SESSION", service.DescribeContainerCookies("cfg1"));
+
+        // Проверка под конфигурационной учёткой: выполняется СОБСТВЕННЫЙ вход (чужая сессия
+        // не переиспользуется), cookie появляются в ЕЁ контейнере, каталог — под ЕЁ логином.
+        var cfgPage = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "cfg1");
+        Assert.Equal(PortalFetchStatus.Ok, cfgPage.Status);
+        Assert.Contains("cfg@its", cfgPage.Text ?? string.Empty);
+        Assert.Contains("SESSION", service.DescribeContainerCookies("cfg1"));
+        Assert.Equal(2, handler.PostLoginCount);
+    }
+
+    [Fact]
+    public async Task SameAccount_ReusesLiveSession_NoRepeatedLogin()
+    {
+        // issue #13, требование 2: для ОДНОЙ И ТОЙ ЖЕ учётной записи живая сессия
+        // переиспользуется — повторная проверка не выполняет полный вход (POST не растёт).
+        var handler = new PerAccountSessionHandler(
+            ("main@its", "main-pass"),
+            ("cfg@its", "cfg-pass"));
+        var service = CreateServiceWithAccounts(handler,
+            new ItsAccount { Id = "main", Name = "Основная", Login = "main@its", Password = "main-pass", IsPrimary = true },
+            new ItsAccount { Id = "cfg1", Name = "Конфигурация", Login = "cfg@its", Password = "cfg-pass" });
+
+        var first = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "cfg1");
+        Assert.Equal(PortalFetchStatus.Ok, first.Status);
+        Assert.Equal(1, handler.PostLoginCount);
+
+        var second = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "cfg1");
+        Assert.Equal(PortalFetchStatus.Ok, second.Status);
+        Assert.Equal(1, handler.PostLoginCount); // сессия жива — повторный вход не выполняется
+    }
+
+    [Fact]
+    public async Task DifferentAccounts_LoginFailure_DoesNotPoisonOtherAccount()
+    {
+        // issue #13: состояние входа (результат последней попытки) изолировано по учётной
+        // записи. Неудачный вход под одной учёткой не должен превращать результат проверки
+        // другой в AuthFailed. «main» хранит НЕВЕРНЫЙ пароль (сервер ждёт другой), «cfg1» — верный.
+        var handler = new PerAccountSessionHandler(
+            ("main@its", "correct-main-pass"),
+            ("cfg@its", "cfg-pass"));
+        var service = CreateServiceWithAccounts(handler,
+            new ItsAccount { Id = "main", Name = "Основная", Login = "main@its", Password = "WRONG", IsPrimary = true },
+            new ItsAccount { Id = "cfg1", Name = "Конфигурация", Login = "cfg@its", Password = "cfg-pass" });
+
+        var bad = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "main");
+        Assert.Equal(PortalFetchStatus.AuthFailed, bad.Status);
+
+        // cfg1 со своим корректным паролем входит успешно, несмотря на предыдущий провал «main».
+        var good = await service.FetchPageAsync(
+            "https://releases.1c.ru/project/AccountingCorp30", accountId: "cfg1");
+        Assert.Equal(PortalFetchStatus.Ok, good.Status);
+        Assert.Contains("cfg@its", good.Text ?? string.Empty);
+    }
+
+    /// <summary>Создаёт службу с хранилищем учётных записей ИТС (справочник в изолированной
+    /// временной директории) — для тестов изоляции сессии по учётной записи (issue #13).</summary>
+    private static OneCUpdatesService CreateServiceWithAccounts(
+        HttpMessageHandler handler,
+        params ItsAccount[] accounts)
+    {
+        var repo = new MemRepo();
+        var dir = Path.Combine(Path.GetTempPath(), "cm_its_" + Guid.NewGuid().ToString("N"));
+        var store = new ItsAccountsStore(repository: repo, profileService: null, directoryOverride: dir);
+        foreach (var account in accounts)
+            store.Upsert(account);
+        return new OneCUpdatesService(repo, new CollectingLogger(), handler, store);
+    }
+
+    /// <summary>
+    /// Обработчик сценария «изоляция сессии по учётной записи» (issue #13): учётка определяется
+    /// по Basic Auth (логин из заголовка Authorization), доступ к каталогу выдаётся ТОЛЬКО
+    /// учётке, выполнившей вход (POST с верными кредами). Моделирует сервер CAS: без живой
+    /// сессии каталог редиректит на login.1c.ru; после входа отдаёт каталог под конкретной
+    /// учёткой (маркер учётки в теле — по нему видно, под какой записью отдан контент).
+    /// </summary>
+    private sealed class PerAccountSessionHandler : HttpMessageHandler
+    {
+        private readonly Dictionary<string, string> _credentials;
+        private readonly HashSet<string> _loggedIn = new(StringComparer.Ordinal);
+
+        public int PostLoginCount { get; private set; }
+
+        public string? LastPostUser { get; private set; }
+
+        public PerAccountSessionHandler(params (string Login, string Password)[] accounts)
+        {
+            _credentials = accounts.ToDictionary(a => a.Login, a => a.Password, StringComparer.Ordinal);
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.AbsolutePath ?? string.Empty;
+            HttpResponseMessage response;
+
+            if (path.Contains("/project/", StringComparison.OrdinalIgnoreCase))
+            {
+                var user = BasicAuthUser(request);
+                response = user is not null && _loggedIn.Contains(user)
+                    ? Ok(CatalogHtml(user))
+                    : Found(new Uri("https://login.1c.ru/login?service=x"));
+            }
+            else if (path.Contains("/public/security_check", StringComparison.OrdinalIgnoreCase))
+            {
+                // Звено CAS: выдаёт сессионную cookie для releases.1c.ru (сервис кладёт её в
+                // контейнер СВОЕЙ учётной записи через ApplySetCookieToContainer).
+                response = Ok("<html>session established</html>");
+                response.Headers.Add("Set-Cookie", "SESSION=rel-sess; Domain=releases.1c.ru; Path=/; HttpOnly");
+            }
+            else if (path.Contains("/login", StringComparison.OrdinalIgnoreCase))
+            {
+                if (request.Method == HttpMethod.Post)
+                {
+                    PostLoginCount++;
+                    var body = request.Content is null
+                        ? string.Empty
+                        : request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    var user = ParseFormField(body, "username");
+                    var pass = ParseFormField(body, "password");
+                    LastPostUser = user;
+                    if (user is not null && _credentials.TryGetValue(user, out var expected) && expected == pass)
+                    {
+                        _loggedIn.Add(user);
+                        response = Found(new Uri("https://releases.1c.ru/public/security_check?ticket=ST-1"));
+                        response.Headers.Add("Set-Cookie", $"SESSION=login-sess-{user}; Domain=login.1c.ru; Path=/; HttpOnly");
+                    }
+                    else
+                    {
+                        // Неверные креды — сервер отклоняет (401 → честный AuthFailed).
+                        response = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                        {
+                            Content = new StringContent("<html><body>ошибка входа</body></html>"),
+                        };
+                    }
+                }
+                else
+                {
+                    response = Ok(FormWithHiddenFields);
+                }
+            }
+            else
+            {
+                response = new HttpResponseMessage(HttpStatusCode.Found);
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+
+        private static string? BasicAuthUser(HttpRequestMessage request)
+        {
+            var auth = request.Headers.Authorization;
+            if (auth is null || !string.Equals(auth.Scheme, "Basic", StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrEmpty(auth.Parameter))
+                return null;
+
+            try
+            {
+                var decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(auth.Parameter));
+                var colon = decoded.IndexOf(':');
+                return colon < 0 ? decoded : decoded.Substring(0, colon);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? ParseFormField(string body, string name)
+        {
+            var prefix = name + "=";
+            var index = body.IndexOf(prefix, StringComparison.Ordinal);
+            if (index < 0)
+                return null;
+
+            var valueStart = index + prefix.Length;
+            var amp = body.IndexOf('&', valueStart);
+            var raw = amp < 0 ? body.Substring(valueStart) : body.Substring(valueStart, amp - valueStart);
+            // FormUrlEncodedContent кодирует значения (например '@' → %40) — декодируем обратно.
+            try
+            {
+                return Uri.UnescapeDataString(raw);
+            }
+            catch
+            {
+                return raw;
+            }
+        }
+
+        private static string CatalogHtml(string user)
+            => $"<html><body><table id=\"versionsTable\"><tr><td><a href=\"/version_files?nick=X&ver=1.0.0.1\">1.0.0.1</a></td></tr></table>" +
+               $"<div class=\"account\">{user}</div></body></html>";
     }
 
     // ---------- Вспомогательные ----------

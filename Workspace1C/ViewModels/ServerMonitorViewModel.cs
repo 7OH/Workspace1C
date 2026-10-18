@@ -495,6 +495,19 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     public bool CanDropInfobase => SelectedInfobase is not null && HasConnected;
 
     /// <summary>
+    /// Можно ли удалить базу вместе с БД на сервере СУБД (комментарий 7OH от 2026-10-17):
+    /// вариант диалога удаления доступен только клиент-серверным базам; файловым —
+    /// только «просто удалить из кластера».
+    /// </summary>
+    public static bool CanDropDatabaseOnServer(RacInfobaseRow? row) =>
+        row is not null && IsClientServerDbms(row.Dbms);
+
+    /// <summary>Клиент-серверный ли тип СУБД rac: FILE и пустое значение — файловая база.</summary>
+    internal static bool IsClientServerDbms(string? dbms) =>
+        !string.IsNullOrWhiteSpace(dbms) &&
+        !string.Equals(dbms.Trim(), RacDbms.File, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Создание информационной базы в кластере (issue #3): rac «infobase create» по
     /// полям диалога → перечитывание списков. Ошибка — предупреждение + статус-строка.
     /// </summary>
@@ -533,23 +546,22 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Удаление выбранной базы (issue #3): подтверждение → rac «infobase drop» →
-    /// перечитывание списков. Ошибка — предупреждение + статус-строка. Выбор снимается.
+    /// Удаление выбранной базы (issue #3): rac «infobase drop» → перечитывание списков.
+    /// Вопрос и выбор варианта («просто удалить из кластера» / «удалить с удалением БД на
+    /// сервере СУБД», комментарий 7OH от 2026-10-17) задаёт диалог удаления в окне —
+    /// сюда попадает уже выбранный флаг <paramref name="dropDatabase"/>. Ошибка —
+    /// предупреждение + статус-строка.
     /// </summary>
-    public async Task DropSelectedInfobaseAsync()
+    public async Task DropSelectedInfobaseAsync(bool dropDatabase = false)
     {
         var row = SelectedInfobase;
         if (row is null || !HasConnected || SelectedClusterId is not Guid clusterId)
             return;
 
-        if (!_dialogs.Confirm(
-                string.Format(LocalizationManager.T("ServerMonitor.Infobase.DropConfirmFormat"), row.Name),
-                LocalizationManager.T("ServerMonitor.Infobase.DropTitle")))
-            return;
-
         try
         {
-            var ok = await _rac.DropInfobaseAsync(BuildParams(), clusterId, row.InfobaseId).ConfigureAwait(false);
+            var ok = await _rac.DropInfobaseAsync(
+                BuildParams(), clusterId, row.InfobaseId, dropDatabase).ConfigureAwait(false);
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);

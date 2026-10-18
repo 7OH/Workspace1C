@@ -19,9 +19,11 @@
             <Setter Property="Margin" Value="0,0,0,6"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
-        <!-- Узкая кнопка-иконка (стрелки переноса/порядка, требование 7OH). -->
-        <Style x:Key="IconOnlyButton" TargetType="Button">
-            <Setter Property="Style" Value="{StaticResource ModernButton}"/>
+        <!-- Узкая кнопка-иконка (стрелки переноса/порядка, требование 7OH).
+             Базируется на ModernButton через BasedOn (не через Setter Property="Style":
+             в WPF стиль нельзя назначать Setter'ом — XamlParseException «Объект Style
+             не может изменять свойство Style объекта»; замечание 7OH 18.10). -->
+        <Style x:Key="IconOnlyButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
             <Setter Property="Width" Value="34"/>
             <Setter Property="Height" Value="30"/>
             <Setter Property="Margin" Value="0,3"/>

@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:Workspace1C.Localization"
         xmlns:local="clr-namespace:Workspace1C"
+        xmlns:vm="clr-namespace:Workspace1C.ViewModels"
         Icon="{StaticResource AppIcon}"
         Height="600" Width="900" MinHeight="460" MinWidth="760"
         WindowStartupLocation="CenterOwner"
@@ -26,9 +27,12 @@
             <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
-        <!-- Кнопка команды службы: цветная иконка + подпись (issue #11, 7OH 17.10). -->
+        <!-- Кнопка команды службы: только цветная иконка, без подписи (замечание 7OH
+             18.10: «выключить надписи у кнопок управления состоянием на панели»),
+             по ширине чуть больше кнопки «Добавить группу». -->
         <Style x:Key="CommandButton" TargetType="Button" BasedOn="{StaticResource IconOnlyButton}">
-            <Setter Property="Padding" Value="9,5"/>
+            <Setter Property="Padding" Value="13,5"/>
+            <Setter Property="MinWidth" Value="44"/>
         </Style>
         <Style x:Key="ToolbarSeparator" TargetType="Border">
             <Setter Property="Width" Value="1"/>
@@ -121,43 +125,36 @@
                 <TextBlock Text="⟳" VerticalAlignment="Center" Foreground="#2563EB"/>
             </Button>
             <Border Style="{StaticResource ToolbarSeparator}"/>
-            <!-- Команды — цветные иконки с подписями (issue #11, 7OH 17.10). -->
+            <!-- Команды — только цветные иконки, без подписей (замечание 7OH 18.10:
+                 «выключить надписи у кнопок управления состоянием на панели»);
+                 подписи — подсказками, в контекстном меню подписи остаются.
+                 «Восстановить» — треугольник с палочкой справа (ServiceCommandGlyphs). -->
             <Button x:Name="StartButton" Style="{StaticResource CommandButton}"
+                    ToolTip="{loc:Loc Services.Start}"
                     IsEnabled="{Binding CanStart}" Click="OnStart_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="▶" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#16A34A"/>
-                    <TextBlock Text="{loc:Loc Services.Start}" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{x:Static vm:ServiceCommandGlyphs.StartGlyph}" VerticalAlignment="Center" Foreground="#16A34A"/>
             </Button>
             <Button x:Name="StopButton" Style="{StaticResource CommandButton}"
+                    ToolTip="{loc:Loc Services.Stop}"
                     IsEnabled="{Binding CanStop}" Click="OnStop_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="■" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#DC2626"/>
-                    <TextBlock Text="{loc:Loc Services.Stop}" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{x:Static vm:ServiceCommandGlyphs.StopGlyph}" VerticalAlignment="Center" Foreground="#DC2626"/>
             </Button>
             <Border Style="{StaticResource ToolbarSeparator}"/>
             <Button x:Name="PauseButton" Style="{StaticResource CommandButton}"
+                    ToolTip="{loc:Loc Services.Pause}"
                     IsEnabled="{Binding CanPause}" Click="OnPause_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="❚❚" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#D97706"/>
-                    <TextBlock Text="{loc:Loc Services.Pause}" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{x:Static vm:ServiceCommandGlyphs.PauseGlyph}" VerticalAlignment="Center" Foreground="#D97706"/>
             </Button>
             <Button x:Name="ContinueButton" Style="{StaticResource CommandButton}"
+                    ToolTip="{loc:Loc Services.Continue}"
                     IsEnabled="{Binding CanContinue}" Click="OnContinue_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="▶" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#0EA5E9"/>
-                    <TextBlock Text="{loc:Loc Services.Continue}" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{x:Static vm:ServiceCommandGlyphs.ContinueGlyph}" VerticalAlignment="Center" Foreground="#0EA5E9"/>
             </Button>
             <Border Style="{StaticResource ToolbarSeparator}"/>
             <Button x:Name="RestartButton" Style="{StaticResource CommandButton}"
+                    ToolTip="{loc:Loc Services.Restart}"
                     IsEnabled="{Binding CanRestart}" Click="OnRestart_Click">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="⟲" Margin="0,0,5,0" VerticalAlignment="Center" Foreground="#2563EB"/>
-                    <TextBlock Text="{loc:Loc Services.Restart}" VerticalAlignment="Center"/>
-                </StackPanel>
+                <TextBlock Text="{x:Static vm:ServiceCommandGlyphs.RestartGlyph}" VerticalAlignment="Center" Foreground="#2563EB"/>
             </Button>
             <Border Style="{StaticResource ToolbarSeparator}"/>
             <!-- Подменю «Все сервисы» (Запустить / Остановить / Перезапустить). -->

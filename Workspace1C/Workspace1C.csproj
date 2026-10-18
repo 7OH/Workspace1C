@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.12</Version>
-    <AssemblyVersion>1.0.0.12</AssemblyVersion>
-    <FileVersion>1.0.0.12</FileVersion>
-    <InformationalVersion>1.0.0.12</InformationalVersion>
+    <Version>1.0.0.13</Version>
+    <AssemblyVersion>1.0.0.13</AssemblyVersion>
+    <FileVersion>1.0.0.13</FileVersion>
+    <InformationalVersion>1.0.0.13</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -279,6 +279,10 @@
     <!-- Окно «Свойства информационной базы» (issue #3): WPF code-behind исключается,
          Avalonia-версия (RacInfobasePropertiesWindow.Avalonia.cs) подключается глобом ниже. -->
     <Compile Remove="Views\RacInfobasePropertiesWindow.xaml.cs" />
+    <!-- Диалог удаления информационной базы кластера (issue #3, 7OH 2026-10-17):
+         WPF code-behind исключается, Avalonia-версия (RacInfobaseDropWindow.Avalonia.cs)
+         подключается глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\RacInfobaseDropWindow.xaml.cs" />
     <!-- Окно редактирования сервера справочника «Сервера управления» (issue #3):
          WPF code-behind исключается, Avalonia-версия (ServerEditWindow.Avalonia.cs)
          подключается глобом *Window.Avalonia.cs ниже. -->
@@ -488,6 +492,10 @@
          чистый .NET без платформенных зависимостей, используется обеими платформами —
          на Linux подключается явно (имя не совпадает с глобом *.Avalonia.cs). -->
     <Compile Include="ViewModels\ServiceGroupEditViewModel.cs" />
+    <!-- Единый источник глифов команд служб (issue #11, замечание 7OH 18.10):
+         чистый .NET без платформенных зависимостей, используется обеими платформами —
+         на Linux подключается явно (имя не совпадает с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\ServiceCommandGlyphs.cs" />
     <!-- Команда «Управление службами» MainViewModel (Avalonia/Linux): имя
          «MainViewModel.Avalonia.*.cs» не совпадает с глобом *.Avalonia.cs,
          добавляется явно (как MainViewModel.Avalonia.Admin.cs). -->

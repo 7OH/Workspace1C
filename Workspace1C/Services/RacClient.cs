@@ -597,6 +597,26 @@ public sealed class RacClient : IRacClient
     }
 
     /// <summary>
+    /// Аргументы команды «infobase drop» (issue #3, комментарий 7OH от 2026-10-17):
+    /// <c>infobase drop --cluster=<uuid> --infobase=<uuid> [--drop-database]</c>.
+    /// <paramref name="dropDatabase"/> — удалить заодно базу данных на сервере СУБД
+    /// (диалог удаления с выбором, как в консоли кластера). Internal — для юнит-тестов
+    /// сборки аргументов без запуска rac.
+    /// </summary>
+    internal static string[] InfobaseDropArgs(Guid clusterId, Guid infobaseId, bool dropDatabase)
+    {
+        var args = new List<string>(5)
+        {
+            "infobase", "drop",
+            $"--cluster={clusterId}",
+            $"--infobase={infobaseId}"
+        };
+        if (dropDatabase)
+            args.Add("--drop-database");
+        return args.ToArray();
+    }
+
+    /// <summary>
     /// Нераспознанный вывод rac (issue #324): rac завершился с кодом 0 и вернул НЕпустой вывод,
     /// но ни табличный разбор, ни формат блоков «ключ : значение» не дали ни одной строки
     /// данных — вероятно, новая версия формата. Бросаем <see cref="RacOutputParseException"/>,
@@ -741,9 +761,9 @@ public sealed class RacClient : IRacClient
     /// <inheritdoc />
     public Task<bool> DropInfobaseAsync(
         RacConnectionParams parameters, Guid clusterId, Guid infobaseId,
-        CancellationToken cancellationToken = default) =>
-        RunActionAsync(parameters, cancellationToken, "infobase", "drop",
-            $"--cluster={clusterId}", $"--infobase={infobaseId}");
+        bool dropDatabase = false, CancellationToken cancellationToken = default) =>
+        RunActionAsync(parameters, cancellationToken,
+            InfobaseDropArgs(clusterId, infobaseId, dropDatabase));
 
     /// <inheritdoc />
     public string LastActionError { get; private set; } = string.Empty;

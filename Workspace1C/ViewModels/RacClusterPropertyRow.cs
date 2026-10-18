@@ -66,21 +66,47 @@ public sealed class RacClusterPropertyRow : ViewModelBase
         IsEditable && !string.Equals(_editValue, OriginalValue, StringComparison.Ordinal);
 
     /// <summary>
-    /// Локализованное имя свойства по ключу rac (дефисы/подчёркивания нормализуются:
-    /// «expiration-timeout» → «ServerMonitor.ClusterProperty.ExpirationTimeout»);
-    /// для неизвестных ключей показывается исходный ключ rac.
+    /// Локализованное имя свойства по ключу rac. Ключи словаря хранятся в форме
+    /// «первая буква строчная» (issue #3, 18.10 08:57): <c>ServerMonitor.ClusterProperty.
+    /// expirationTimeout</c> — для rac-ключа «expiration-timeout». Для неизвестных ключей
+    /// показывается исходный ключ rac.
     /// </summary>
     private static string LocalizeKey(string rawKey)
     {
         if (string.IsNullOrWhiteSpace(rawKey))
             return rawKey ?? string.Empty;
 
-        var normalized = Normalize(rawKey);
-        var key = "ServerMonitor.ClusterProperty." + normalized;
+        var dictForm = ToDictionaryKeyForm(rawKey);
+        var key = "ServerMonitor.ClusterProperty." + dictForm;
         var localized = LocalizationManager.T(key);
         // LocalizationManager.T возвращает сам ключ при отсутствии перевода —
         // в этом случае показываем исходный ключ rac (свойство «как есть»).
         return string.Equals(localized, key, StringComparison.Ordinal) ? rawKey : localized;
+    }
+
+    /// <summary>
+    /// Форма ключа для словаря локализации: дефисы/подчёркивания/точки заменяются на
+    /// заглавную следующую букву, первая буква — строчная. «expiration-timeout» →
+    /// «expirationTimeout», «hostName» → «hostName». Имена ключей в ru.json/en.json
+    /// следуют именно этой форме (не PascalCase, как <see cref="Normalize"/>).
+    /// </summary>
+    internal static string ToDictionaryKeyForm(string rawKey)
+    {
+        var sb = new System.Text.StringBuilder(rawKey.Length);
+        var upperNext = false;
+        foreach (var ch in rawKey)
+        {
+            if (ch is '-' or '_' or '.')
+            {
+                upperNext = true;
+                continue;
+            }
+            sb.Append(upperNext ? char.ToUpperInvariant(ch) : ch);
+            upperNext = false;
+        }
+        if (sb.Length > 0)
+            sb[0] = char.ToLowerInvariant(sb[0]);
+        return sb.ToString();
     }
 
     /// <summary>Каноническая форма ключа: без дефисов/подчёркиваний/точек, PascalCase.</summary>

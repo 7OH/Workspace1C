@@ -193,7 +193,7 @@ namespace Workspace1C
                 menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopGroupCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseGroupCommand));
-                menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueGroupCommand));
+                menu.Items.Add(CommandItem("Services.Continue", ServiceCommandGlyphs.ContinueGlyph, "#0EA5E9", _vm.ContinueGroupCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartGroupCommand));
                 menu.Items.Add(new Separator());
@@ -209,7 +209,7 @@ namespace Workspace1C
                 menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseCommand));
-                menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueCommand));
+                menu.Items.Add(CommandItem("Services.Continue", ServiceCommandGlyphs.ContinueGlyph, "#0EA5E9", _vm.ContinueCommand));
                 menu.Items.Add(new Separator());
                 menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartCommand));
                 menu.Items.Add(new Separator());
