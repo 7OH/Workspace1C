@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using Workspace1C.Localization;
 using Workspace1C.Models;
+using Workspace1C.Services;
 
 namespace Workspace1C
 {
@@ -186,7 +187,17 @@ namespace Workspace1C
                 menu.Add(TrayInfobaseItem(sel, selName, launchOnClick: false));
             }
 
+            // Разделитель после блока баз/избранного.
             menu.Add(new NativeMenuItemSeparator());
+
+            // Подменю «Службы» (issue #11, итерация 2 — группы служб, релиз 1.0.0.12;
+            // требования 7OH к issue #11 от 13:30/13:47): над «Синхронизацией с ibases»,
+            // с разделителем ПОСЛЕ подменю (разделитель ниже — перед синхронизацией).
+            if (BuildServicesNativeItem() is { } servicesItem)
+            {
+                menu.Add(servicesItem);
+                menu.Add(new NativeMenuItemSeparator());
+            }
 
             var sync = new NativeMenuItem(LocalizationManager.T("Main.SyncWithIbases"));
             sync.Click += (_, _) => _vm?.SynchronizeWithIbasesCommand.Execute(null);
@@ -205,6 +216,180 @@ namespace Workspace1C
                 _vm?.ExitCommand.Execute(null);
             };
             menu.Add(exitItem);
+        }
+
+        // =====================================================================
+        // Подменю «Службы» (issue #11, итерация 2 — группы служб, релиз 1.0.0.12;
+        // комментарии 7OH к issue #11 от 13:30/13:47). Нативные меню Avalonia
+        // строятся заранее и не поддерживают цветные иконки/кружки: статус
+        // группы отражается текстом в скобках (допустимое решение), а команды
+        // доступны по ServiceActionAvailability текущего статуса.
+        // =====================================================================
+
+        /// <summary>
+        /// Пункт «Службы» системного меню: «Настроить…», группы/службы списка и
+        /// «Все сервисы» (адаптер модели <see cref="ServiceTrayMenuBuilder"/> к
+        /// нативному меню). Статусы служб опрашиваются при каждом пересборе меню
+        /// (блокирующие systemctl-вызовы); нативные меню трея не пересобираются
+        /// при показе (NeedsUpdate поднимает только macOS-бэкенд — см. комментарий
+        /// в BuildTrayMenu), поэтому актуальность обеспечивает RefreshTrayMenu.
+        /// </summary>
+        private NativeMenuItem? BuildServicesNativeItem()
+        {
+            try
+            {
+                var services = AppServices.TryGetService<IServiceControllerService>();
+                var store = AppServices.TryGetService<IServicesStore>();
+                if (services is null || store is null)
+                    return null;
+
+                var data = store.Load();
+                var items = new ServiceTrayMenuBuilder().Build(
+                    data,
+                    name =>
+                    {
+                        try { return services.GetStatus(name).Status; }
+                        catch { return ServiceStatus.Unknown; }
+                    },
+                    ServicePlatform.Linux);
+
+                var item = new NativeMenuItem(LocalizationManager.T("Tray.Services"));
+                var menu = new NativeMenu();
+                foreach (var mi in items)
+                    AppendNativeServiceItem(mi, menu);
+                item.Menu = menu;
+                return item;
+            }
+            catch
+            {
+                // Меню не должно падать из-за недоступности служб (нет systemd и т.п.).
+                return null;
+            }
+        }
+
+        /// <summary>Адаптер пункта модели меню служб к нативному меню Avalonia.</summary>
+        private void AppendNativeServiceItem(ServiceMenuItem item, NativeMenu owner)
+        {
+            switch (item.Kind)
+            {
+                case ServiceMenuItemKind.Separator:
+                    owner.Add(new NativeMenuItemSeparator());
+                    break;
+
+                case ServiceMenuItemKind.Settings:
+                {
+                    // «Настроить…» — окно «Управление службами» (требование 7OH).
+                    var settings = new NativeMenuItem(item.Text);
+                    settings.Click += (_, _) => _vm?.ShowServicesCommand.Execute(null);
+                    owner.Add(settings);
+                    break;
+                }
+
+                case ServiceMenuItemKind.ServiceSubmenu:
+                case ServiceMenuItemKind.GroupSubmenu:
+                case ServiceMenuItemKind.AllServicesSubmenu:
+                {
+                    // NativeMenuItem не имеет иконок-цветов: для ГРУППЫ статус
+                    // добавляется в подпись — «Имя группы (Частично)» (допустимое
+                    // решение для Avalonia; статус из ServiceGroupStatusResolver).
+                    var text = item.Kind == ServiceMenuItemKind.GroupSubmenu
+                              && !string.IsNullOrEmpty(item.StatusText)
+                        ? $"{item.Text} ({item.StatusText})"
+                        : item.Text;
+                    var node = new NativeMenuItem(text);
+                    var submenu = new NativeMenu();
+                    foreach (var child in item.Children)
+                        AppendNativeServiceItem(child, submenu);
+                    node.Menu = submenu;
+                    owner.Add(node);
+                    break;
+                }
+
+                case ServiceMenuItemKind.ServiceCommand:
+                case ServiceMenuItemKind.GroupCommand:
+                case ServiceMenuItemKind.AllServicesCommand:
+                {
+                    var command = new NativeMenuItem(item.Text) { IsEnabled = item.IsEnabled };
+                    var action = item.Action ?? ServiceAction.Start;
+                    var target = item.Target;
+                    var targetName = item.TargetName;
+                    var names = item.ServiceNames.ToList();
+                    command.Click += (_, _) => ExecuteTrayServiceAction(action, target, targetName, names);
+                    owner.Add(command);
+                    break;
+                }
+
+                default:
+                    owner.Add(new NativeMenuItem(item.Text) { IsEnabled = item.IsEnabled });
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Выполняет операцию над целевыми службами (отдельная служба / члены группы /
+        /// все службы списка): systemctl-команды блокирующие, поэтому выполнение — в
+        /// фоновом потоке; после завершения меню трея пересобирается (статусы изменились).
+        /// </summary>
+        private void ExecuteTrayServiceAction(
+            ServiceAction action,
+            ServiceMenuItemTarget target,
+            string targetName,
+            IReadOnlyList<string> serviceNames)
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            if (services is null)
+                return;
+
+            var names = target switch
+            {
+                ServiceMenuItemTarget.Group or ServiceMenuItemTarget.All => serviceNames.ToList(),
+                _ => new List<string> { targetName }
+            };
+            if (names.Count == 0)
+                return;
+
+            Task.Run(() =>
+            {
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        // Статусы актуализируем на момент операции (как в окне
+                        // «Управление службами»): доступность могла измениться.
+                        var info = services.GetStatus(name);
+                        if (!ServiceActionAvailability.CanExecute(
+                                action, info.Status, info.CanPauseAndContinue, info.CanStop, ServicePlatform.Linux))
+                            continue;
+                        switch (action)
+                        {
+                            case ServiceAction.Start: services.Start(name); break;
+                            case ServiceAction.Stop: services.Stop(name); break;
+                            case ServiceAction.Pause: services.Pause(name); break;
+                            case ServiceAction.Continue: services.Continue(name); break;
+                            case ServiceAction.Restart: services.Restart(name); break;
+                        }
+                    }
+                    catch
+                    {
+                        // Отдельный unit не должен останавливать остальные.
+                    }
+                }
+            });
+
+            // Меню пересобираем после операции: сигнатура БАЗ не изменилась, поэтому
+            // RefreshTrayMenu сам не сработает — форсируем полную пересборку.
+            Avalonia.Threading.Dispatcher.UIThread.Post(RefreshTrayServicesMenu, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        /// <summary>Пересобирает меню трея с актуальными статусами служб.</summary>
+        private void RefreshTrayServicesMenu()
+        {
+            if (_trayMenu is null)
+                return;
+            // Статусы служб не входят в сигнатуру баз: сбрасываем отпечаток, чтобы
+            // RefreshTrayMenu не отбросил пересборку по неизменённым базам.
+            _traySignature = null;
+            FillTrayMenu(_trayMenu);
         }
 
         /// <summary>

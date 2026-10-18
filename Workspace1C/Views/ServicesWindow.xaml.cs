@@ -69,6 +69,10 @@ namespace Workspace1C
             // «Настроить» — модальный чеклист служб системы; результат применяет VM.
             _vm.ServicesPickerProvider = ShowServicesPicker;
 
+            // Редактирование групп (issue #11, итерация 2; окно — Задача 3): провайдер
+            // открывает модальное окно группы и возвращает готовую группу или null.
+            _vm.GroupEditorProvider = ShowGroupEditor;
+
             Loaded += async (_, _) => await _vm.LoadAsync();
         }
 
@@ -88,6 +92,19 @@ namespace Workspace1C
             return window.ShowDialog() == true ? window.SelectedServices : null;
         }
 
+        /// <summary>
+        /// «Добавить/Изменить группу» (issue #11, итерация 2; окно — Задача 3): модальное
+        /// окно редактирования группы с уже отфильтрованным списком доступных служб;
+        /// null — отмена пользователем. Входной список строится VM
+        /// (<see cref="ServicesWindowViewModel.AvailableServicesForGroup"/>), окно лишь
+        /// показывает его в «Все службы».
+        /// </summary>
+        private ServiceGroup? ShowGroupEditor(ServiceGroup? editingGroup, IReadOnlyList<string> availableServices)
+        {
+            var window = new ServiceGroupEditWindow(editingGroup, availableServices) { Owner = this };
+            return window.ShowDialog() == true ? window.Result : null;
+        }
+
         // ===================== Кнопки =====================
 
         private void OnConfigure_Click(object sender, RoutedEventArgs e) => _vm.ConfigureCommand.Execute(null);
@@ -101,6 +118,13 @@ namespace Workspace1C
         private void OnMoveDown_Click(object sender, RoutedEventArgs e) => _vm.MoveDownCommand.Execute(null);
 
         private void OnGrantRights_Click(object sender, RoutedEventArgs e) => _vm.GrantRightsCommand.Execute(null);
+
+        // Группы служб (issue #11, итерация 2): кнопки «Добавить/Изменить/Удалить группу».
+        private void OnAddGroup_Click(object sender, RoutedEventArgs e) => _vm.AddGroupCommand.Execute(null);
+
+        private void OnEditGroup_Click(object sender, RoutedEventArgs e) => _vm.EditGroupCommand.Execute(null);
+
+        private void OnDeleteGroup_Click(object sender, RoutedEventArgs e) => _vm.DeleteGroupCommand.Execute(null);
 
         /// <summary>Пункт меню с цветной иконкой (issue #11, 7OH 17.10).</summary>
         private static MenuItem CommandItem(string textKey, string icon, string colorHex, ICommand command) => new()
@@ -140,35 +164,58 @@ namespace Workspace1C
 
         // ===================== Контекстное меню строки =====================
 
-        /// <summary>Контекстное меню строки: тот же набор команд, что и кнопки.</summary>
+        /// <summary>
+        /// Контекстное меню строки: для службы — команды службы; для группы — команды
+        /// группы + «Изменить/Удалить группу» + перемещение (issue #11, итерация 2).
+        /// Меню перестраивается при каждом открытии — состав зависит от типа строки.
+        /// </summary>
         private void OnServicesList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             // Правый клик по строке должен её выбрать (команды действуют на SelectedRow).
             if (e.OriginalSource is DependencyObject source &&
                 FindAncestor<ListBoxItem>(source) is { } item &&
-                item.DataContext is ServiceInfoRow row)
+                item.DataContext is ServiceListRow row)
             {
                 _vm.SelectedRow = row;
                 item.IsSelected = true;
             }
 
-            if (ServicesList.ContextMenu is not { } existing || existing.Items.Count == 0)
-                ServicesList.ContextMenu = BuildRowContextMenu();
+            ServicesList.ContextMenu = BuildRowContextMenu();
         }
 
         private ContextMenu BuildRowContextMenu()
         {
             var menu = new ContextMenu();
-            menu.Items.Add(CommandItem("Services.Start", "▶", "#16A34A", _vm.StartCommand));
-            menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopCommand));
-            menu.Items.Add(new Separator());
-            menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseCommand));
-            menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueCommand));
-            menu.Items.Add(new Separator());
-            menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartCommand));
-            menu.Items.Add(new Separator());
-            menu.Items.Add(CommandItem("Services.MoveUp", "▲", "#2563EB", _vm.MoveUpCommand));
-            menu.Items.Add(CommandItem("Services.MoveDown", "▼", "#2563EB", _vm.MoveDownCommand));
+            if (_vm.SelectedRow is ServiceGroupRow)
+            {
+                // Меню группы: команды группы + разделитель + изменить/удалить + перемещение.
+                menu.Items.Add(CommandItem("Services.Start", "▶", "#16A34A", _vm.StartGroupCommand));
+                menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopGroupCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseGroupCommand));
+                menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueGroupCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartGroupCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.EditGroup", "✎", "#7C3AED", _vm.EditGroupCommand));
+                menu.Items.Add(CommandItem("Services.DeleteGroup", "🗑", "#DC2626", _vm.DeleteGroupCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.MoveUp", "▲", "#2563EB", _vm.MoveUpCommand));
+                menu.Items.Add(CommandItem("Services.MoveDown", "▼", "#2563EB", _vm.MoveDownCommand));
+            }
+            else
+            {
+                menu.Items.Add(CommandItem("Services.Start", "▶", "#16A34A", _vm.StartCommand));
+                menu.Items.Add(CommandItem("Services.Stop", "■", "#DC2626", _vm.StopCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.Pause", "❚❚", "#D97706", _vm.PauseCommand));
+                menu.Items.Add(CommandItem("Services.Continue", "▶", "#0EA5E9", _vm.ContinueCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.Restart", "⟲", "#2563EB", _vm.RestartCommand));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CommandItem("Services.MoveUp", "▲", "#2563EB", _vm.MoveUpCommand));
+                menu.Items.Add(CommandItem("Services.MoveDown", "▼", "#2563EB", _vm.MoveDownCommand));
+            }
             return menu;
         }
 

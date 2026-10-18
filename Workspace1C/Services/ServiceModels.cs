@@ -146,3 +146,252 @@ public static class ServiceActionAvailability
         return services.Any(s => CanExecute(action, s.Status, s.CanPauseAndContinue, s.CanStop, platform));
     }
 }
+
+/// <summary>
+/// Агрегированный статус группы служб (issue #11, итерация 2 — группы служб,
+/// релиз 1.0.0.12): результат <see cref="ServiceGroupStatusResolver.Resolve"/>.
+/// </summary>
+public enum GroupStatusKind
+{
+    /// <summary>Неизвестно (пустая группа или нет данных о членах).</summary>
+    Unknown,
+
+    /// <summary>Все члены группы запущены.</summary>
+    AllRunning,
+
+    /// <summary>Запущена не вся группа, но хотя бы один член запущен.</summary>
+    Partial,
+
+    /// <summary>Ни один член группы не запущен.</summary>
+    None
+}
+
+/// <summary>
+/// Чистый вычислитель статуса группы служб (issue #11, итерация 2 — группы служб,
+/// релиз 1.0.0.12): агрегирует статусы членов группы в <see cref="GroupStatusKind"/>.
+/// Правила (комментарий 7OH к issue #11, 13:25/16:54):
+/// — все члены Running → <see cref="GroupStatusKind.AllRunning"/> (зелёный кружок);
+/// — хотя бы один Running, но не все → <see cref="GroupStatusKind.Partial"/> (жёлтый
+///   кружок) — обязательное требование «жёлтый, если запущены не все службы списка,
+///   но хоть одна запущена»;
+/// — ни одного Running → <see cref="GroupStatusKind.None"/> (серый кружок);
+/// — пустой список → <see cref="GroupStatusKind.Unknown"/> (серый кружок).
+/// Решение по NotFound (7OH оставил на усмотрение): член со статусом NotFound считается
+/// «не запущен» — группа с исчезнувшей службой не может считаться рабочей, итог — None
+/// (серый). Красный (#EF4444) остаётся за строкой самой службы (NotFound), чтобы не
+/// смешивать два уровня индикации. Тестируется в Задаче 5 (полный набор).
+/// </summary>
+public static class ServiceGroupStatusResolver
+{
+    /// <summary>Агрегирует статусы членов группы (порядок не важен).</summary>
+    public static GroupStatusKind Resolve(IReadOnlyList<ServiceStatus> statuses)
+    {
+        if (statuses is null || statuses.Count == 0)
+            return GroupStatusKind.Unknown;
+
+        var running = 0;
+        foreach (var status in statuses)
+        {
+            if (status == ServiceStatus.Running)
+                running++;
+        }
+
+        if (running == statuses.Count)
+            return GroupStatusKind.AllRunning;
+        return running > 0 ? GroupStatusKind.Partial : GroupStatusKind.None;
+    }
+}
+
+/// <summary>
+/// Группа служб окна «Управление службами» (issue #11, итерация 2 — группы служб,
+/// релиз 1.0.0.12): именованная подборка служб, отображаемая в списке отдельным
+/// блоком. Имя группы — описание (непустое после нормализации), состав — имена
+/// служб в порядке пользователя.
+/// </summary>
+public sealed class ServiceGroup
+{
+    /// <summary>Описание группы (непустое после нормализации).</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Имена служб группы (порядок задаёт пользователь).</summary>
+    public List<string> Services { get; set; } = new();
+}
+
+/// <summary>
+/// Содержимое хранилища служб окна «Управление службами» (issue #11, итерация 2 —
+/// группы служб, релиз 1.0.0.12): службы вне групп (общий список), группы служб и
+/// общий порядок строк списка (<see cref="Order"/>). Обратная совместимость: старый
+/// формат <c>services.json</c> (массив строк, итерация 1) читается как
+/// <see cref="Services"/> без групп — см. <see cref="FromLegacy"/>; объект без
+/// <see cref="Order"/> (итерация 2, до этой задачи) получает порядок автоматически:
+/// все службы, затем группы.
+/// </summary>
+public sealed class ServiceStoreData
+{
+    /// <summary>Префикс ключа группы в <see cref="Order"/> (например <c>group:База 1С</c>).</summary>
+    public const string GroupKeyPrefix = "group:";
+
+    /// <summary>Службы вне групп (общий список, порядок задаёт пользователь).</summary>
+    public List<string> Services { get; set; } = new();
+
+    /// <summary>Группы служб (порядок задаёт пользователь).</summary>
+    public List<ServiceGroup> Groups { get; set; } = new();
+
+    /// <summary>
+    /// Общий порядок строк списка «Управление службами» (issue #11, итерация 2):
+    /// смешанная последовательность ключей — имя службы (строка-служба) или
+    /// <c>group:имя</c> (строка-группа). При чтении старого объекта (без Order)
+    /// порядок строится автоматически: все службы, затем группы. Дубли/пропущенные
+    /// ключи нормализуются (<see cref="NormalizeOrder"/>).
+    /// </summary>
+    public List<string> Order { get; set; } = new();
+
+    /// <summary>
+    /// Контейнер из старого формата (итерация 1): массив имён служб — службы
+    /// без групп. Используется при миграции <c>services.json</c> и в тестах.
+    /// </summary>
+    public static ServiceStoreData FromLegacy(IReadOnlyList<string>? services) => new()
+    {
+        Services = services?.ToList() ?? new List<string>()
+    };
+
+    /// <summary>Ключ группы в <see cref="Order"/>.</summary>
+    public static string GroupKey(string groupName) => GroupKeyPrefix + groupName;
+
+    /// <summary>Является ли ключ <see cref="Order"/> ключом группы (префикс <c>group:</c>).</summary>
+    public static bool IsGroupKey(string key) =>
+        key is not null && key.StartsWith(GroupKeyPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Приводит содержимое к каноническому виду (issue #11, итерация 2):
+    /// Trim имён, пропуск пустых, удаление дубликатов (OrdinalIgnoreCase) — для
+    /// служб вне групп, имён групп и служб внутри групп; у групп не должно быть
+    /// дубликатов имён. Порядок (<see cref="Order"/>) нормализуется: дубли/пропущенные
+    /// ключи удаляются, недостающие службы/группы дописываются в конец. Порядок
+    /// сохраняется. Возвращает новый объект, исходный не меняет.
+    /// </summary>
+    public static ServiceStoreData Normalize(ServiceStoreData? source)
+    {
+        var result = new ServiceStoreData();
+        if (source is null)
+            return result;
+        result.Services = NormalizeNames(source.Services);
+        result.Groups = NormalizeGroups(source.Groups);
+        // Порядок нормализуем по ИСХОДНОМУ Order (у result.Order — пустой список по
+        // умолчанию, иначе «порядок не задан» не отличить от «порядок пуст»).
+        result.Order = NormalizeOrder(result.Services, result.Groups, source.Order);
+        return result;
+    }
+
+    /// <summary>
+    /// Нормализует общий порядок строк: Trim ключей, пропуск пустых, удаление
+    /// дубликатов (OrdinalIgnoreCase), отбрасывание ключей, не ссылающихся на
+    /// существующие службы/группы; недостающие службы и группы дописываются в конец
+    /// (сначала службы, затем группы — в их порядке). Возвращает новый список.
+    /// </summary>
+    public static List<string> NormalizeOrder(ServiceStoreData? data)
+    {
+        if (data is null)
+            return new List<string>();
+        return NormalizeOrder(data.Services, data.Groups, data.Order);
+    }
+
+    /// <summary>Реализация нормализации порядка по нормализованным службам/группам и исходному Order.</summary>
+    private static List<string> NormalizeOrder(
+        IReadOnlyList<string> services,
+        IReadOnlyList<ServiceGroup> groups,
+        IReadOnlyList<string>? order)
+    {
+        var result = new List<string>();
+        var serviceSet = new HashSet<string>(services, System.StringComparer.OrdinalIgnoreCase);
+        var groupSet = new HashSet<string>(groups.Select(g => g.Name), System.StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+        if (order is not null)
+        {
+            foreach (var raw in order)
+            {
+                var key = (raw ?? string.Empty).Trim();
+                if (key.Length == 0 || !seen.Add(key))
+                    continue;
+                if (ResolveKey(key, serviceSet, groupSet))
+                    result.Add(key);
+            }
+        }
+
+        // Дополняем пропущенные: сначала службы, затем группы (в их порядке).
+        foreach (var name in services)
+        {
+            if (seen.Add(name))
+                result.Add(name);
+        }
+        foreach (var group in groups)
+        {
+            var key = GroupKey(group.Name);
+            if (seen.Add(key))
+                result.Add(key);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Проверяет, ссылается ли ключ на существующую службу или группу. Ключ с
+    /// префиксом <c>group:</c> считается ключом группы, только если группа с таким
+    /// именем существует; иначе (и если имя совпадает со службой) — ключом службы.
+    /// </summary>
+    private static bool ResolveKey(string key, HashSet<string> services, HashSet<string> groups)
+    {
+        if (key.StartsWith(GroupKeyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var groupName = key.Substring(GroupKeyPrefix.Length).Trim();
+            if (groupName.Length > 0 && groups.Contains(groupName))
+                return true;
+        }
+        return services.Contains(key);
+    }
+
+    /// <summary>Нормализует список имён: Trim, пропуск пустых, удаление дубликатов (порядок сохраняется).</summary>
+    private static List<string> NormalizeNames(IReadOnlyList<string>? source)
+    {
+        var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        if (source is null)
+            return result;
+
+        foreach (var name in source)
+        {
+            var normalized = (name ?? string.Empty).Trim();
+            if (normalized.Length == 0)
+                continue;
+            if (seen.Add(normalized))
+                result.Add(normalized);
+        }
+        return result;
+    }
+
+    /// <summary>Нормализует группы: Trim имени, пропуск пустых, удаление дубликатов имён (OrdinalIgnoreCase).</summary>
+    private static List<ServiceGroup> NormalizeGroups(IReadOnlyList<ServiceGroup>? source)
+    {
+        var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var result = new List<ServiceGroup>();
+        if (source is null)
+            return result;
+
+        foreach (var group in source)
+        {
+            if (group is null)
+                continue;
+            var name = (group.Name ?? string.Empty).Trim();
+            if (name.Length == 0)
+                continue;
+            if (!seen.Add(name))
+                continue;
+            result.Add(new ServiceGroup
+            {
+                Name = name,
+                Services = NormalizeNames(group.Services)
+            });
+        }
+        return result;
+    }
+}

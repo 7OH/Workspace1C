@@ -126,12 +126,12 @@ public sealed class ServicesPickerViewModelTests
 
     private sealed class Store : IServicesStore
     {
-        private readonly IReadOnlyList<string> _saved;
+        private readonly ServiceStoreData _saved;
 
-        public Store(IReadOnlyCollection<string> saved) => _saved = saved.ToList();
+        public Store(IReadOnlyCollection<string> saved) => _saved = ServiceStoreData.FromLegacy(saved.ToList());
 
-        public IReadOnlyList<string> Load() => _saved;
+        public ServiceStoreData Load() => _saved;
 
-        public void Save(IReadOnlyCollection<string> serviceNames) { }
+        public void Save(ServiceStoreData data) { }
     }
 }

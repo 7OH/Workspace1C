@@ -147,7 +147,7 @@ public sealed class ServicesRightsAndOrderTests
         var fake = new RightsFake();
         foreach (var name in new[] { "a", "b", "c", "d" })
             fake.Services[name] = Info(name);
-        var store = new ServicesWindowViewModelTests.FakeServicesStore { Stored = stored.ToList() };
+        var store = new ServicesWindowViewModelTests.FakeServicesStore { Stored = ServiceStoreData.FromLegacy(stored) };
         var dialogs = new ServicesWindowViewModelTests.FakeDialogService();
         return (new ServicesWindowViewModel(fake, store, dialogs), fake, store, dialogs);
     }
@@ -158,15 +158,15 @@ public sealed class ServicesRightsAndOrderTests
         var (vm, _, store, _) = Create("a", "b", "c");
         await vm.LoadAsync();
 
-        vm.SelectedRow = vm.Rows[2];
+        vm.SelectedRow = vm.Rows.OfType<ServiceInfoRow>().ElementAt(2);
         Assert.True(vm.CanMoveUp);
         Assert.False(vm.CanMoveDown);
         vm.MoveUpCommand.Execute(null);
 
-        Assert.Equal(new[] { "a", "c", "b" }, vm.Rows.Select(r => r.ServiceName));
+        Assert.Equal(new[] { "a", "c", "b" }, vm.Rows.OfType<ServiceInfoRow>().Select(r => r.ServiceName));
         Assert.Equal(new[] { "a", "c", "b" }, store.Saved);
 
-        vm.SelectedRow = vm.Rows[0];
+        vm.SelectedRow = vm.Rows.OfType<ServiceInfoRow>().First();
         Assert.False(vm.CanMoveUp);
         vm.MoveDownCommand.Execute(null);
         Assert.Equal(new[] { "c", "a", "b" }, store.Saved);
@@ -191,7 +191,7 @@ public sealed class ServicesRightsAndOrderTests
         var (vm, fake, _, _) = Create("a", "c");
         await vm.LoadAsync();
 
-        await vm.GrantRightsAsync(vm.Rows.Select(r => r.ServiceName).ToList(), confirm: false);
+        await vm.GrantRightsAsync(vm.Rows.OfType<ServiceInfoRow>().Select(r => r.ServiceName).ToList(), confirm: false);
 
         Assert.Equal(new[] { "a", "c" }, fake.GrantCalls.Single());
         Assert.Contains("a", vm.StatusText);

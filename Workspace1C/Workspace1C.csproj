@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.11</Version>
-    <AssemblyVersion>1.0.0.11</AssemblyVersion>
-    <FileVersion>1.0.0.11</FileVersion>
-    <InformationalVersion>1.0.0.11</InformationalVersion>
+    <Version>1.0.0.12</Version>
+    <AssemblyVersion>1.0.0.12</AssemblyVersion>
+    <FileVersion>1.0.0.12</FileVersion>
+    <InformationalVersion>1.0.0.12</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -268,6 +268,10 @@
          подключаются глобом *Window.Avalonia.cs ниже. -->
     <Compile Remove="Views\ServicesWindow.xaml.cs" />
     <Compile Remove="Views\ServicesPickerWindow.xaml.cs" />
+    <!-- Окно редактирования группы служб (issue #11, итерация 2; Задача 3): WPF code-behind
+         исключается, Avalonia-версия (ServiceGroupEditWindow.Avalonia.cs) подключается
+         глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\ServiceGroupEditWindow.xaml.cs" />
     <!-- Диалог создания информационной базы в кластере (issue #3): WPF code-behind
          исключается, Avalonia-версия (RacInfobaseCreateWindow.Avalonia.cs) подключается
          глобом *Window.Avalonia.cs ниже. -->
@@ -480,6 +484,10 @@
          подключаются явно (имена не совпадают с глобом *.Avalonia.cs). -->
     <Compile Include="ViewModels\ServicesWindowViewModel.cs" />
     <Compile Include="ViewModels\ServicesPickerViewModel.cs" />
+    <!-- ViewModel окна редактирования группы служб (issue #11, итерация 2; Задача 3):
+         чистый .NET без платформенных зависимостей, используется обеими платформами —
+         на Linux подключается явно (имя не совпадает с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\ServiceGroupEditViewModel.cs" />
     <!-- Команда «Управление службами» MainViewModel (Avalonia/Linux): имя
          «MainViewModel.Avalonia.*.cs» не совпадает с глобом *.Avalonia.cs,
          добавляется явно (как MainViewModel.Avalonia.Admin.cs). -->

@@ -1,0 +1,139 @@
+<Window x:Class="Workspace1C.ServiceGroupEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Workspace1C.Localization"
+        Icon="{StaticResource AppIcon}"
+        Width="760" Height="560" MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource ContentBackgroundBrush}">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <!-- Заголовок списка формы (issue #11, итерация 2, требование 7OH 13:25). -->
+        <Style x:Key="ListHeaderText" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <!-- Узкая кнопка-иконка (стрелки переноса/порядка, требование 7OH). -->
+        <Style x:Key="IconOnlyButton" TargetType="Button">
+            <Setter Property="Style" Value="{StaticResource ModernButton}"/>
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Margin="16" LastChildFill="True">
+        <!-- Сверху 2 кнопки: «Сохранить» и «Отмена» (требование 7OH 13:25). -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="SaveButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource AccentBrush}" Padding="16,6" Margin="0,0,8,0"
+                    MinWidth="110" Command="{Binding SaveCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✔" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="White"/>
+                    <TextBlock Text="{loc:Loc Services.Save}" VerticalAlignment="Center" Foreground="White"/>
+                </StackPanel>
+            </Button>
+            <Button x:Name="CancelButton" Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}" Padding="16,6" MinWidth="110"
+                    Command="{Binding CancelCommand}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✖" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="#DC2626"/>
+                    <TextBlock Text="{loc:Loc Services.Cancel}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!-- Поле «Описание» (имя группы, требование 7OH 13:25). -->
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="{loc:Loc Services.GroupName}" Margin="0,0,0,4"/>
+            <TextBox x:Name="GroupNameBox" Height="30" VerticalContentAlignment="Center"
+                     Style="{StaticResource ModernTextBox}"
+                     Text="{Binding GroupName, UpdateSourceTrigger=PropertyChanged}"/>
+        </StackPanel>
+
+        <!-- Два списка: «Управляемый список» (слева) и «Все службы» (справа);
+             между ними вертикально-центрированные кнопки-стрелки (7OH 13:25). -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Над «Управляемым списком» кнопки ▲ и ▼ (порядок членов, 7OH 13:25). -->
+            <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Margin="0,0,0,6">
+                <Button Style="{StaticResource IconOnlyButton}" Command="{Binding MoveUpCommand}"
+                        ToolTip="{loc:Loc Services.MoveUp}">
+                    <TextBlock Text="▲" Foreground="#2563EB" FontSize="12"/>
+                </Button>
+                <Button Style="{StaticResource IconOnlyButton}" Command="{Binding MoveDownCommand}"
+                        ToolTip="{loc:Loc Services.MoveDown}" Margin="6,3,0,3">
+                    <TextBlock Text="▼" Foreground="#2563EB" FontSize="12"/>
+                </Button>
+                <TextBlock Style="{StaticResource ListHeaderText}" Text="{loc:Loc Services.ManagedList}" Margin="10,0,0,0"/>
+            </StackPanel>
+
+            <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource ListHeaderText}"
+                       Text="{loc:Loc Services.AllAvailable}" Margin="0,0,0,6"/>
+
+            <!-- «Управляемый список» (члены группы). -->
+            <ListBox Grid.Row="1" Grid.Column="0" ItemsSource="{Binding MemberServices}"
+                     SelectedItem="{Binding SelectedMember, Mode=TwoWay}"
+                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                     Background="{DynamicResource CardBackgroundBrush}"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="MinHeight" Value="26"/>
+                        <Setter Property="FontSize" Value="13"/>
+                        <Setter Property="Padding" Value="8,2"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+
+            <!-- Кнопки-стрелки между списками: «Влево» — в члены, «Вправо» — обратно. -->
+            <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center"
+                        HorizontalAlignment="Center" Margin="10,0">
+                <Button Style="{StaticResource IconOnlyButton}" Command="{Binding MoveLeftCommand}"
+                        ToolTip="{loc:Loc Services.MoveLeft}">
+                    <TextBlock Text="◀" Foreground="#16A34A" FontSize="13"/>
+                </Button>
+                <Button Style="{StaticResource IconOnlyButton}" Command="{Binding MoveRightCommand}"
+                        ToolTip="{loc:Loc Services.MoveRight}">
+                    <TextBlock Text="▶" Foreground="#DC2626" FontSize="13"/>
+                </Button>
+            </StackPanel>
+
+            <!-- «Все службы» (доступные для включения в группу). -->
+            <ListBox Grid.Row="1" Grid.Column="2" ItemsSource="{Binding AvailableServices}"
+                     SelectedItem="{Binding SelectedAvailable, Mode=TwoWay}"
+                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                     Background="{DynamicResource CardBackgroundBrush}"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="MinHeight" Value="26"/>
+                        <Setter Property="FontSize" Value="13"/>
+                        <Setter Property="Padding" Value="8,2"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+        </Grid>
+    </DockPanel>
+</Window>

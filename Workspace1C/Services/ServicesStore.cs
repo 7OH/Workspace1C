@@ -8,18 +8,23 @@ namespace Workspace1C.Services;
 
 /// <summary>
 /// Хранилище списка служб окна «Управление службами» (issue #11): файл
-/// <c>services.json</c> в каталоге данных профиля/приложения — имена служб,
-/// за которыми следит пользователь (Windows: ServiceName; Linux: имена
-/// unit'ов systemd). Запись — атомарная (временный файл + замена), JSON с
-/// отступами; битый файл не роняет приложение — возвращается пустой список.
+/// <c>services.json</c> в каталоге данных профиля/приложения — службы и группы
+/// служб, за которыми следит пользователь (Windows: ServiceName; Linux: имена
+/// unit'ов systemd). Итерация 2 (релиз 1.0.0.12): объектный формат
+/// <c>{services: [...], groups: [{name, services}], order: [...]}</c> с обратной
+/// совместимостью — старый формат (массив строк) при чтении мигрируется в объект
+/// со службами и пустыми группами; объект без <c>order</c> получает порядок
+/// автоматически (все службы, затем группы — см. <see cref="ServiceStoreData.NormalizeOrder"/>).
+/// Запись — атомарная (временный файл + замена), JSON с отступами; битый файл не
+/// роняет приложение — возвращается пустой объект.
 /// </summary>
 public interface IServicesStore
 {
-    /// <summary>Читает имена служб (пустой список при отсутствии/битости файла).</summary>
-    IReadOnlyList<string> Load();
+    /// <summary>Читает службы и группы (пустой объект при отсутствии/битости файла).</summary>
+    ServiceStoreData Load();
 
-    /// <summary>Сохраняет список имён служб (атомарная запись, JSON с отступами).</summary>
-    void Save(IReadOnlyCollection<string> serviceNames);
+    /// <summary>Сохраняет службы и группы (атомарная запись, JSON с отступами).</summary>
+    void Save(ServiceStoreData data);
 }
 
 /// <summary>
@@ -63,28 +68,40 @@ public sealed class ServicesStore : IServicesStore
     public string FilePath => Path.Combine(DataDirectory, FileName);
 
     /// <inheritdoc />
-    public IReadOnlyList<string> Load()
+    public ServiceStoreData Load()
     {
         try
         {
             if (!File.Exists(FilePath))
-                return new List<string>();
+                return new ServiceStoreData();
 
             var json = File.ReadAllText(FilePath);
-            var raw = JsonSerializer.Deserialize<List<string>>(json, _jsonOptions);
-            return Normalize(raw);
+            if (json.Trim().Length == 0)
+                return new ServiceStoreData();
+
+            // Старый формат (итерация 1, релиз ≤ 1.0.0.11): массив строк — мигрируем
+            // в объект со службами и пустыми группами (обратная совместимость, issue #11).
+            if (json.Trim().StartsWith("["))
+            {
+                var legacy = JsonSerializer.Deserialize<List<string>>(json, _jsonOptions);
+                return ServiceStoreData.Normalize(ServiceStoreData.FromLegacy(legacy));
+            }
+
+            // Новый формат (итерация 2): объект {services, groups} — читаем как есть.
+            var data = JsonSerializer.Deserialize<ServiceStoreData>(json, _jsonOptions);
+            return ServiceStoreData.Normalize(data ?? new ServiceStoreData());
         }
         catch
         {
-            // Битый/нечитаемый файл не должен ронять загрузку: возвращаем пустой список.
-            return new List<string>();
+            // Битый/нечитаемый файл не должен ронять загрузку: возвращаем пустой объект.
+            return new ServiceStoreData();
         }
     }
 
     /// <inheritdoc />
-    public void Save(IReadOnlyCollection<string> serviceNames)
+    public void Save(ServiceStoreData data)
     {
-        var normalized = Normalize(serviceNames?.ToList() ?? new List<string>());
+        var normalized = ServiceStoreData.Normalize(data);
         Directory.CreateDirectory(DataDirectory);
         var json = JsonSerializer.Serialize(normalized, _jsonOptions);
 
@@ -92,27 +109,5 @@ public sealed class ServicesStore : IServicesStore
         var tempPath = FilePath + ".tmp";
         File.WriteAllText(tempPath, json);
         File.Move(tempPath, FilePath, overwrite: true);
-    }
-
-    /// <summary>
-    /// Приводит список имён к каноническому виду: Trim, пропуск пустых,
-    /// удаление дубликатов (порядок сохраняется) — по образцу ServerListStore.Normalize.
-    /// </summary>
-    private static IReadOnlyList<string> Normalize(IReadOnlyList<string>? source)
-    {
-        var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>();
-        if (source is null)
-            return result;
-
-        foreach (var name in source)
-        {
-            var normalized = (name ?? string.Empty).Trim();
-            if (normalized.Length == 0)
-                continue;
-            if (seen.Add(normalized))
-                result.Add(normalized);
-        }
-        return result;
     }
 }

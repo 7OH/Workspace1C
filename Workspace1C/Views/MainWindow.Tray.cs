@@ -59,9 +59,9 @@ namespace Workspace1C
 
                 try
                 {
-                    var menu = CreateModernTrayMenu();
-                    menu.Opening += (_, _) => RebuildTrayMenu(menu);
-                    RebuildTrayMenu(menu);
+                    // Обычное меню трея: пересборка при каждом показе (Opening) и
+                    // страховка Ctrl+ПКМ (меню служб открыто — штатное не показываем).
+                    var menu = CreateMainTrayMenu();
                     _trayIcon.ContextMenuStrip = menu;
                 }
                 catch
@@ -75,6 +75,8 @@ namespace Workspace1C
                     if (e.Button == Forms.MouseButtons.Left)
                         RestoreFromTray();
                 };
+                // Ctrl+ПКМ (issue #11, 7OH: «если получится»): сразу меню управления службами.
+                _trayIcon.MouseUp += OnTrayIconMouseUp;
 
                 // Показ: по настройке «Показывать в трее» или всегда, если закрытие в трей
                 _trayIcon.Visible = _viewModel.ShowTrayIcon || _viewModel.CloseToTray;
@@ -275,6 +277,11 @@ namespace Workspace1C
                 menu.Items.Add(selItem);
             }
 
+            // Подменю «Службы» (issue #11, итерация 2 — группы служб; требования 7OH
+            // к issue #11 от 13:30 и 13:47): над «Синхронизацией с ibases», с
+            // разделителем ПОСЛЕ подменю (требование 7OH).
+            menu.Items.Add(new Forms.ToolStripSeparator());
+            menu.Items.Add(BuildServicesSubmenu());
             menu.Items.Add(new Forms.ToolStripSeparator());
             menu.Items.Add(CreateTrayItem(LocalizationManager.T("Main.SyncWithIbases"), TrayIconKind.Sync, (_, _) =>
             {
@@ -392,6 +399,8 @@ namespace Workspace1C
                 TrayIconKind.Settings => Drawing.Color.FromArgb(100, 116, 139),
                 TrayIconKind.Exit => Drawing.Color.FromArgb(220, 38, 38),
                 TrayIconKind.Favorite => Drawing.Color.FromArgb(245, 158, 11),
+                TrayIconKind.Service => Drawing.Color.FromArgb(34, 197, 94),
+                TrayIconKind.Group => Drawing.Color.FromArgb(139, 92, 246),
                 _ => Drawing.Color.FromArgb(100, 116, 139)
             };
 
@@ -513,6 +522,23 @@ namespace Workspace1C
                     g.FillPolygon(brush, pts);
                     break;
                 }
+
+                case TrayIconKind.Service:
+                    // PackIcon Kind=Play — служба: треугольник запуска (как Enterprise).
+                    g.FillPolygon(brush, new[]
+                    {
+                        new Drawing.PointF(s * 0.30f, s * 0.20f),
+                        new Drawing.PointF(s * 0.82f, s * 0.50f),
+                        new Drawing.PointF(s * 0.30f, s * 0.80f)
+                    });
+                    break;
+
+                case TrayIconKind.Group:
+                    // PackIcon Kind=Folder — группа служб: папка с корешком.
+                    g.FillRectangle(brush, s * 0.10f, s * 0.32f, s * 0.80f, s * 0.50f);
+                    g.DrawLine(pen, s * 0.10f, s * 0.36f, s * 0.42f, s * 0.36f);
+                    g.FillRectangle(brush, s * 0.10f, s * 0.28f, s * 0.30f, s * 0.10f);
+                    break;
 
                 case TrayIconKind.Open:
                 default:
@@ -637,6 +663,317 @@ namespace Workspace1C
             }
             if (_trayIcon != null)
                 _trayIcon.Visible = _viewModel.ShowTrayIcon || _viewModel.CloseToTray;
+        }
+
+        // =====================================================================
+        // Подменю «Службы» системного трея (issue #11, итерация 2 — группы
+        // служб, релиз 1.0.0.12; комментарии 7OH к issue #11 от 13:30 и 13:47).
+        // Данные строителя ServiceTrayMenuBuilder адаптируются к WinForms.
+        // =====================================================================
+
+        /// <summary>Флаг: правый клик с Ctrl обрабатывается меню служб (штатное меню подавлено).</summary>
+        private bool _ctrlRightClickPending;
+
+        /// <summary>
+        /// Обычное меню трея: пересборка при каждом показе (Opening) и страховка
+        /// Ctrl+ПКМ — если меню служб уже открыто, штатное меню не показываем.
+        /// </summary>
+        private Forms.ContextMenuStrip CreateMainTrayMenu()
+        {
+            var menu = CreateModernTrayMenu();
+            menu.Opening += (_, e) =>
+            {
+                // Страховка для Ctrl+ПКМ: при открытом меню служб системный показ
+                // обычного меню отменяем (основной путь — обработчик MouseUp).
+                if (_ctrlRightClickPending)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+                RebuildTrayMenu(menu);
+            };
+            RebuildTrayMenu(menu);
+            return menu;
+        }
+
+        /// <summary>
+        /// Пункты подменю «Службы» по данным services.json и текущим статусам.
+        /// Опрос статусов блокирующий — допустимо: построение выполняется при
+        /// показе меню (Opening / набор пунктов).
+        /// </summary>
+        private List<ServiceMenuItem> BuildServicesMenuItems()
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            var store = AppServices.TryGetService<IServicesStore>();
+            var data = store?.Load() ?? new ServiceStoreData();
+            var builder = new ServiceTrayMenuBuilder();
+            if (services is null)
+            {
+                // Контроллер недоступен — команды неактивны; остаются «Настроить…»
+                // и «Все сервисы» с пустым набором.
+                return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Windows);
+            }
+            return builder.Build(data, name =>
+            {
+                try { return services.GetStatus(name); }
+                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
+            }, ServicePlatform.Windows);
+        }
+
+        /// <summary>Подменю «Службы» для штатного меню трея (WinForms-адаптер модели ServiceTrayMenuBuilder).</summary>
+        private Forms.ToolStripMenuItem BuildServicesSubmenu()
+        {
+            var submenu = CreateTrayItem(LocalizationManager.T("Tray.Services"), TrayIconKind.Service, null);
+            ApplyModernDropDownStyle(submenu.DropDown);
+            foreach (var item in BuildServicesMenuItems())
+                submenu.DropDownItems.Add(ToServiceTrayItem(item));
+            return submenu;
+        }
+
+        /// <summary>
+        /// Ctrl+ПКМ: показываем меню управления службами вместо обычного (7OH,
+        /// «если получится» — Windows). Выбран приём: во MouseUp сразу открываем
+        /// собственный ContextMenuStrip и временно убираем штатное меню, чтобы
+        /// WinForms не показал его поверх (гонка системного показа); возврат
+        /// обычного меню — по закрытии меню служб (вместе со страховкой в Opening).
+        /// Правый клик без Ctrl открывает обычное меню, как раньше.
+        /// </summary>
+        private void ShowServicesTrayMenu()
+        {
+            if (_trayIcon is null || _ctrlRightClickPending)
+                return;
+            if (AppServices.TryGetService<IServiceControllerService>() is null)
+                return; // службы недоступны — обычное меню, как раньше
+
+            _ctrlRightClickPending = true;
+            var usualMenu = _trayIcon.ContextMenuStrip;
+            _trayIcon.ContextMenuStrip = null; // подавляем системный показ обычного меню
+
+            var servicesMenu = CreateModernTrayMenu();
+            foreach (var item in BuildServicesMenuItems())
+                servicesMenu.Items.Add(ToServiceTrayItem(item));
+            servicesMenu.Closed += (_, _) =>
+            {
+                _ctrlRightClickPending = false;
+                if (_trayIcon is not null && _trayIcon.ContextMenuStrip is null)
+                    _trayIcon.ContextMenuStrip = usualMenu ?? CreateMainTrayMenu();
+            };
+            servicesMenu.Show(Forms.Control.MousePosition);
+        }
+
+        /// <summary>Правый клик по иконке трея: Ctrl+ПКМ — меню служб, иначе — штатное меню.</summary>
+        private void OnTrayIconMouseUp(object? sender, Forms.MouseEventArgs e)
+        {
+            if (e.Button != Forms.MouseButtons.Right)
+                return;
+            var ctrlDown = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            if (!ctrlDown)
+                return;
+            ShowServicesTrayMenu();
+        }
+
+        /// <summary>«Настроить…» — окно «Управление службами» (требование 7OH: кнопка настройки сверху).</summary>
+        private void ShowServicesSettings()
+        {
+            if (_viewModel.ShowServicesCommand.CanExecute(null))
+                _viewModel.ShowServicesCommand.Execute(null);
+        }
+
+        /// <summary>Адаптер пункта модели меню служб к WinForms (ToolStripItem).</summary>
+        private Forms.ToolStripItem ToServiceTrayItem(ServiceMenuItem item)
+        {
+            switch (item.Kind)
+            {
+                case ServiceMenuItemKind.Separator:
+                    return new Forms.ToolStripSeparator();
+
+                case ServiceMenuItemKind.Settings:
+                    return CreateTrayItem(item.Text, TrayIconKind.Settings, (_, _) => ShowServicesSettings());
+
+                case ServiceMenuItemKind.ServiceSubmenu:
+                {
+                    var node = CreateTrayItem(item.Text, TrayIconKind.Service, null);
+                    // Статус службы отражается кружком (цвет StatusColorHex).
+                    node.Image = DrawStatusDot(item.StatusColorHex) ?? node.Image;
+                    node.ToolTipText = item.StatusText;
+                    ApplyModernDropDownStyle(node.DropDown);
+                    foreach (var child in item.Children)
+                        node.DropDownItems.Add(ToServiceTrayItem(child));
+                    return node;
+                }
+
+                case ServiceMenuItemKind.GroupSubmenu:
+                {
+                    var node = CreateTrayItem(item.Text, TrayIconKind.Group, null);
+                    // У пункта группы — статус группы: цвет кружка по
+                    // ServiceGroupStatusResolver + текст («Все запущены»/«Частично»/…).
+                    node.Image = DrawStatusDot(item.StatusColorHex) ?? node.Image;
+                    node.ToolTipText = item.StatusText;
+                    ApplyModernDropDownStyle(node.DropDown);
+                    foreach (var child in item.Children)
+                        node.DropDownItems.Add(ToServiceTrayItem(child));
+                    return node;
+                }
+
+                case ServiceMenuItemKind.AllServicesSubmenu:
+                {
+                    var node = CreateTrayItem(item.Text, TrayIconKind.Group, null);
+                    ApplyModernDropDownStyle(node.DropDown);
+                    foreach (var child in item.Children)
+                        node.DropDownItems.Add(ToServiceTrayItem(child));
+                    return node;
+                }
+
+                case ServiceMenuItemKind.ServiceCommand:
+                case ServiceMenuItemKind.GroupCommand:
+                case ServiceMenuItemKind.AllServicesCommand:
+                    return BuildServiceCommandItem(item);
+
+                default:
+                    return new Forms.ToolStripMenuItem(item.Text) { Enabled = item.IsEnabled };
+            }
+        }
+
+        /// <summary>
+        /// Пункт-команда меню служб: кружок цвета операции (те же цвета, что у
+        /// иконок окна «Управление службами»: ▶ зелёный, ■ красный, ❚❚ оранжевый,
+        /// ⟲ синий), доступность — IsEnabled построителя.
+        /// </summary>
+        private Forms.ToolStripMenuItem BuildServiceCommandItem(ServiceMenuItem item)
+        {
+            var command = new Forms.ToolStripMenuItem(item.Text)
+            {
+                Enabled = item.IsEnabled,
+                Image = DrawStatusDot(CommandColorHex(item.Action)) ?? GetTrayIcon(TrayIconKind.Open),
+                ImageScaling = Forms.ToolStripItemImageScaling.None,
+                DisplayStyle = Forms.ToolStripItemDisplayStyle.ImageAndText,
+                ImageAlign = Drawing.ContentAlignment.MiddleLeft,
+                TextAlign = Drawing.ContentAlignment.MiddleLeft,
+                Padding = new Forms.Padding(2, 3, 4, 3),
+                AutoSize = true
+            };
+            var action = item.Action ?? ServiceAction.Start;
+            var target = item.Target;
+            var targetName = item.TargetName;
+            var names = item.ServiceNames.ToList();
+            command.Click += (_, _) => ExecuteTrayServiceOperation(action, target, targetName, names);
+            return command;
+        }
+
+        /// <summary>
+        /// Выполняет операцию над целевыми службами (отдельная служба / члены
+        /// группы / все службы списка) в фоновом потоке — не блокируя UI, после
+        /// чего пересобирает меню трея (статусы изменились).
+        /// </summary>
+        private void ExecuteTrayServiceOperation(
+            ServiceAction action,
+            ServiceMenuItemTarget target,
+            string targetName,
+            IReadOnlyList<string> serviceNames)
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            if (services is null)
+                return;
+
+            var names = target switch
+            {
+                ServiceMenuItemTarget.Group or ServiceMenuItemTarget.All => serviceNames.ToList(),
+                _ => new List<string> { targetName }
+            };
+            if (names.Count == 0)
+                return;
+
+            // Операции со службами блокирующие (ServiceController) — в фоне
+            // (требование Задачи 4: не блокировать UI-поток).
+            Task.Run(() =>
+            {
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        // Статусы актуализируем на момент операции (как в окне
+                        // «Управление службами»): доступность могла измениться.
+                        var info = services.GetStatus(name);
+                        if (!ServiceActionAvailability.CanExecute(
+                                action, info.Status, info.CanPauseAndContinue, info.CanStop, ServicePlatform.Windows))
+                            continue;
+                        ExecuteServiceAction(services, action, name);
+                    }
+                    catch
+                    {
+                        // Отдельная служба не должна останавливать остальные.
+                    }
+                }
+            }).ContinueWith(_ => Dispatcher.BeginInvoke(new Action(RebuildTrayMenuFromServices)), TaskScheduler.Default);
+        }
+
+        /// <summary>Пересборка меню трея после операции со службами (статусы обновились).</summary>
+        private void RebuildTrayMenuFromServices()
+        {
+            if (_trayIcon?.ContextMenuStrip is { } menu)
+                RebuildTrayMenu(menu);
+        }
+
+        private static bool ExecuteServiceAction(IServiceControllerService services, ServiceAction action, string serviceName) =>
+            action switch
+            {
+                ServiceAction.Start => services.Start(serviceName),
+                ServiceAction.Stop => services.Stop(serviceName),
+                ServiceAction.Pause => services.Pause(serviceName),
+                ServiceAction.Continue => services.Continue(serviceName),
+                ServiceAction.Restart => services.Restart(serviceName),
+                _ => false
+            };
+
+        /// <summary>Цвет кружка операции (как цветные иконки окна «Управление службами»).</summary>
+        private static string CommandColorHex(ServiceAction? action) => action switch
+        {
+            ServiceAction.Start => "#16A34A",
+            ServiceAction.Stop => "#DC2626",
+            ServiceAction.Pause => "#D97706",
+            ServiceAction.Continue => "#0EA5E9",
+            ServiceAction.Restart => "#2563EB",
+            _ => "#6B7280"
+        };
+
+        /// <summary>Кэш кружков статуса/команд по цвету (#RRGGBB).</summary>
+        private static readonly Dictionary<string, Drawing.Image> StatusDotCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Рисует кружок 16×16 цвета #RRGGBB (статус службы/группы, цвет команды).</summary>
+        private static Drawing.Image? DrawStatusDot(string? colorHex)
+        {
+            if (string.IsNullOrWhiteSpace(colorHex))
+                return null;
+            if (StatusDotCache.TryGetValue(colorHex, out var cached))
+                return cached;
+
+            Drawing.Color color;
+            try { color = Drawing.ColorTranslator.FromHtml(colorHex); }
+            catch { color = Drawing.Color.FromArgb(107, 114, 128); }
+
+            var bmp = new Drawing.Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var g = Drawing.Graphics.FromImage(bmp);
+            g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Drawing.Color.Transparent);
+            using var brush = new Drawing.SolidBrush(color);
+            g.FillEllipse(brush, 3f, 3f, 10f, 10f);
+            StatusDotCache[colorHex] = bmp;
+            return bmp;
+        }
+
+        /// <summary>Стиль подменю служб: современный рендерер, шрифт и отступы (как у основного меню).</summary>
+        private static void ApplyModernDropDownStyle(Forms.ToolStripDropDown dropDown)
+        {
+            dropDown.Renderer = new ModernTrayMenuRenderer();
+            dropDown.Font = new Drawing.Font("Segoe UI", 9.5f, Drawing.FontStyle.Regular);
+            dropDown.ImageScalingSize = new Drawing.Size(16, 16);
+            dropDown.Padding = new Forms.Padding(2, 2, 2, 2);
+            dropDown.Margin = new Forms.Padding(0);
+            if (dropDown is Forms.ToolStripDropDownMenu menu)
+            {
+                menu.ShowImageMargin = true;
+                menu.ShowCheckMargin = false;
+            }
         }
 
     }

@@ -531,7 +531,8 @@ namespace Workspace1C
 
         private enum TrayIconKind
         {
-            Open, Database, Enterprise, Configurator, Sync, Settings, Exit, Favorite
+            Open, Database, Enterprise, Configurator, Sync, Settings, Exit, Favorite,
+            Service, Group
         }
 
 

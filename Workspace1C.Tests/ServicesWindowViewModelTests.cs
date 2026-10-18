@@ -24,8 +24,8 @@ public sealed class ServicesWindowViewModelTests
 
         Assert.Equal(2, env.Vm.Rows.Count);
         Assert.True(env.Vm.HasRows);
-        Assert.Equal(ServiceStatus.Running, env.Vm.Rows.Single(r => r.ServiceName == "srv-a").StatusKind);
-        Assert.Equal(ServiceStatus.Stopped, env.Vm.Rows.Single(r => r.ServiceName == "srv-b").StatusKind);
+        Assert.Equal(ServiceStatus.Running, env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "srv-a").StatusKind);
+        Assert.Equal(ServiceStatus.Stopped, env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "srv-b").StatusKind);
         Assert.Equal("Service A", env.Vm.Rows[0].DisplayName);
     }
 
@@ -51,13 +51,13 @@ public sealed class ServicesWindowViewModelTests
         Assert.False(env.Vm.CanStart);
         Assert.False(env.Vm.CanStop);
 
-        env.Vm.SelectedRow = env.Vm.Rows.First(r => r.ServiceName == "stop");
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First(r => r.ServiceName == "stop");
         Assert.True(env.Vm.CanStart);
         Assert.False(env.Vm.CanStop);
         Assert.False(env.Vm.CanPause);
         Assert.False(env.Vm.CanContinue);
 
-        env.Vm.SelectedRow = env.Vm.Rows.First(r => r.ServiceName == "run");
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First(r => r.ServiceName == "run");
         Assert.False(env.Vm.CanStart);
         Assert.True(env.Vm.CanStop);
         Assert.True(env.Vm.CanPause);
@@ -72,12 +72,12 @@ public sealed class ServicesWindowViewModelTests
         env.Fake.Services["srv-a"] = Info("srv-a", "Service A", ServiceStatus.Stopped);
         Seed(env, "srv-a");
         await env.Vm.LoadAsync();
-        env.Vm.SelectedRow = env.Vm.Rows.First(r => r.ServiceName == "srv-a");
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First(r => r.ServiceName == "srv-a");
 
         await env.Vm.ExecuteCommandAsync(ServiceAction.Start, all: false);
 
         Assert.Contains(("Start", "srv-a"), env.Fake.Calls);
-        var row = env.Vm.Rows.Single(r => r.ServiceName == "srv-a");
+        var row = env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "srv-a");
         Assert.Equal(ServiceStatus.Running, row.StatusKind);
         Assert.False(env.Vm.IsBusy);
     }
@@ -103,13 +103,13 @@ public sealed class ServicesWindowViewModelTests
         env.Fake.Services["run"] = Info("run", "Run", ServiceStatus.Running, canPause: true);
         Seed(env, "run");
         await env.Vm.LoadAsync();
-        env.Vm.SelectedRow = env.Vm.Rows.First(r => r.ServiceName == "run");
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First(r => r.ServiceName == "run");
 
         await env.Vm.ExecuteCommandAsync(ServiceAction.Stop, all: false);
 
         Assert.Single(env.Dialogs.Errors);
         Assert.False(env.Vm.IsBusy);
-        Assert.Equal(ServiceStatus.Running, env.Vm.Rows.Single(r => r.ServiceName == "run").StatusKind);
+        Assert.Equal(ServiceStatus.Running, env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "run").StatusKind);
     }
 
     [Fact]
@@ -119,12 +119,12 @@ public sealed class ServicesWindowViewModelTests
         env.Fake.Services["srv"] = Info("srv", "Srv", ServiceStatus.Running);
         Seed(env, "srv");
         await env.Vm.LoadAsync();
-        Assert.Equal(ServiceStatus.Running, env.Vm.Rows[0].StatusKind);
+        Assert.Equal(ServiceStatus.Running, ((ServiceInfoRow)env.Vm.Rows[0]).StatusKind);
 
         env.Fake.Services["srv"] = Info("srv", "Srv", ServiceStatus.Stopped);
         await env.Vm.RefreshAsync();
 
-        Assert.Equal(ServiceStatus.Stopped, env.Vm.Rows[0].StatusKind);
+        Assert.Equal(ServiceStatus.Stopped, ((ServiceInfoRow)env.Vm.Rows[0]).StatusKind);
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public sealed class ServicesWindowViewModelTests
 
         Assert.Equal(new[] { "b", "c" }, env.Store.Saved);
         Assert.Equal(2, env.Vm.Rows.Count);
-        Assert.Equal("c", env.Vm.Rows[1].ServiceName);
+        Assert.Equal("c", ((ServiceInfoRow)env.Vm.Rows[1]).ServiceName);
     }
 
     // ===================== Вспомогательное =====================
@@ -213,7 +213,7 @@ public sealed class ServicesWindowViewModelTests
     /// <summary>Заполняет хранилище именами служб (строки появляются после LoadAsync).</summary>
     private static void Seed(TestEnv env, params string[] names)
     {
-        env.Store.Stored = names.ToList();
+        env.Store.Stored = ServiceStoreData.FromLegacy(names);
     }
 
     private static TestEnv Create(Action<FakeServiceController>? configure = null)
@@ -299,28 +299,34 @@ public sealed class ServicesWindowViewModelTests
     {
         public List<string> Errors { get; } = new();
 
+        /// <summary>Результат <see cref="Confirm"/> (по умолчанию true; для сценариев отмены — false).</summary>
+        public bool ConfirmResult { get; set; } = true;
+
         public void ShowInfo(string message, string title = "") { }
         public void ShowWarning(string message, string title = "") { }
         public void ShowError(string message, string title = "") => Errors.Add(message);
-        public bool Confirm(string message, string title = "") => true;
+        public bool Confirm(string message, string title = "") => ConfirmResult;
         public string? OpenFileDialog(string title = "", string filter = "", string? initialDirectory = null) => null;
         public string? SaveFileDialog(string title = "", string defaultFileName = "", string filter = "", string? initialDirectory = null) => null;
         public string? OpenFolderDialog(string title = "", string? initialDirectory = null) => null;
     }
 
-    /// <summary>Fake-хранилище списка служб (in-memory, журнал сохранений).</summary>
+    /// <summary>Fake-хранилище списка служб (in-memory, журнал сохранений служб и порядка).</summary>
     internal sealed class FakeServicesStore : IServicesStore
     {
         public List<string> Saved { get; } = new();
-        public List<string> Stored { get; set; } = new();
+        public List<string> SavedOrder { get; } = new();
+        public ServiceStoreData Stored { get; set; } = new();
 
-        public IReadOnlyList<string> Load() => Stored.ToList();
+        public ServiceStoreData Load() => Stored;
 
-        public void Save(IReadOnlyCollection<string> serviceNames)
+        public void Save(ServiceStoreData data)
         {
             Saved.Clear();
-            Saved.AddRange(serviceNames);
-            Stored = Saved.ToList();
+            Saved.AddRange(data?.Services ?? new List<string>());
+            SavedOrder.Clear();
+            SavedOrder.AddRange(data?.Order ?? new List<string>());
+            Stored = data ?? new ServiceStoreData();
         }
     }
 }

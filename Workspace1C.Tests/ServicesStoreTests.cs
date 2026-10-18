@@ -17,12 +17,12 @@ public sealed class ServicesStoreTests
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
 
-        store.Save(new[] { "1C:Enterprise 8.3 Server", "postgresql.service" });
+        store.Save(ServiceStoreData.FromLegacy(new[] { "1C:Enterprise 8.3 Server", "postgresql.service" }));
 
         var loaded = store.Load();
-        Assert.Equal(2, loaded.Count);
-        Assert.Equal("1C:Enterprise 8.3 Server", loaded[0]);
-        Assert.Equal("postgresql.service", loaded[1]);
+        Assert.Equal(2, loaded.Services.Count);
+        Assert.Equal("1C:Enterprise 8.3 Server", loaded.Services[0]);
+        Assert.Equal("postgresql.service", loaded.Services[1]);
         Assert.True(File.Exists(store.FilePath));
     }
 
@@ -32,11 +32,11 @@ public sealed class ServicesStoreTests
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
 
-        store.Save(new[] { "srv-a" });
-        store.Save(new[] { "srv-b" });
+        store.Save(ServiceStoreData.FromLegacy(new[] { "srv-a" }));
+        store.Save(ServiceStoreData.FromLegacy(new[] { "srv-b" }));
 
         var loaded = store.Load();
-        var name = Assert.Single(loaded);
+        var name = Assert.Single(loaded.Services);
         Assert.Equal("srv-b", name);
     }
 
@@ -46,7 +46,7 @@ public sealed class ServicesStoreTests
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
 
-        Assert.Empty(store.Load());
+        Assert.Empty(store.Load().Services);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class ServicesStoreTests
         var store = new ServicesStore(directoryOverride: tmp.Path);
         File.WriteAllText(store.FilePath, "{ not valid json ");
 
-        Assert.Empty(store.Load());
+        Assert.Empty(store.Load().Services);
     }
 
     [Fact]
@@ -66,12 +66,12 @@ public sealed class ServicesStoreTests
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
 
-        store.Save(new[] { "  srv-a  ", "", "  ", "srv-a", "srv-b", null! });
+        store.Save(ServiceStoreData.FromLegacy(new[] { "  srv-a  ", "", "  ", "srv-a", "srv-b", null! }));
 
         var loaded = store.Load();
-        Assert.Equal(2, loaded.Count);
-        Assert.Equal("srv-a", loaded[0]);
-        Assert.Equal("srv-b", loaded[1]);
+        Assert.Equal(2, loaded.Services.Count);
+        Assert.Equal("srv-a", loaded.Services[0]);
+        Assert.Equal("srv-b", loaded.Services[1]);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class ServicesStoreTests
         using var tmp = TempDir();
         var store = new ServicesStore(directoryOverride: tmp.Path);
 
-        store.Save(new[] { "srv-a" });
+        store.Save(ServiceStoreData.FromLegacy(new[] { "srv-a" }));
 
         Assert.False(File.Exists(store.FilePath + ".tmp"));
     }
@@ -93,10 +93,10 @@ public sealed class ServicesStoreTests
         var storeA = new ServicesStore(directoryOverride: tmpA.Path);
         var storeB = new ServicesStore(directoryOverride: tmpB.Path);
 
-        storeA.Save(new[] { "only-in-a" });
+        storeA.Save(ServiceStoreData.FromLegacy(new[] { "only-in-a" }));
 
-        Assert.Single(storeA.Load());
-        Assert.Empty(storeB.Load());
+        Assert.Single(storeA.Load().Services);
+        Assert.Empty(storeB.Load().Services);
     }
 
     private static TempDirectory TempDir() => new();

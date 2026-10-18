@@ -61,6 +61,10 @@ namespace Workspace1C
             DataContext = _vm;
             _vm.ServicesPickerProvider = ShowServicesPicker;
 
+            // Редактирование групп (issue #11, итерация 2; окно — Задача 3): провайдер
+            // открывает модальное окно группы и возвращает готовую группу или null.
+            _vm.GroupEditorProvider = ShowGroupEditor;
+
             // ---- Первая строка: «Настроить» и «Системный диалог» (скрыт на Linux). ----
             var configureButton = BuildActionButton(
                 LocalizationManager.T("Services.Configure"), "⚙", () => _vm.ConfigureCommand.Execute(null), "#6B7280");
@@ -88,14 +92,26 @@ namespace Workspace1C
                 Margin = new Thickness(0, 0, 0, 8)
             };
 
-            // ---- Строка кнопок над списком (без групп — итерация 2 issue #11). ----
-            // Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже».
+            // ---- Строка кнопок над списком (issue #11, итерация 2 — группы служб). ----
+            // Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже»
+            // работает для строк обоих типов (службы и группы).
             var moveUpButton = BuildIconButton("▲", LocalizationManager.T("Services.MoveUp"),
                 () => _vm.MoveUpCommand.Execute(null), "#2563EB");
             moveUpButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveUp"));
             var moveDownButton = BuildIconButton("▼", LocalizationManager.T("Services.MoveDown"),
                 () => _vm.MoveDownCommand.Execute(null), "#2563EB");
             moveDownButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveDown"));
+            // Группы служб: «Добавить/Изменить/Удалить группу». Кнопки неактивны, пока окно
+            // не установит GroupEditorProvider (окно редактирования группы — Задача 3).
+            var addGroupButton = BuildIconButton("📦", LocalizationManager.T("Services.GroupAddHint"),
+                () => _vm.AddGroupCommand.Execute(null), "#7C3AED");
+            addGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanAddGroup"));
+            var editGroupButton = BuildIconButton("✎", LocalizationManager.T("Services.GroupEditHint"),
+                () => _vm.EditGroupCommand.Execute(null), "#7C3AED");
+            editGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanEditGroup"));
+            var deleteGroupButton = BuildIconButton("🗑", LocalizationManager.T("Services.GroupDeleteHint"),
+                () => _vm.DeleteGroupCommand.Execute(null), "#DC2626");
+            deleteGroupButton.Bind(Button.IsEnabledProperty, new Binding("CanDeleteGroup"));
             var refreshButton = BuildIconButton("⟳", LocalizationManager.T("Services.Refresh"),
                 () => _vm.RefreshCommand.Execute(null), "#2563EB");
             // Команды — цветные иконки с подписями (issue #11, 7OH 17.10).
@@ -141,9 +157,6 @@ namespace Workspace1C
                     menu.Open(allServicesButton!);
                 });
 
-            // Группы (issue #11, итерация 2): кнопки «Добавить группу / Изменить группу /
-            // Удалить группу / Переместить выше / ниже» скрыты — место зарезервировано;
-            // блок действий начинается с разделителя.
             var actionsRow = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -153,6 +166,10 @@ namespace Workspace1C
                 {
                     moveUpButton,
                     moveDownButton,
+                    Divider(),
+                    addGroupButton,
+                    editGroupButton,
+                    deleteGroupButton,
                     Divider(),
                     refreshButton,
                     Divider(),
@@ -179,10 +196,10 @@ namespace Workspace1C
                 [!IsVisibleProperty] = new Binding("!HasRows")
             };
 
-            // ---- Список служб. ----
+            // ---- Список служб и групп (смешанные строки, issue #11, итерация 2). ----
             _servicesList = new ListBox
             {
-                ItemTemplate = new FuncDataTemplate<ServiceInfoRow>((row, _) => BuildServiceRow(row))
+                ItemTemplate = new FuncDataTemplate<ServiceListRow>((row, _) => BuildRow(row))
             };
             _servicesList.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
             {
@@ -234,6 +251,21 @@ namespace Workspace1C
             if (!window.ShowSync(this))
                 return null;
             return window.SelectedServices;
+        }
+
+        /// <summary>
+        /// «Добавить/Изменить группу» (issue #11, итерация 2; окно — Задача 3): модальное
+        /// окно редактирования группы с уже отфильтрованным списком доступных служб;
+        /// null — отмена пользователем. Входной список строится VM
+        /// (<see cref="ServicesWindowViewModel.AvailableServicesForGroup"/>), окно лишь
+        /// показывает его в «Все службы».
+        /// </summary>
+        private ServiceGroup? ShowGroupEditor(ServiceGroup? editingGroup, IReadOnlyList<string> availableServices)
+        {
+            var window = new ServiceGroupEditWindow(editingGroup, availableServices);
+            if (!window.ShowSync(this))
+                return null;
+            return window.Result;
         }
 
         // ===================== Построители =====================
@@ -296,10 +328,11 @@ namespace Workspace1C
         };
 
         /// <summary>
-        /// Строка списка: кружок статуса (обновляется при смене StatusColorHex) +
-        /// отображаемое имя + статус; контекстное меню — тот же набор команд.
+        /// Строка списка (служба или группа, issue #11, итерация 2): кружок статуса
+        /// (обновляется при смене StatusColorHex) + иконка-индикатор группы (только для
+        /// групп) + отображаемое имя + статус; контекстное меню — по типу строки.
         /// </summary>
-        private Control BuildServiceRow(ServiceInfoRow row)
+        private Control BuildRow(ServiceListRow row)
         {
             var dot = new Ellipse
             {
@@ -326,16 +359,26 @@ namespace Workspace1C
 
             void OnRowPropertyChanged(object? sender, PropertyChangedEventArgs e)
             {
-                if (e.PropertyName == nameof(ServiceInfoRow.StatusColorHex))
+                if (e.PropertyName == nameof(ServiceListRow.StatusColorHex))
                     ApplyStatusColor();
             }
+
+            // Иконка-индикатор группы (видна только для строк-групп).
+            var groupIcon = new TextBlock
+            {
+                Text = "📦",
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = new SolidColorBrush(Color.Parse("#7C3AED")),
+                IsVisible = row.IsGroup
+            };
 
             var name = new TextBlock
             {
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
-            name.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceInfoRow.DisplayName)));
+            name.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceListRow.DisplayName)));
 
             var status = new TextBlock
             {
@@ -344,21 +387,24 @@ namespace Workspace1C
                 Opacity = 0.65,
                 Margin = new Thickness(12, 0, 0, 0)
             };
-            status.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceInfoRow.StatusText)));
+            status.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceListRow.StatusText)));
 
             var grid = new Grid
             {
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(GridLength.Auto),
+                    new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
                     new ColumnDefinition(GridLength.Auto)
                 }
             };
             Grid.SetColumn(dot, 0);
-            Grid.SetColumn(name, 1);
-            Grid.SetColumn(status, 2);
+            Grid.SetColumn(groupIcon, 1);
+            Grid.SetColumn(name, 2);
+            Grid.SetColumn(status, 3);
             grid.Children.Add(dot);
+            grid.Children.Add(groupIcon);
             grid.Children.Add(name);
             grid.Children.Add(status);
 
@@ -372,21 +418,44 @@ namespace Workspace1C
                 }
             };
 
-            // Контекстное меню строки: тот же набор команд, что и кнопки.
+            // Контекстное меню строки: для службы — команды службы; для группы — команды
+            // группы + «Изменить/Удалить группу» + перемещение (issue #11, итерация 2).
             var menu = new ContextMenu();
-            AddRowMenuCommand(menu, LocalizationManager.T("Services.Start"), row, _vm.StartCommand);
-            AddRowMenuCommand(menu, LocalizationManager.T("Services.Stop"), row, _vm.StopCommand);
-            menu.Items.Add(new Separator());
-            AddRowMenuCommand(menu, LocalizationManager.T("Services.Pause"), row, _vm.PauseCommand);
-            AddRowMenuCommand(menu, LocalizationManager.T("Services.Continue"), row, _vm.ContinueCommand);
-            menu.Items.Add(new Separator());
-            AddRowMenuCommand(menu, LocalizationManager.T("Services.Restart"), row, _vm.RestartCommand);
+            if (row.IsGroup)
+            {
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Start"), _vm.StartGroupCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Stop"), _vm.StopGroupCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Pause"), _vm.PauseGroupCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Continue"), _vm.ContinueGroupCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Restart"), _vm.RestartGroupCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.EditGroup"), _vm.EditGroupCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.DeleteGroup"), _vm.DeleteGroupCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveUp"), _vm.MoveUpCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveDown"), _vm.MoveDownCommand);
+            }
+            else
+            {
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Start"), _vm.StartCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Stop"), _vm.StopCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Pause"), _vm.PauseCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Continue"), _vm.ContinueCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.Restart"), _vm.RestartCommand);
+                menu.Items.Add(new Separator());
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveUp"), _vm.MoveUpCommand);
+                AddRowMenuCommand(menu, LocalizationManager.T("Services.MoveDown"), _vm.MoveDownCommand);
+            }
             grid.ContextMenu = menu;
 
             return grid;
         }
 
-        private static void AddRowMenuCommand(ContextMenu menu, string header, ServiceInfoRow row, System.Windows.Input.ICommand command)
+        private static void AddRowMenuCommand(ContextMenu menu, string header, System.Windows.Input.ICommand command)
         {
             // Пункт добавляется с командой VM (не биндингом): контекстное меню лежит вне
             // визуального дерева, команда уже резолвлена в конструкторе строки.

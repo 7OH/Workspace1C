@@ -129,7 +129,7 @@ public sealed class ServicesPickerViewModel : ViewModelBase
     private void BuildRows()
     {
         var saved = new HashSet<string>(
-            _store.Load().Select(n => n.Trim()),
+            _store.Load().Services.Select(n => n.Trim()),
             StringComparer.OrdinalIgnoreCase);
 
         Action? rowCheckChanged = null;
