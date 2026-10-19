@@ -86,8 +86,10 @@ namespace Workspace1C
                         RestoreFromTray();
                 };
                 // Ctrl+ПКМ (issue #11, 7OH: «если получится»): сразу меню управления службами.
-                // Подавление штатного меню — на MouseDown (до старта системного показа),
-                // показ меню служб — в MouseUp (мгновенно, из прогретого кэша).
+                // На MouseDown (до старта системного показа) штатный ContextMenuStrip
+                // подменяется менем служб, собранным из прогретого кэша — системный показ
+                // NotifyIcon открывает его как обычное меню (закрытие по клику вне меню
+                // и ESC работает нативно, замечание 7OH от 19.10 к issue #11).
                 _trayIcon.MouseDown += OnTrayIconMouseDown;
                 _trayIcon.MouseUp += OnTrayIconMouseUp;
 
@@ -807,65 +809,53 @@ namespace Workspace1C
         /// Ctrl+ПКМ: показываем меню управления службами вместо обычного (7OH,
         /// «если получится» — Windows). Подавление штатного меню перенесено на
         /// MouseDown (<see cref="OnTrayIconMouseDown"/>) — до старта системного
-        /// показа, чтобы WinForms не успел показать обычное меню поверх (гонка);
-        /// здесь, во MouseUp, меню служб открывается сразу из прогретого кэша.
-        /// Возврат обычного меню — по закрытии меню служб (вместе со страховкой
-        /// в Opening). Правый клик без Ctrl открывает обычное меню, как раньше.
+        /// показа, чтобы WinForms не успел показать обычное меню поверх (гонка).
+        /// Меню служб строится из прогретого кэша статусов (мгновенно, без
+        /// синхронных опросов) и НЕ показывается вручную через Show(): оно
+        /// подменяет штатный ContextMenuStrip трея, поэтому системный показ
+        /// NotifyIcon открывает его как обычное меню — с корректным владельцем
+        /// (внутреннее окно NotifyIcon), из-за чего клик вне меню и ESC закрывают
+        /// его, как обычное меню (замечание 7OH от 19.10: ручной Show() из
+        /// v1.0.0.18 не закрывался). Возврат обычного меню — по закрытии меню
+        /// служб (Closed). Правый клик без Ctrl открывает обычное меню, как раньше.
         /// </summary>
-        private void ShowServicesTrayMenu()
+        private Forms.ContextMenuStrip? BuildServicesTrayMenu()
         {
-            if (_trayIcon is null)
-                return;
-            if (AppServices.TryGetService<IServiceControllerService>() is null)
-                return; // службы недоступны — обычное меню, как раньше
-
-            // Повторный Ctrl+ПКМ при уже открытом меню служб — игнорируем (страховка).
-            if (_servicesTrayMenu is not null && _servicesTrayMenu.Visible)
-                return;
-
-            // Подавление штатного меню выполнено в MouseDown; страховка, если
-            // MouseDown не сработал (флаг не выставлен) — подавляем здесь же.
-            if (!_ctrlRightClickPending)
-            {
-                _ctrlRightClickPending = true;
-                if (_trayIcon is not null)
-                {
-                    _suppressedTrayMenu = _trayIcon.ContextMenuStrip;
-                    _trayIcon.ContextMenuStrip = null;
-                }
-            }
-
             var servicesMenu = CreateModernTrayMenu();
             foreach (var item in BuildServicesMenuItems())
                 servicesMenu.Items.Add(ToServiceTrayItem(item));
-            _servicesTrayMenu = servicesMenu;
-            servicesMenu.Closed += (_, _) =>
-            {
-                _ctrlRightClickPending = false;
-                _servicesTrayMenu = null;
-                if (_trayIcon is not null && _trayIcon.ContextMenuStrip is null)
-                    _trayIcon.ContextMenuStrip = _suppressedTrayMenu ?? CreateMainTrayMenu();
-                _suppressedTrayMenu = null;
-            };
-            servicesMenu.Show(Forms.Control.MousePosition);
+            servicesMenu.Closed += (_, _) => RestoreTrayMenuAfterCtrl();
+            return servicesMenu;
         }
 
         /// <summary>MouseDown: при Ctrl+ПКМ заранее подавляем штатное меню (до старта
-        /// системного показа), чтобы в MouseUp показать меню служб без гонки.</summary>
+        /// системного показа) и подменяем его менем служб — системный показ NotifyIcon
+        /// откроет меню служб нативно (закрытие по клику вне меню и ESC работает, как
+        /// у обычного меню).</summary>
         private void OnTrayIconMouseDown(object? sender, Forms.MouseEventArgs e)
         {
             if (e.Button != Forms.MouseButtons.Right)
                 return;
-            if (!IsCtrlDown())
+
+            if (!TrayServicesMenuDecider.ShouldSwapOnMouseDown(
+                    IsCtrlDown(),
+                    AppServices.TryGetService<IServiceControllerService>() is not null,
+                    _ctrlRightClickPending))
                 return;
-            if (_ctrlRightClickPending)
-                return; // меню служб уже открыто — повторный Ctrl+ПКМ игнорируем
+
+            if (_trayIcon is null)
+                return;
+
             _ctrlRightClickPending = true;
-            if (_trayIcon is not null)
-            {
-                _suppressedTrayMenu = _trayIcon.ContextMenuStrip;
-                _trayIcon.ContextMenuStrip = null; // подавляем системный показ обычного меню
-            }
+            _suppressedTrayMenu = _trayIcon.ContextMenuStrip;
+            _servicesTrayMenu = BuildServicesTrayMenu();
+            // Подмена штатного меню меню служб: системный показ (WM_CONTEXTMENU)
+            // откроет именно его. Если службы недоступны (строитель вернул null-меню
+            // не бывает, но страховка) — просто не трогаем штатное меню.
+            if (_servicesTrayMenu is not null)
+                _trayIcon.ContextMenuStrip = _servicesTrayMenu;
+            else
+                RestoreTrayMenuAfterCtrl();
         }
 
         /// <summary>Правый клик по иконке трея: Ctrl+ПКМ — меню служб, иначе — штатное меню.</summary>
@@ -873,22 +863,22 @@ namespace Workspace1C
         {
             if (e.Button != Forms.MouseButtons.Right)
                 return;
-            if (!IsCtrlDown())
-            {
-                // Ctrl отпущен между MouseDown и MouseUp — штатное меню подавлено зря:
-                // восстанавливаем, чтобы трей не остался без меню.
-                if (_ctrlRightClickPending)
-                    RestoreTrayMenuAfterCtrl();
-                return;
-            }
-            ShowServicesTrayMenu();
+
+            // Ctrl зажат — меню служб уже подменено в MouseDown, системный показ сам
+            // откроет его после MouseUp (как обычное меню — с нативным закрытием).
+            // Действий здесь не требуется; Show() не вызываем: он не использует
+            // владельца NotifyIcon и ломает закрытие по клику вне меню/ESC.
+            if (TrayServicesMenuDecider.ShouldRestoreOnMouseUp(IsCtrlDown(), _ctrlRightClickPending))
+                RestoreTrayMenuAfterCtrl();
         }
 
-        /// <summary>Восстанавливает штатное меню трея после подавления Ctrl+ПКМ.</summary>
+        /// <summary>Восстанавливает штатное меню трея после подавления/закрытия Ctrl+ПКМ
+        /// (вызывается и из Closed меню служб, и при отпущенном Ctrl между down/up).</summary>
         private void RestoreTrayMenuAfterCtrl()
         {
             _ctrlRightClickPending = false;
-            if (_trayIcon is not null && _trayIcon.ContextMenuStrip is null)
+            _servicesTrayMenu = null;
+            if (_trayIcon is not null)
                 _trayIcon.ContextMenuStrip = _suppressedTrayMenu ?? CreateMainTrayMenu();
             _suppressedTrayMenu = null;
         }
