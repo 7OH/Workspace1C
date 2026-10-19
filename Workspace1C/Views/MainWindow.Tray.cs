@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using MaterialDesignThemes.Wpf;
 using Workspace1C.Localization;
 using Workspace1C.Models;
@@ -85,10 +86,19 @@ namespace Workspace1C
                         RestoreFromTray();
                 };
                 // Ctrl+ПКМ (issue #11, 7OH: «если получится»): сразу меню управления службами.
+                // Подавление штатного меню — на MouseDown (до старта системного показа),
+                // показ меню служб — в MouseUp (мгновенно, из прогретого кэша).
+                _trayIcon.MouseDown += OnTrayIconMouseDown;
                 _trayIcon.MouseUp += OnTrayIconMouseUp;
 
                 // Показ: по настройке «Показывать в трее» или всегда, если закрытие в трей
                 _trayIcon.Visible = _viewModel.ShowTrayIcon || _viewModel.CloseToTray;
+
+                // Прогрев кэша статусов служб (issue #11, 1.0.0.18): первый Ctrl+ПКМ
+                // сразу после запуска открывает меню служб мгновенно — статусы уже
+                // в кэше (раньше первые ~секунду кэш был пуст, «держать около секунды»).
+                EnsureServicesStatusTimer();
+                RefreshServicesStatusesInBackground();
             }
             catch
             {
@@ -658,6 +668,9 @@ namespace Workspace1C
             _servicesStatusTimer?.Dispose();
             _servicesStatusTimer = null;
             _serviceStatusCache = null;
+            _ctrlRightClickPending = false;
+            _suppressedTrayMenu = null;
+            _servicesTrayMenu = null;
             if (_trayIcon != null)
             {
                 _trayIcon.Visible = false;
@@ -686,6 +699,12 @@ namespace Workspace1C
 
         /// <summary>Флаг: правый клик с Ctrl обрабатывается меню служб (штатное меню подавлено).</summary>
         private bool _ctrlRightClickPending;
+
+        /// <summary>Штатное меню трея, подавленное при Ctrl+ПКМ (восстанавливается в Closed).</summary>
+        private Forms.ContextMenuStrip? _suppressedTrayMenu;
+
+        /// <summary>Открытое меню служб (страховка повторного Ctrl+ПКМ — не показывать дважды).</summary>
+        private Forms.ContextMenuStrip? _servicesTrayMenu;
 
         /// <summary>
         /// Обычное меню трея: пересборка при каждом показе (Opening) и страховка
@@ -755,7 +774,7 @@ namespace Workspace1C
             _servicesStatusTimer = new System.Threading.Timer(
                 _ => RefreshServicesStatusesInBackground(),
                 null,
-                TimeSpan.FromSeconds(1),
+                TimeSpan.Zero, // первый опрос сразу — прогрев кэша (issue #11, 1.0.0.18)
                 ServicesStatusRefreshInterval);
         }
 
@@ -789,33 +808,67 @@ namespace Workspace1C
 
         /// <summary>
         /// Ctrl+ПКМ: показываем меню управления службами вместо обычного (7OH,
-        /// «если получится» — Windows). Выбран приём: во MouseUp сразу открываем
-        /// собственный ContextMenuStrip и временно убираем штатное меню, чтобы
-        /// WinForms не показал его поверх (гонка системного показа); возврат
-        /// обычного меню — по закрытии меню служб (вместе со страховкой в Opening).
-        /// Правый клик без Ctrl открывает обычное меню, как раньше.
+        /// «если получится» — Windows). Подавление штатного меню перенесено на
+        /// MouseDown (<see cref="OnTrayIconMouseDown"/>) — до старта системного
+        /// показа, чтобы WinForms не успел показать обычное меню поверх (гонка);
+        /// здесь, во MouseUp, меню служб открывается сразу из прогретого кэша.
+        /// Возврат обычного меню — по закрытии меню служб (вместе со страховкой
+        /// в Opening). Правый клик без Ctrl открывает обычное меню, как раньше.
         /// </summary>
         private void ShowServicesTrayMenu()
         {
-            if (_trayIcon is null || _ctrlRightClickPending)
+            if (_trayIcon is null)
                 return;
             if (AppServices.TryGetService<IServiceControllerService>() is null)
                 return; // службы недоступны — обычное меню, как раньше
 
-            _ctrlRightClickPending = true;
-            var usualMenu = _trayIcon.ContextMenuStrip;
-            _trayIcon.ContextMenuStrip = null; // подавляем системный показ обычного меню
+            // Повторный Ctrl+ПКМ при уже открытом меню служб — игнорируем (страховка).
+            if (_servicesTrayMenu is not null && _servicesTrayMenu.Visible)
+                return;
+
+            // Подавление штатного меню выполнено в MouseDown; страховка, если
+            // MouseDown не сработал (флаг не выставлен) — подавляем здесь же.
+            if (!_ctrlRightClickPending)
+            {
+                _ctrlRightClickPending = true;
+                if (_trayIcon is not null)
+                {
+                    _suppressedTrayMenu = _trayIcon.ContextMenuStrip;
+                    _trayIcon.ContextMenuStrip = null;
+                }
+            }
 
             var servicesMenu = CreateModernTrayMenu();
             foreach (var item in BuildServicesMenuItems())
                 servicesMenu.Items.Add(ToServiceTrayItem(item));
+            _servicesTrayMenu = servicesMenu;
             servicesMenu.Closed += (_, _) =>
             {
                 _ctrlRightClickPending = false;
+                _servicesTrayMenu = null;
                 if (_trayIcon is not null && _trayIcon.ContextMenuStrip is null)
-                    _trayIcon.ContextMenuStrip = usualMenu ?? CreateMainTrayMenu();
+                    _trayIcon.ContextMenuStrip = _suppressedTrayMenu ?? CreateMainTrayMenu();
+                _suppressedTrayMenu = null;
             };
             servicesMenu.Show(Forms.Control.MousePosition);
+        }
+
+        /// <summary>MouseDown: при Ctrl+ПКМ заранее подавляем штатное меню (до старта
+        /// системного показа), чтобы в MouseUp показать меню служб без гонки.</summary>
+        private void OnTrayIconMouseDown(object? sender, Forms.MouseEventArgs e)
+        {
+            if (e.Button != Forms.MouseButtons.Right)
+                return;
+            if (!IsCtrlDown())
+                return;
+            if (_ctrlRightClickPending)
+                return; // меню служб уже открыто — повторный Ctrl+ПКМ игнорируем
+            _ctrlRightClickPending = true;
+            if (_trayIcon is not null)
+            {
+                _suppressedTrayMenu = _trayIcon.ContextMenuStrip;
+                _trayIcon.ContextMenuStrip = null; // подавляем системный показ обычного меню
+            }
         }
 
         /// <summary>Правый клик по иконке трея: Ctrl+ПКМ — меню служб, иначе — штатное меню.</summary>
@@ -823,10 +876,50 @@ namespace Workspace1C
         {
             if (e.Button != Forms.MouseButtons.Right)
                 return;
-            var ctrlDown = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
-            if (!ctrlDown)
+            if (!IsCtrlDown())
+            {
+                // Ctrl отпущен между MouseDown и MouseUp — штатное меню подавлено зря:
+                // восстанавливаем, чтобы трей не остался без меню.
+                if (_ctrlRightClickPending)
+                    RestoreTrayMenuAfterCtrl();
                 return;
+            }
             ShowServicesTrayMenu();
+        }
+
+        /// <summary>Восстанавливает штатное меню трея после подавления Ctrl+ПКМ.</summary>
+        private void RestoreTrayMenuAfterCtrl()
+        {
+            _ctrlRightClickPending = false;
+            if (_trayIcon is not null && _trayIcon.ContextMenuStrip is null)
+                _trayIcon.ContextMenuStrip = _suppressedTrayMenu ?? CreateMainTrayMenu();
+            _suppressedTrayMenu = null;
+        }
+
+        // =====================================================================
+        // Нативная проверка Ctrl (issue #11, 1.0.0.18): GetKeyState читает состояние
+        // клавиши без фокуса окна — WPF Keyboard.Modifiers для трея ненадёжен
+        // (окно может не иметь фокуса). WPF-проверка остаётся fallback'ом.
+        // =====================================================================
+
+        [DllImport("user32.dll")]
+        private static extern short GetKeyState(int nVirtKey);
+
+        private const int VkControl = 0x11;
+
+        /// <summary>Надёжная проверка Ctrl: нативный GetKeyState, WPF Keyboard.Modifiers — fallback.</summary>
+        private static bool IsCtrlDown()
+        {
+            try
+            {
+                if ((GetKeyState(VkControl) & 0x8000) != 0)
+                    return true;
+            }
+            catch
+            {
+                // Нативный вызов недоступен — fallback ниже
+            }
+            return (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         }
 
         /// <summary>«Настроить…» — окно «Управление службами» (требование 7OH: кнопка настройки сверху).</summary>
