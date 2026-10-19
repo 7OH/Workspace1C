@@ -1143,26 +1143,30 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
-    public void CanDropDatabaseOnServer_UnknownOrFile_IsFalse()
+    public void CanDropDatabaseOnServer_AnyClusterBase_IsTrue()
     {
-        // Файловых баз в кластере не бывает (комментарий 7OH от 2026-10-18 20:24);
-        // «FILE», SQLite, ServerODBC и незнакомые значения — вариант «с удалением на
-        // сервере СУБД» им не предлагается.
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        // В кластере 1С бывают только клиент-серверные базы (комментарий 7OH от
+        // 2026-10-18 20:24 и 19.10 19:12), поэтому вариант «Удалить с удалением на
+        // сервере СУБД» предлагается ВСЕМ базам списка кластера независимо от
+        // распознанного «dbms» (до 1.0.0.21 белый список блокировал вариант на
+        // версиях rac с нестандартным значением «dbms»). Распознанный тип остаётся
+        // только диагностической подписью в диалоге удаления.
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.File })));
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "File" })));
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.Sqlite })));
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.ServerOdbc })));
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = string.Empty })));
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "   " })));
-        // Незнакомое значение — консервативно считаем неизвестным (1.0.0.14).
-        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+        // Незнакомое значение — тоже база кластера, вариант доступен (1.0.0.21).
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "FileBase" })));
+        // Без выбранной базы вариант недоступен.
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(null));
     }
 

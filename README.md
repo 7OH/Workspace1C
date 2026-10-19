@@ -1,12 +1,12 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.20-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.21-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.20**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.21**.
 
 ## 📣 Telegram-канал
 
@@ -212,6 +212,16 @@
   иконка «папка + кружок статуса» (зелёный — все запущены, жёлтый — частично, серый — не
   запущены; на Linux нативные меню не поддерживают цветные иконки — ограничение платформы);
   строки-папки групп служб получили недостающий нижний отступ (WPF и Avalonia).
+- **«Серверы 1С»: кнопка максимизации убрана у окна создания и удаления базы кластера
+  (1.0.0.21, issue #3, Windows и Linux)** — `SuppressMaximizeButton` добавлен в
+  `RacInfobaseCreateWindow` и `RacInfobaseDropWindow` (WPF), в Avalonia-версиях
+  `CanResize=false`; ресайз у окна создания сохранён, максимизация подавлена (Win+Up,
+  двойной клик по шапке); большие окна максимизацию сохранили.
+- **«Серверы 1С»: вариант «Удалить с удалением на сервере СУБД» — для ВСЕХ баз списка
+  кластера (1.0.0.21, issue #3, Windows и Linux)** — в кластере 1С бывают только
+  клиент-серверные базы (инвариант кластера), поэтому второй вариант удаления предлагается
+  всегда, независимо от распознанного `dbms`; белый список СУБД остался только
+  диагностической подписью в диалоге удаления и больше не блокирует вариант.
 - **«Серверы 1С»: типы СУБД при создании/редактировании базы кластера (1.0.0.16, issue #3,
   Windows и Linux)** — список типов СУБД ограничен четырьмя значениями rac (MSSQLServer,
   PostgreSQL, IBMDB2, OracleDatabase); убраны SQLite, ServerODBC, FILE и подсказка про

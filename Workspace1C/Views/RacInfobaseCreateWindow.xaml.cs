@@ -29,6 +29,12 @@ namespace Workspace1C
         public RacInfobaseCreateWindow()
         {
             InitializeComponent();
+
+            // Кнопка «развернуть» в собственной шапке не нужна (issue #3, 7OH 19.10):
+            // ресайз (ResizeMode по умолчанию CanResize) сохраняется, максимизация
+            // подавляется — как у RacInfobasePropertiesWindow/ServerEditWindow.
+            WindowChromeHelper.SetSuppressMaximizeButton(this, true);
+
             Title = LocalizationManager.T("ServerMonitor.Infobase.CreateTitle");
             EditorTitle.Text = Title;
 

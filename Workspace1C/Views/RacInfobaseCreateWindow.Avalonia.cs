@@ -50,7 +50,10 @@ namespace Workspace1C
             MinWidth = 520;
             MinHeight = 560;
             FontSize = 13;
-            CanResize = true;
+            // Окно без максимизации (issue #3, 7OH 19.10): в Avalonia кнопка разворота
+            // в системном заголовке управляется через CanResize — выставляем false
+            // (ресайз некритичен), как у RacInfobasePropertiesWindow/ServerEditWindow.
+            CanResize = false;
 
             _dbmsBox.Styled(ControlThemes.ModernComboBox);
             _securityLevelBox.Styled(ControlThemes.ModernComboBox);

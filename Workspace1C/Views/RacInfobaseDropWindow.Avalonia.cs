@@ -14,11 +14,11 @@ namespace Workspace1C
     /// Диалог удаления информационной базы кластера (issue #3, комментарий 7OH от
     /// 2026-10-17) — Avalonia/Linux-версия WPF-окна <see cref="RacInfobaseDropWindow"/>:
     /// выбор «Просто удалить из кластера» или «Удалить с удалением на сервере СУБД».
-    /// В кластере бывают только клиент-серверные базы (7OH 18.10 20:24), поэтому
-    /// вариант «с удалением на сервере СУБД» доступен всегда; для неизвестного типа
-    /// СУБД он просто скрыт. Команда rac: «infobase drop [--drop-database]».
+    /// В кластере бывают только клиент-серверные базы (7OH 18.10 20:24 и 19.10 19:12),
+    /// поэтому вариант «с удалением на сервере СУБД» доступен всегда — независимо от
+    /// распознанного типа СУБД (1.0.0.21). Команда rac: «infobase drop [--drop-database]».
     /// Рядом с именем базы выводится распознанный из summary тип и сервер СУБД
-    /// (issue #3, часть 1) — диагностика, если вариант «с удалением» не появился.
+    /// (issue #3, часть 1) — диагностическая подпись.
     /// </summary>
     public sealed class RacInfobaseDropWindow : ModalWindowBase
     {
@@ -98,8 +98,9 @@ namespace Workspace1C
             var fromCluster = Radio("ServerMonitor.Infobase.Drop.OnlyFromCluster", "DropOption", isChecked: true);
             _withDatabaseRadio = Radio("ServerMonitor.Infobase.Drop.WithDatabase", "DropOption");
             var withDatabase = _withDatabaseRadio;
-            // Вариант «с удалением на сервере СУБД» показываем только клиент-серверным
-            // базам; файловых баз в кластере не бывает — подсказок про них нет.
+            // Вариант «с удалением на сервере СУБД» показываем всем базам списка кластера
+            // (в кластере бывают только клиент-серверные базы, 7OH 19.10 19:12); флаг
+            // canDropDatabase приходит от VM и для баз кластера всегда true (1.0.0.21).
             withDatabase.IsVisible = canDropDatabase;
 
             var options = new StackPanel
