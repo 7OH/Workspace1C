@@ -108,6 +108,10 @@ public static class AppServices
         // символами условной компиляции (#if WINDOWS / #if LINUX).
         services.AddSingleton<IServicesStore, ServicesStore>();
         services.AddSingleton<IServiceControllerService, ServiceControllerService>();
+        // Кэш статусов служб (issue #3, часть 2): единый экземпляр для трея, главного
+        // окна и меню «СЛУЖБЫ» монитора серверов — мгновенное чтение статусов без
+        // блокирующего опроса контроллера на UI-потоке. Чистый сервис — без UI-зависимостей.
+        services.AddSingleton<ServiceStatusCache>();
         // Компоновка меню «Утилиты» (issue #374): пользовательская структура меню —
         // utilities_menu_layout.json рядом с настройками, по образцу CustomActionsStore.
         // Чистый сервис — без UI-зависимостей.

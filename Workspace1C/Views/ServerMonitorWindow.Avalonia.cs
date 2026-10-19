@@ -53,6 +53,11 @@ namespace Workspace1C
         /// <summary>Заголовки вкладок с количеством строк (обновляются по PropertyChanged).</summary>
         private readonly List<(TabItem Tab, string Property)> _dynamicTabHeaders = new();
 
+        /// <summary>Фоновое обновление кэша статусов служб (5 с; issue #3, часть 2).</summary>
+        private System.Threading.Timer? _servicesStatusTimer;
+
+        private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
+
         public ServerMonitorWindow()
         {
             Title = LocalizationManager.T("ServerMonitor.Title");
@@ -92,6 +97,9 @@ namespace Workspace1C
 
             Closed += (_, _) =>
             {
+                // Фоновый таймер статусов служб останавливается при закрытии окна (без утечки).
+                _servicesStatusTimer?.Dispose();
+                _servicesStatusTimer = null;
                 _vm.Dispose();
                 try
                 {
@@ -1108,16 +1116,19 @@ namespace Workspace1C
         // Кнопка внизу левой колонки справочника серверов показывает подменю служб —
         // то же, что в трее (ServiceTrayMenuBuilder); результат адаптируется к ContextMenu.
 
-        /// <summary>«СЛУЖБЫ»: показывает подменю служб у кнопки.</summary>
+        /// <summary>«СЛУЖБЫ»: показывает подменю служб у кнопки (скин — как у меню
+        /// служб главного окна, issue #3, часть 2).</summary>
         private void ShowServicesMenu(Button anchor)
         {
-            var menu = new ContextMenu();
+            var menu = new ContextMenu().Styled(Themes.ControlThemes.ModernContextMenu);
             foreach (var item in BuildServicesMenuItems())
                 menu.Items.Add(ToAvaloniaMenuItem(item));
             menu.Open(anchor);
         }
 
-        /// <summary>Пункты подменю «Службы» по services.json и статусам (как в трее).</summary>
+        /// <summary>Пункты подменю «Службы» по services.json и статусам из кэша
+        /// (issue #3, часть 2): построение не блокирует UI — статусы читаются
+        /// из <see cref="ServiceStatusCache"/> и обновляются фоном (как в трее).</summary>
         private List<ServiceMenuItem> BuildServicesMenuItems()
         {
             var services = AppServices.TryGetService<IServiceControllerService>();
@@ -1130,15 +1141,52 @@ namespace Workspace1C
                 // и «Все сервисы».
                 return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Linux);
             }
-            return builder.Build(data, name =>
-            {
-                try { return services.GetStatus(name); }
-                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
-            }, ServicePlatform.Linux);
+            // Мгновенный показ: статусы из кэша (фоновый таймер держит их свежими).
+            EnsureServicesStatusTimer();
+            return builder.Build(data,
+                name => ServicesStatusCache()?.GetStatus(name) ?? new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown },
+                ServicePlatform.Linux);
+        }
+
+        /// <summary>Единый кэш статусов из DI (issue #3, часть 2): тот же экземпляр,
+        /// что у трея и главного окна.</summary>
+        private Services.ServiceStatusCache? ServicesStatusCache()
+            => AppServices.TryGetService<Services.ServiceStatusCache>();
+
+        /// <summary>Запускает фоновый таймер обновления кэша статусов (5 с).
+        /// Опросы — в рабочих потоках, UI не блокируется.</summary>
+        private void EnsureServicesStatusTimer()
+        {
+            if (_servicesStatusTimer is not null)
+                return;
+            _servicesStatusTimer = new System.Threading.Timer(
+                _ => RefreshServicesStatusesInBackground(),
+                null,
+                TimeSpan.Zero, // первый опрос сразу — прогрев кэша
+                ServicesStatusRefreshInterval);
+        }
+
+        /// <summary>Фоновое обновление кэша статусов по списку из services.json.</summary>
+        private void RefreshServicesStatusesInBackground()
+        {
+            var cache = ServicesStatusCache();
+            var store = AppServices.TryGetService<IServicesStore>();
+            if (cache is null || store is null)
+                return;
+            var data = store.Load();
+            var names = ServiceStoreData.NormalizeOrder(data)
+                .Where(k => !ServiceStoreData.IsGroupKey(k))
+                .Concat(data.Groups.SelectMany(g => g.Services))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (names.Count == 0)
+                return;
+            _ = cache.RefreshAsync(names);
         }
 
         /// <summary>Адаптер пункта модели меню служб к элементу Avalonia ContextMenu:
-        /// те же иконки, что в контекстном меню основного окна (1.0.0.14).</summary>
+        /// те же иконки, что в контекстном меню основного окна (1.0.0.14); стиль
+        /// скина ModernMenuItem — как у остальных контекстных меню (issue #3, часть 2).</summary>
         private object ToAvaloniaMenuItem(ServiceMenuItem item)
         {
             switch (item.Kind)
@@ -1148,7 +1196,7 @@ namespace Workspace1C
 
                 case ServiceMenuItemKind.Settings:
                 {
-                    var settings = new MenuItem { Header = item.Text };
+                    var settings = new MenuItem { Header = item.Text }.Styled(Themes.ControlThemes.ModernMenuItem);
                     settings.Icon = MenuIcon("⚙", "#6B7280");
                     settings.Click += (_, _) => ShowServicesSettings();
                     return settings;
@@ -1158,7 +1206,8 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupSubmenu:
                 case ServiceMenuItemKind.AllServicesSubmenu:
                 {
-                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled }
+                        .Styled(Themes.ControlThemes.ModernMenuItem);
                     submenu.Icon = item.Kind == ServiceMenuItemKind.ServiceSubmenu
                         ? StatusCircle(item.StatusColorHex)
                         : MenuIcon(item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
@@ -1171,7 +1220,8 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupCommand:
                 case ServiceMenuItemKind.AllServicesCommand:
                 {
-                    var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled }
+                        .Styled(Themes.ControlThemes.ModernMenuItem);
                     var action = item.Action ?? Services.ServiceAction.Start;
                     command.Icon = MenuIcon(
                         ViewModels.ServiceCommandGlyphs.Glyph(action),
@@ -1184,7 +1234,8 @@ namespace Workspace1C
                 }
 
                 default:
-                    return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled }
+                        .Styled(Themes.ControlThemes.ModernMenuItem);
             }
         }
 
@@ -1226,8 +1277,9 @@ namespace Workspace1C
         /// <summary>
         /// Выполняет операцию над целевыми службами (отдельная служба / члены группы /
         /// все службы списка): systemctl блокирующий — работа в фоновом потоке.
+        /// После завершения кэш статусов сбрасывается и опрашивается заново (как в трее).
         /// </summary>
-        private static void ExecuteServicesOperation(
+        private void ExecuteServicesOperation(
             ServiceAction action,
             ServiceMenuItemTarget target,
             string targetName,
@@ -1270,7 +1322,12 @@ namespace Workspace1C
                         // Отдельная служба не должна останавливать остальные.
                     }
                 }
-            });
+            }).ContinueWith(_ =>
+            {
+                // Статусы изменились — сбрасываем кэш и опрашиваем заново в фоне.
+                AppServices.TryGetService<ServiceStatusCache>()?.Invalidate();
+                RefreshServicesStatusesInBackground();
+            }, TaskScheduler.Default);
         }
 
         /// <summary>Строит «infobase summary» из строки списка для предзаполнения диалога правки.</summary>

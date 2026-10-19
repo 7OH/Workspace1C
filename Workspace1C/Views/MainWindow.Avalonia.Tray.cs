@@ -401,15 +401,12 @@ namespace Workspace1C
             FillTrayMenu(_trayMenu);
         }
 
-        /// <summary>Лениво создаёт кэш статусов служб.</summary>
+        /// <summary>Единый кэш статусов из DI (issue #3, часть 2): трей, главное окно
+        /// и меню «СЛУЖБЫ» монитора серверов читают статусы из одного экземпляра.</summary>
         private Services.ServiceStatusCache? ServicesStatusCache()
         {
             if (_serviceStatusCache is null)
-            {
-                var controller = AppServices.TryGetService<IServiceControllerService>();
-                if (controller is not null)
-                    _serviceStatusCache = new Services.ServiceStatusCache(controller);
-            }
+                _serviceStatusCache = AppServices.TryGetService<Services.ServiceStatusCache>();
             return _serviceStatusCache;
         }
 

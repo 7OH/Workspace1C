@@ -27,6 +27,11 @@ namespace Workspace1C
     {
         private readonly ServerMonitorViewModel _vm;
 
+        /// <summary>Фоновое обновление кэша статусов служб (5 с; issue #3, часть 2).</summary>
+        private System.Threading.Timer? _servicesStatusTimer;
+
+        private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
+
         public ServerMonitorWindow()
         {
             InitializeComponent();
@@ -72,6 +77,9 @@ namespace Workspace1C
             // состояние «максимизировано» сохраняется в настройки.
             Closed += (_, _) =>
             {
+                // Фоновый таймер статусов служб останавливается при закрытии окна (без утечки).
+                _servicesStatusTimer?.Dispose();
+                _servicesStatusTimer = null;
                 _vm.Dispose();
                 try
                 {
@@ -309,7 +317,9 @@ namespace Workspace1C
             var menu = new ContextMenu
             {
                 PlacementTarget = button,
-                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+                // Скин (issue #3, часть 2): тот же стиль, что у меню служб главного окна.
+                Style = TryFindResource("ModernContextMenu") as Style,
             };
             foreach (var item in BuildServicesMenuItems())
                 menu.Items.Add(ToWpfServiceMenuItem(item));
@@ -317,9 +327,9 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Пункты подменю «Службы» по данным services.json и текущим статусам —
-        /// как в трее (ServiceTrayMenuBuilder). Опрос статусов блокирующий: построение
-        /// выполняется при показе меню.
+        /// Пункты подменю «Службы» по данным services.json и статусам из кэша
+        /// (issue #3, часть 2): построение не блокирует UI — статусы читаются
+        /// из <see cref="ServiceStatusCache"/> и обновляются фоном (как в трее).
         /// </summary>
         private List<ServiceMenuItem> BuildServicesMenuItems()
         {
@@ -333,17 +343,54 @@ namespace Workspace1C
                 // и «Все сервисы» с пустым набором.
                 return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Windows);
             }
-            return builder.Build(data, name =>
-            {
-                try { return services.GetStatus(name); }
-                catch { return new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown }; }
-            }, ServicePlatform.Windows);
+            // Мгновенный показ: статусы из кэша (фоновый таймер держит их свежими).
+            EnsureServicesStatusTimer();
+            return builder.Build(data,
+                name => ServicesStatusCache()?.GetStatus(name) ?? new ServiceInfo { ServiceName = name, Status = ServiceStatus.Unknown },
+                ServicePlatform.Windows);
+        }
+
+        /// <summary>Единый кэш статусов из DI (issue #3, часть 2): тот же экземпляр,
+        /// что у трея и главного окна.</summary>
+        private Services.ServiceStatusCache? ServicesStatusCache()
+            => AppServices.TryGetService<Services.ServiceStatusCache>();
+
+        /// <summary>Запускает фоновый таймер обновления кэша статусов (5 с).
+        /// Опросы — в рабочих потоках, UI не блокируется.</summary>
+        private void EnsureServicesStatusTimer()
+        {
+            if (_servicesStatusTimer is not null)
+                return;
+            _servicesStatusTimer = new System.Threading.Timer(
+                _ => RefreshServicesStatusesInBackground(),
+                null,
+                TimeSpan.Zero, // первый опрос сразу — прогрев кэша
+                ServicesStatusRefreshInterval);
+        }
+
+        /// <summary>Фоновое обновление кэша статусов по списку из services.json.</summary>
+        private void RefreshServicesStatusesInBackground()
+        {
+            var cache = ServicesStatusCache();
+            var store = AppServices.TryGetService<IServicesStore>();
+            if (cache is null || store is null)
+                return;
+            var data = store.Load();
+            var names = ServiceStoreData.NormalizeOrder(data)
+                .Where(k => !ServiceStoreData.IsGroupKey(k))
+                .Concat(data.Groups.SelectMany(g => g.Services))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (names.Count == 0)
+                return;
+            _ = cache.RefreshAsync(names);
         }
 
         /// <summary>
         /// Адаптер пункта модели меню служб к WPF-элементу ContextMenu: те же иконки,
         /// что в контекстном меню основного окна — кружок статуса для службы, папка
         /// для группы, шестерёнка у «Настроить…», цветные глифы команд (1.0.0.14).
+        /// Стиль скина ModernMenuItem — как у остальных контекстных меню (issue #3, часть 2).
         /// </summary>
         private object ToWpfServiceMenuItem(ServiceMenuItem item)
         {
@@ -355,7 +402,11 @@ namespace Workspace1C
                 case ServiceMenuItemKind.Settings:
                 {
                     // Экранирование '_' (WPF AccessKey; issue #11, 7OH 19.10).
-                    var settings = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text) };
+                    var settings = new MenuItem
+                    {
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
+                        Style = TryFindResource("ModernMenuItem") as Style,
+                    };
                     settings.Icon = MenuIconText("⚙", "#6B7280");
                     settings.Click += (_, _) => ShowServicesSettings();
                     return settings;
@@ -363,7 +414,12 @@ namespace Workspace1C
 
                 case ServiceMenuItemKind.ServiceSubmenu:
                 {
-                    var submenu = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
+                    var submenu = new MenuItem
+                    {
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
+                        IsEnabled = item.IsEnabled,
+                        Style = TryFindResource("ModernMenuItem") as Style,
+                    };
                     if (!string.IsNullOrWhiteSpace(item.StatusColorHex))
                         submenu.Icon = MenuStatusCircle(item.StatusColorHex);
                     foreach (var child in item.Children)
@@ -374,7 +430,12 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupSubmenu:
                 case ServiceMenuItemKind.AllServicesSubmenu:
                 {
-                    var submenu = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
+                    var submenu = new MenuItem
+                    {
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
+                        IsEnabled = item.IsEnabled,
+                        Style = TryFindResource("ModernMenuItem") as Style,
+                    };
                     submenu.Icon = MenuIconText(
                         item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
                     foreach (var child in item.Children)
@@ -386,7 +447,12 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupCommand:
                 case ServiceMenuItemKind.AllServicesCommand:
                 {
-                    var command = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
+                    var command = new MenuItem
+                    {
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
+                        IsEnabled = item.IsEnabled,
+                        Style = TryFindResource("ModernMenuItem") as Style,
+                    };
                     var action = item.Action ?? ServiceAction.Start;
                     command.Icon = MenuIconText(ServiceCommandGlyphs.Glyph(action), ServiceCommandGlyphs.ColorHex(action));
                     var target = item.Target;
@@ -397,7 +463,12 @@ namespace Workspace1C
                 }
 
                 default:
-                    return new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
+                    return new MenuItem
+                    {
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
+                        IsEnabled = item.IsEnabled,
+                        Style = TryFindResource("ModernMenuItem") as Style,
+                    };
             }
         }
 
@@ -430,8 +501,9 @@ namespace Workspace1C
         /// <summary>
         /// Выполняет операцию над целевыми службами (отдельная служба / члены группы /
         /// все службы списка): ServiceController блокирующий — работа в фоновом потоке.
+        /// После завершения кэш статусов сбрасывается и опрашивается заново (как в трее).
         /// </summary>
-        private static void ExecuteServicesOperation(
+        private void ExecuteServicesOperation(
             ServiceAction action,
             ServiceMenuItemTarget target,
             string targetName,
@@ -474,7 +546,12 @@ namespace Workspace1C
                         // Отдельная служба не должна останавливать остальные.
                     }
                 }
-            });
+            }).ContinueWith(_ =>
+            {
+                // Статусы изменились — сбрасываем кэш и опрашиваем заново в фоне.
+                AppServices.TryGetService<ServiceStatusCache>()?.Invalidate();
+                RefreshServicesStatusesInBackground();
+            }, TaskScheduler.Default);
         }
     }
 }
