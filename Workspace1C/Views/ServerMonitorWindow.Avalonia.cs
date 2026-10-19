@@ -17,6 +17,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Workspace1C.Controls;
+using Workspace1C.Converters;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -127,6 +128,16 @@ namespace Workspace1C
                         TextTrimming = TextTrimming.CharacterEllipsis,
                         VerticalAlignment = VerticalAlignment.Center
                     };
+                    // Подсветка подключённого сервера (issue #3, комментарий 7OH 19.10):
+                    // строка записи, к которой установлено подключение, — жирная. Привязка —
+                    // к ConnectedServer из DataContext окна (= VM, как у списка) через
+                    // конвертер, сверяющий Id записи строки с подключённым сервером.
+                    text.Bind(TextBlock.FontWeightProperty, new Binding
+                    {
+                        Path = nameof(ServerMonitorViewModel.ConnectedServer),
+                        Source = _vm,
+                        Converter = new ServerConnectedFontWeightConverter(server)
+                    });
                     return text;
                 })
             };

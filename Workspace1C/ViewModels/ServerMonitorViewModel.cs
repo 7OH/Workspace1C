@@ -35,6 +35,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     private string _userName = string.Empty;
     private string _password = string.Empty;
     private ManagementServer? _selectedServer;
+    private ManagementServer? _connectedServer;
     private Guid? _selectedClusterId;
     private string _statusText = string.Empty;
     private string _errorMessage = string.Empty;
@@ -148,6 +149,29 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         set => SetProperty(ref _selectedServer, value);
     }
 
+    /// <summary>
+    /// Запись справочника «Сервера управления», к которой установлено текущее подключение
+    /// (issue #3, комментарий 7OH 19.10: строка подключённого сервера подсвечивается
+    /// жирным). Устанавливается при успешном подключении: в <see cref="ConnectToServerAsync"/>
+    /// — выбранной записью, в <see cref="ConnectAsync"/> — записью, совпадающей по
+    /// адресу:порту. Сбрасывается при новом подключении и при ошибке подключения.
+    /// </summary>
+    public ManagementServer? ConnectedServer
+    {
+        get => _connectedServer;
+        private set
+        {
+            if (ReferenceEquals(_connectedServer, value))
+                return;
+            _connectedServer = value;
+            OnPropertyChanged(nameof(ConnectedServer));
+            OnPropertyChanged(nameof(HasConnectedServer));
+        }
+    }
+
+    /// <summary>Есть ли активное подключение к записи справочника (для подсветки списка).</summary>
+    public bool HasConnectedServer => ConnectedServer is not null;
+
     /// <summary>Есть ли хотя бы один сервер в справочнике (для подсказки пустого списка).</summary>
     public bool HasServers => Servers.Count > 0;
 
@@ -201,6 +225,27 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// Ищет запись справочника по точке подключения (issue #3, комментарий 7OH 19.10):
+    /// совпадение хоста и порта. Порт из адреса «host:port» приоритетнее поля записи —
+    /// та же нормализация, что в <see cref="BuildParams"/> (issue #324). Возвращает null,
+    /// если подходящей записи нет (обычное подключение к «сырому» адресу).
+    /// </summary>
+    private ManagementServer? FindServerByAddress(string address, int port)
+    {
+        var (host, targetPort) = RacConnectionAddress.Split(address, port);
+        foreach (var server in Servers)
+        {
+            var (serverHost, serverPort) = RacConnectionAddress.Split(server.Address, server.Port);
+            if (serverPort == targetPort &&
+                string.Equals(serverHost, host, StringComparison.OrdinalIgnoreCase))
+            {
+                return server;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Подключение к кластеру выбранного сервера справочника (issue #3): адрес/порт/
     /// логин/пароль берутся из записи, затем выполняется обычное подключение
     /// (<see cref="ConnectAsync"/>). Вызывается окном при активации строки списка.
@@ -228,6 +273,13 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             StatusText = string.Format(
                 LocalizationManager.T("ServerMonitor.Servers.ConnectFailedFormat"),
                 server.Description);
+        }
+        else
+        {
+            // Успех: подсвечиваем именно кликнутую запись справочника (жирным; issue #3,
+            // комментарий 7OH 19.10). При совпадении адреса:порта у нескольких записей
+            // выигрывает выбранная пользователем (ConnectAsync нашёл бы первую).
+            ConnectedServer = server;
         }
     }
 
@@ -847,11 +899,20 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         {
             ErrorMessage = string.Empty;
             StatusText = LocalizationManager.T("ServerMonitor.Status.Connecting");
+            // Новое подключение сбрасывает подсветку предыдущего сервера справочника
+            // (issue #3, комментарий 7OH 19.10): при сбое подключения или обращении к
+            // адресу вне справочника жирной не должна оставаться запись, к которой
+            // соединение уже не установлено.
+            ConnectedServer = null;
 
             var clusters = await _rac.GetClustersAsync(BuildParams()).ConfigureAwait(false);
 
             ApplyClusters(clusters);
             HasConnected = true;
+            // Подсветка записи справочника, к которой установлено подключение (issue #3,
+            // комментарий 7OH 19.10): поиск по совпадению адреса:порта для обычного
+            // подключения по полям; ConnectToServerAsync затем уточняет запись.
+            ConnectedServer = FindServerByAddress(ServerAddress, ServerPort);
             OnPropertyChanged(nameof(CanDropInfobase));
             StatusText = clusters.Count == 0
                 ? LocalizationManager.T("ServerMonitor.Status.NoClusters")

@@ -810,6 +810,99 @@ public sealed class ServerMonitorViewModelTests
         Assert.Equal("srv1", vm.ServerAddress);
     }
 
+    // ===================== Подсветка подключённого сервера (issue #3, 7OH 19.10) =====================
+
+    [Fact]
+    public async Task ConnectToServerAsync_Success_SetsConnectedServer()
+    {
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        var server = new ManagementServer { Id = "srv-1", Description = "Основной", Address = "srv1", Port = 1540 };
+
+        await vm.ConnectToServerAsync(server);
+
+        Assert.True(vm.HasConnected);
+        Assert.Same(server, vm.ConnectedServer);
+        Assert.True(vm.HasConnectedServer);
+    }
+
+    [Fact]
+    public async Task ConnectToServerAsync_OnClientFailure_LeavesConnectedServerNull()
+    {
+        // Без успешного подключения запись справочника не подсвечивается.
+        var vm = new ServerMonitorViewModel(new FakeRacClient(throwOnClusters: true), new RecordingDialogs());
+        var server = new ManagementServer { Id = "srv-1", Description = "Сервер", Address = "srv1", Port = 1540 };
+
+        await vm.ConnectToServerAsync(server);
+
+        Assert.False(vm.HasConnected);
+        Assert.Null(vm.ConnectedServer);
+        Assert.False(vm.HasConnectedServer);
+    }
+
+    [Fact]
+    public async Task Reconnect_ResetsPreviousHighlight_WhenNewTargetNotInCatalog()
+    {
+        // Смена подключения сбрасывает подсветку прежней записи (issue #3, 7OH 19.10):
+        // подключение к адресу вне справочника не оставляет жирной старую строку.
+        var client = new FakeRacClient();
+        var vm = new ServerMonitorViewModel(client, new RecordingDialogs());
+        var first = new ManagementServer { Id = "srv-1", Description = "Первый", Address = "srv1", Port = 1540 };
+        await vm.ConnectToServerAsync(first);
+        Assert.Same(first, vm.ConnectedServer);
+
+        vm.ServerAddress = "other-host";
+        vm.ServerPort = 1545;
+        await vm.ConnectAsync();
+
+        Assert.True(vm.HasConnected);
+        Assert.Null(vm.ConnectedServer);
+        Assert.False(vm.HasConnectedServer);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_MatchesServerByAddressHostAndPort()
+    {
+        // Обычное подключение по полям совпадает с записью справочника по нормализованным
+        // адресу и порту (порт из адреса «host:port» приоритетнее поля — issue #324).
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var server = new ManagementServer { Id = "srv-1", Description = "Основной", Address = "srv1c:27545", Port = 1540 };
+        store.Save(new[] { server });
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        vm.ServerAddress = "srv1c:27545";
+        vm.ServerPort = 1540;
+
+        await vm.ConnectAsync();
+
+        Assert.True(vm.HasConnected);
+        // Load() десериализует JSON, поэтому экземпляр другой — сверяем по Id и по
+        // принадлежности коллекции справочника (именно её строку подсвечивает UI).
+        Assert.NotNull(vm.ConnectedServer);
+        Assert.Equal(server.Id, vm.ConnectedServer!.Id);
+        Assert.Contains(vm.ConnectedServer, vm.Servers);
+        Assert.True(vm.HasConnectedServer);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_NoMatchingServer_LeavesConnectedServerNull()
+    {
+        // В справочнике есть записи, но ни одна не совпадает по адресу:порту — жирным
+        // не выделяется ничего (подключение к «сырому» адресу вне справочника).
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        store.Save(new[] { new ManagementServer { Id = "srv-1", Description = "Другой", Address = "other", Port = 1545 } });
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        vm.ServerAddress = "srv1";
+        vm.ServerPort = 1540;
+
+        await vm.ConnectAsync();
+
+        Assert.True(vm.HasConnected);
+        Assert.Null(vm.ConnectedServer);
+        Assert.False(vm.HasConnectedServer);
+    }
+
     [Fact]
     public void SelectedServer_IsSettable()
     {
