@@ -24,6 +24,40 @@ namespace Workspace1C
             DataContext = vm;
             AdminPasswordBox.Password = vm.InfobasePassword;
             Loaded += async (_, _) => await _vm.RefreshAsync();
+            // CenterOwner не ограничивает окно (820x660) рабочей областью — на малых экранах
+            // часть окна уходила за экран (issue #3, 7OH 19.10): клампим после показа.
+            ContentRendered += (_, _) => ClampToWorkArea();
+        }
+
+        /// <summary>
+        /// Не даёт окну выйти за рабочую область экрана на малых экранах (issue #3):
+        /// размер ужимается с запасом 16px, позиция клампится во все 4 стороны
+        /// (проверенный чистый <see cref="WindowSizeMath"/>). Рабочая область — экран,
+        /// на котором показано окно (по HWND).
+        /// </summary>
+        private void ClampToWorkArea()
+        {
+            try
+            {
+                if (!IsLoaded || !IsVisible)
+                    return;
+
+                var work = System.Windows.Forms.Screen.FromHandle(
+                    new System.Windows.Interop.WindowInteropHelper(this).Handle).WorkingArea;
+                const double spare = 16;
+                var maxWidth = Math.Max(MinWidth, work.Width - spare);
+                var maxHeight = Math.Max(MinHeight, work.Height - spare);
+                if (Width > maxWidth)
+                    Width = maxWidth;
+                if (Height > maxHeight)
+                    Height = maxHeight;
+                Left = WindowSizeMath.FitLeft(Left, Width, work.Left, work.Right);
+                Top = WindowSizeMath.FitTop(Top, Height, work.Top, work.Bottom);
+            }
+            catch
+            {
+                // Клампинг — вспомогательная возможность; сбой не должен мешать диалогу.
+            }
         }
 
         private void OnAdminPasswordChanged(object sender, RoutedEventArgs e) =>

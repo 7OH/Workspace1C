@@ -40,6 +40,36 @@ public static class WindowSizeMath
     }
 
     /// <summary>
+    /// Горизонтальная позиция окна: если правый край окна выходит за правый край рабочей
+    /// области, окно сдвигается влево (но не левее левого края). Возвращает новое значение
+    /// <c>Left</c>. Зеркально <see cref="FitTop"/> (issue #3, «Серверы 1С» уезжает за экран).
+    /// При некорректной рабочей области возвращает исходное значение.
+    /// </summary>
+    public static double FitLeft(double left, double width, double workLeft, double workRight)
+    {
+        if (workRight <= workLeft)
+            return left;
+        if (left + width > workRight)
+            return Math.Max(workLeft, workRight - width);
+        return left;
+    }
+
+    /// <summary>
+    /// Ограничение размера окна рабочим максимумом (например, шириной рабочей области
+    /// экрана с запасом): если <paramref name="value"/> больше <paramref name="max"/> —
+    /// возвращает <paramref name="max"/>, иначе исходное значение. Значения
+    /// <c><= 0</c> означают «не задано» (value не ограничивается, max — без лимита).
+    /// По образцу <see cref="ClampHeight"/> (issue #3).
+    /// </summary>
+    public static double ClampToWorkArea(double value, double max)
+    {
+        var result = value;
+        if (max > 0 && result > max)
+            result = max;
+        return result;
+    }
+
+    /// <summary>
     /// Границы maximized-окна (в физических пикселях монитора) так, чтобы окно легло
     /// строго на рабочую область <paramref name="work"/> монитора
     /// <paramref name="monitor"/> (без панели задач/доков). Положение — смещение

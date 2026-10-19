@@ -1646,7 +1646,81 @@ public partial class MainViewModel : ViewModelBase
                 _serverMonitorWindow = null;
         };
         _serverMonitorWindow = window;
+
+        // Позиция/размер (issue #3, 7OH 19.10): окно не должно выходить за рабочую область
+        // экрана ни вправо/вниз, ни влево/вверх; на экране меньше окна размер ужимается.
+        // Для развёрнутого окна позиция задаётся системой — вмешиваться не нужно.
+        if (window.WindowState != Avalonia.Controls.WindowState.Maximized)
+            PositionServerMonitorWindow(window);
+
         window.Show();
+    }
+
+    /// <summary>
+    /// Ужимает окно «Серверы 1С» до рабочей области экрана главного окна и клампит его
+    /// позицию во все 4 стороны (issue #3, 7OH 19.10: окошко уезжало за экран). Рабочая
+    /// область — экран окна-владельца (<c>Screens.ScreenFromWindow</c>), иначе — первичный
+    /// экран. Координаты Avalonia задаются в физических пикселях (<c>Position</c> —
+    /// PixelPoint, <c>WorkingArea</c> — PixelRect), размеры окна — в DIP; пересчёт через
+    /// <c>Scaling</c>. Логика клампинга — чистый <see cref="Workspace1C.WindowSizeMath"/>.
+    /// </summary>
+    private static void PositionServerMonitorWindow(Workspace1C.ServerMonitorWindow window)
+    {
+        try
+        {
+            var owner = OwnerWindow();
+            // Экраны доступны через окно (TopLevel.Screens); владельца предпочитаем,
+            // иначе — экраны самого окна (до Show они уже доступны).
+            var screens = owner?.Screens ?? window.Screens;
+            var screen = owner is not null ? screens.ScreenFromWindow(owner) : null;
+            screen ??= screens.Primary;
+            if (screen is null || screen.Scaling <= 0)
+                return;
+
+            var wa = screen.WorkingArea;
+            var scaling = screen.Scaling;
+            var workLeft = wa.X / scaling;
+            var workTop = wa.Y / scaling;
+            var workRight = (wa.X + wa.Width) / scaling;
+            var workBottom = (wa.Y + wa.Height) / scaling;
+
+            // Окно больше рабочей области (1400х760) — ужимаем с запасом 16 DIP.
+            const double workAreaSpare = 16;
+            window.Width = Workspace1C.WindowSizeMath.ClampToWorkArea(
+                window.Width, Math.Max(window.MinWidth, workRight - workLeft - workAreaSpare));
+            window.Height = Workspace1C.WindowSizeMath.ClampToWorkArea(
+                window.Height, Math.Max(window.MinHeight, workBottom - workTop - workAreaSpare));
+
+            // По умолчанию — по центру главного окна (как в WPF); если владелец недоступен
+            // (например, свёрнут в трей) — по центру рабочей области. Желаемая позиция
+            // зажимается левым/верхним краем (центрирование большего главного окна даёт
+            // отрицательные координаты), FitLeft/FitTop не дают уйти за правый/нижний край.
+            double desiredLeft;
+            double desiredTop;
+            if (owner is { IsVisible: true })
+            {
+                desiredLeft = owner.Position.X / scaling + (owner.Width - window.Width) / 2;
+                desiredTop = owner.Position.Y / scaling + (owner.Height - window.Height) / 2;
+            }
+            else
+            {
+                desiredLeft = workLeft + (workRight - workLeft - window.Width) / 2;
+                desiredTop = workTop + (workBottom - workTop - window.Height) / 2;
+            }
+            var left = Workspace1C.WindowSizeMath.FitLeft(
+                Math.Max(workLeft, desiredLeft), window.Width, workLeft, workRight);
+            var top = Workspace1C.WindowSizeMath.FitTop(
+                Math.Max(workTop, desiredTop), window.Height, workTop, workBottom);
+            var position = new Avalonia.PixelPoint(
+                (int)Math.Round(left * scaling),
+                (int)Math.Round(top * scaling));
+            if (position != window.Position)
+                window.Position = position;
+        }
+        catch
+        {
+            // Позиционирование — вспомогательная возможность; сбой не мешает показу окна.
+        }
     }
 
     // ================== Диагностика сети до сервера 1С (0.3.9.232, функция 12) ==================

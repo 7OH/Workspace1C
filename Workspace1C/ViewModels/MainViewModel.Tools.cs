@@ -2722,8 +2722,24 @@ public partial class MainViewModel : ViewModelBase
             var mainWidth = main.ActualWidth > 0 ? main.ActualWidth : main.Width;
             var mainHeight = main.ActualHeight > 0 ? main.ActualHeight : main.Height;
             var wa = System.Windows.SystemParameters.WorkArea;
-            window.Left = Math.Max(wa.Left, mainLeft + (mainWidth - window.Width) / 2);
-            window.Top = Math.Max(wa.Top, mainTop + (mainHeight - window.Height) / 2);
+
+            // Окно (1400x680 из XAML) больше рабочей области — ужимаем до её размера
+            // с запасом, чтобы правый/нижний край не уходили за экран (issue #3, 7OH 19.10).
+            // Width/Height на этом этапе — желаемые размеры из XAML (не ActualWidth).
+            const double workAreaSpare = 16;
+            window.Width = Workspace1C.WindowSizeMath.ClampToWorkArea(
+                window.Width, Math.Max(window.MinWidth, wa.Width - workAreaSpare));
+            window.Height = Workspace1C.WindowSizeMath.ClampToWorkArea(
+                window.Height, Math.Max(window.MinHeight, wa.Height - workAreaSpare));
+
+            // Позиция — по центру главного окна, но внутри рабочей области. Желаемая
+            // позиция зажимается слева/сверху (Math.Max — центрирование большего окна
+            // может дать отрицательную позицию), затем FitLeft/FitTop не дают окну уйти
+            // за правый/нижний край (и снова за левый/верхний).
+            var desiredLeft = Math.Max(wa.Left, mainLeft + (mainWidth - window.Width) / 2);
+            var desiredTop = Math.Max(wa.Top, mainTop + (mainHeight - window.Height) / 2);
+            window.Left = Workspace1C.WindowSizeMath.FitLeft(desiredLeft, window.Width, wa.Left, wa.Right);
+            window.Top = Workspace1C.WindowSizeMath.FitTop(desiredTop, window.Height, wa.Top, wa.Bottom);
         }
         window.Closed += (_, _) =>
         {

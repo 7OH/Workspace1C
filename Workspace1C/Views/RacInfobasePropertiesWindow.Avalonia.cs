@@ -42,6 +42,51 @@ namespace Workspace1C
             CanResize = true;
             Content = BuildRoot();
             Opened += async (_, _) => await _vm.RefreshAsync();
+            // Модальное окно центрируется по владельцу, но не ограничивается рабочей
+            // областью (issue #3, 7OH 19.10): на малых экранах 820х660 уходило за экран.
+            Opened += (_, _) => ClampToWorkArea();
+        }
+
+        /// <summary>
+        /// Не даёт окну выйти за рабочую область экрана на малых экранах (issue #3):
+        /// размер ужимается с запасом 16 DIP, позиция клампится во все 4 стороны
+        /// (проверенный чистый <see cref="WindowSizeMath"/>). Экран — тот, на котором
+        /// окно показано (Avalonia центрирует модальное окно по владельцу без клампинга).
+        /// Координаты окна — физические пиксели (PixelPoint/WorkingArea), размеры — DIP.
+        /// </summary>
+        private void ClampToWorkArea()
+        {
+            try
+            {
+                var screen = Screens.ScreenFromWindow(this);
+                if (screen is null || screen.Scaling <= 0)
+                    return;
+
+                var wa = screen.WorkingArea;
+                var scaling = screen.Scaling;
+                var workLeft = wa.X / scaling;
+                var workTop = wa.Y / scaling;
+                var workRight = (wa.X + wa.Width) / scaling;
+                var workBottom = (wa.Y + wa.Height) / scaling;
+
+                const double spare = 16;
+                Width = WindowSizeMath.ClampToWorkArea(
+                    Width, Math.Max(MinWidth, workRight - workLeft - spare));
+                Height = WindowSizeMath.ClampToWorkArea(
+                    Height, Math.Max(MinHeight, workBottom - workTop - spare));
+
+                var position = new PixelPoint(
+                    (int)Math.Round(WindowSizeMath.FitLeft(
+                        Position.X / scaling, Width, workLeft, workRight) * scaling),
+                    (int)Math.Round(WindowSizeMath.FitTop(
+                        Position.Y / scaling, Height, workTop, workBottom) * scaling));
+                if (position != Position)
+                    Position = position;
+            }
+            catch
+            {
+                // Клампинг — вспомогательная возможность; сбой не мешает диалогу.
+            }
         }
 
         /// <summary>Показывает окно модально (синхронно).</summary>
