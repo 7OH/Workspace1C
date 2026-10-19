@@ -2116,6 +2116,7 @@
     "ServerMonitor.Infobase.Drop.OnlyFromCluster": "Просто удалить из кластера",
     "ServerMonitor.Infobase.Drop.WithDatabase": "Удалить с удалением на сервере СУБД",
     "ServerMonitor.Infobase.Drop.Confirm": "Удалить",
+    "ServerMonitor.Infobase.Drop.DbmsFormat": "Тип СУБД: {0}; Сервер СУБД: {1}",
     "ServerMonitor.Servers.Add": "Добавить",
     "ServerMonitor.Servers.Edit": "Изменить",
     "ServerMonitor.Servers.Delete": "Удалить",

@@ -242,7 +242,7 @@ namespace Workspace1C
             if (_vm.SelectedInfobase is not { } row)
                 return;
             var dialog = new RacInfobaseDropWindow(
-                row.Name, ServerMonitorViewModel.CanDropDatabaseOnServer(row))
+                row.Name, ServerMonitorViewModel.CanDropDatabaseOnServer(row), row.Dbms, row.DbServer)
             {
                 Owner = this
             };

@@ -649,6 +649,42 @@ public sealed class RacOutputParserTests
     }
 
     [Fact]
+    public void ToInfobaseSummaries_TabularQuotedValues_Unquoted()
+    {
+        // issue #3, часть 1: rac может заключать значения табличного summary в кавычки
+        // (например «dbms» — «"MSSQLServer"»). Парсер снимает обрамляющие кавычки со
+        // строковых колонок — иначе белый список диалога удаления не распознаёт СУБД.
+        const string output =
+            "infobase\tname\tdescr\tdbms\tdb-server\tdb-name\tdb-user\tlocale\tsecurity-level\tlicensed\n" +
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\t\"Бухгалтерия предприятия\"\t\"Рабочая база\"\t\"MSSQLServer\"\t\"sql-01\"\t\"buho\"\t\"sa\"\tru\t0\t0\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal("Бухгалтерия предприятия", infobase.Name);
+        Assert.Equal("Рабочая база", infobase.Descr);
+        Assert.Equal("MSSQLServer", infobase.Dbms);
+        Assert.Equal("sql-01", infobase.DbServer);
+        Assert.Equal("buho", infobase.DbName);
+        Assert.Equal("sa", infobase.DbUser);
+        Assert.Equal("ru", infobase.Locale);
+    }
+
+    [Fact]
+    public void ToInfobaseSummaries_DashDbms_PreservedAsIs()
+    {
+        // rac может отдавать неинформативный «dbms» («—» как у RacInfobaseRow).
+        // Парсер не искажает значение: «—» остаётся «—» и не попадает в белый список
+        // клиент-серверных СУБД (вариант «с удалением на сервере СУБД» не предлагается).
+        const string output =
+            "infobase\tname\tdescr\tdbms\tdb-server\tdb-name\tdb-user\tlocale\tsecurity-level\tlicensed\n" +
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\tБазаБезСУБД\t\t—\t\t\t\tru\t0\t0\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal("—", infobase.Dbms);
+    }
+
+    [Fact]
     public void ToInfobaseSummaries_ParsesPartialColumns_WithDefaults()
     {
         const string output =
@@ -945,6 +981,32 @@ public sealed class RacOutputParserTests
         Assert.Equal("Рабочая база", infobase.Descr);
         Assert.Equal("MSSQLServer", infobase.Dbms);
         Assert.True(infobase.Licensed);
+    }
+
+    [Fact]
+    public void ToInfobaseSummaries_KeyValueBlocks_QuotedDbms_Unquoted()
+    {
+        // issue #3, часть 1: блочный формат (те же версии rac, что отдают summary
+        // таблицей) может заключать «dbms» в кавычки — парсер обязан их снять.
+        const string output =
+            "infobase           : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n" +
+            "name               : \"Бухгалтерия предприятия\"\n" +
+            "descr              : \"Рабочая база\"\n" +
+            "dbms               : \"MSSQLServer\"\n" +
+            "db-server          : \"SQL-SRV-01\"\n" +
+            "db-name            : \"base_1c\"\n" +
+            "db-user            : \"1c_user\"\n" +
+            "locale             : ru_RU\n" +
+            "security-level     : 0\n" +
+            "licensed           : 1\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal("Бухгалтерия предприятия", infobase.Name);
+        Assert.Equal("MSSQLServer", infobase.Dbms);
+        Assert.Equal("SQL-SRV-01", infobase.DbServer);
+        Assert.Equal("base_1c", infobase.DbName);
+        Assert.Equal("1c_user", infobase.DbUser);
     }
 
     [Fact]

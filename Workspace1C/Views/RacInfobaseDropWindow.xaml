@@ -42,6 +42,12 @@
             <TextBlock x:Name="QuestionText" FontSize="14" FontWeight="SemiBold"
                        TextWrapping="Wrap" Margin="0,0,0,4"/>
 
+            <!-- Диагностика (issue #3, часть 1): распознанный тип СУБД и сервер СУБД.
+                 Показывается, только если тип СУБД непустой — иначе сразу видно,
+                 что распарсилось из summary (например кавычки «"MSSQLServer"»). -->
+            <TextBlock x:Name="DbmsInfoText" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,4" Visibility="Collapsed"/>
+
             <Border BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
                     CornerRadius="6" Padding="12,10" Margin="0,8,0,0">
                 <StackPanel>

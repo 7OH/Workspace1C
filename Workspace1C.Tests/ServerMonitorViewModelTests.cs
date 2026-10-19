@@ -1033,6 +1033,23 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
+    public void CanDropDatabaseOnServer_InitializedFromQuotedTable_IsTrue()
+    {
+        // issue #3, часть 1: rac табличного summary может заключать «dbms» в кавычки
+        // («"MSSQLServer"»). Парсер снимает кавычки — строка, разобранная из такого
+        // вывода, обязана распознаваться как клиент-серверная база (вариант
+        // «Удалить с удалением на сервере СУБД» в диалоге удаления).
+        const string output =
+            "infobase\tname\tdescr\tdbms\tdb-server\tdb-name\tdb-user\tlocale\tsecurity-level\tlicensed\n" +
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\tБухгалтерия\t\t\"MSSQLServer\"\tsql-01\tbuho\tsa\tru\t0\t0\n";
+        var summary = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+        var row = new RacInfobaseRow(summary);
+
+        Assert.Equal("MSSQLServer", row.Dbms);
+        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(row));
+    }
+
+    [Fact]
     public void CanDropDatabaseOnServer_UnknownOrFile_IsFalse()
     {
         // Файловых баз в кластере не бывает (комментарий 7OH от 2026-10-18 20:24);

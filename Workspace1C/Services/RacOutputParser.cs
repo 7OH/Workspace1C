@@ -752,7 +752,10 @@ public static class RacOutputParser
     /// Разбирает вывод «infobase summary list» в список информационных баз кластера.
     /// Колонки: infobase, name, descr, dbms, db-server, db-name, db-user, locale,
     /// security-level, licensed. Минимальный набор — первые 2 колонки; отсутствующие
-    /// справа — значения по умолчанию, лишние — игнорируются.
+    /// справа — значения по умолчанию, лишние — игнорируются. У строковых колонок
+    /// снимаются обрамляющие двойные кавычки — по образцу блочного формата ниже (issue #3,
+    /// часть 1): rac может заключать «dbms» и другие значения в кавычки, иначе
+    /// клиент-серверная СУБД не распознаётся белым списком диалога удаления.
     /// </summary>
     public static IReadOnlyList<RacInfobaseSummary> ToInfobaseSummaries(string output)
     {
@@ -771,13 +774,13 @@ public static class RacOutputParser
             infobases.Add(new RacInfobaseSummary
             {
                 InfobaseId = id,
-                Name = row[1].Trim(),
-                Descr = Col(row, 2).Trim(),
-                Dbms = Col(row, 3).Trim(),
-                DbServer = Col(row, 4).Trim(),
-                DbName = Col(row, 5).Trim(),
-                DbUser = Col(row, 6).Trim(),
-                Locale = Col(row, 7).Trim(),
+                Name = Unquote(row[1]),
+                Descr = Unquote(Col(row, 2)),
+                Dbms = Unquote(Col(row, 3)),
+                DbServer = Unquote(Col(row, 4)),
+                DbName = Unquote(Col(row, 5)),
+                DbUser = Unquote(Col(row, 6)),
+                Locale = Unquote(Col(row, 7)),
                 SecurityLevel = ParseInt(Col(row, 8)),
                 Licensed = ParseBool(Col(row, 9))
             });

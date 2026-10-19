@@ -17,6 +17,8 @@ namespace Workspace1C
     /// В кластере бывают только клиент-серверные базы (7OH 18.10 20:24), поэтому
     /// вариант «с удалением на сервере СУБД» доступен всегда; для неизвестного типа
     /// СУБД он просто скрыт. Команда rac: «infobase drop [--drop-database]».
+    /// Рядом с именем базы выводится распознанный из summary тип и сервер СУБД
+    /// (issue #3, часть 1) — диагностика, если вариант «с удалением» не появился.
     /// </summary>
     public sealed class RacInfobaseDropWindow : ModalWindowBase
     {
@@ -25,7 +27,8 @@ namespace Workspace1C
 
         private RadioButton? _withDatabaseRadio;
 
-        public RacInfobaseDropWindow(string infobaseName, bool canDropDatabase)
+        public RacInfobaseDropWindow(
+            string infobaseName, bool canDropDatabase, string? dbmsText = null, string? dbServer = null)
         {
             Title = LocalizationManager.T("ServerMonitor.Infobase.Drop.Title");
             Width = 560;
@@ -34,13 +37,13 @@ namespace Workspace1C
             MinHeight = 260;
             FontSize = 13;
             CanResize = false;
-            Content = BuildRoot(infobaseName, canDropDatabase);
+            Content = BuildRoot(infobaseName, canDropDatabase, dbmsText, dbServer);
         }
 
         /// <summary>Показывает окно модально (синхронно).</summary>
         public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
 
-        private Control BuildRoot(string infobaseName, bool canDropDatabase)
+        private Control BuildRoot(string infobaseName, bool canDropDatabase, string? dbmsText, string? dbServer)
         {
             var root = new DockPanel { Margin = new Thickness(16), LastChildFill = true };
 
@@ -114,7 +117,24 @@ namespace Workspace1C
             };
             ThemeBrushes.Bind(group, Border.BorderBrushProperty, "BorderColorBrush");
 
-            var form = new StackPanel { Children = { question, group } };
+            var form = new StackPanel();
+            form.Children.Add(question);
+            // Диагностика (issue #3, часть 1): распознанный тип СУБД и сервер СУБД.
+            // Показывается, только если тип СУБД непустой — если вариант «с удалением
+            // на сервере СУБД» не появился, сразу видно, что распарсилось из summary.
+            if (!string.IsNullOrWhiteSpace(dbmsText))
+            {
+                form.Children.Add(new TextBlock
+                {
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Text = string.Format(
+                        LocalizationManager.T("ServerMonitor.Infobase.Drop.DbmsFormat"),
+                        dbmsText, string.IsNullOrWhiteSpace(dbServer) ? "—" : dbServer)
+                });
+            }
+            form.Children.Add(group);
             root.Children.Add(form);
             return root;
         }

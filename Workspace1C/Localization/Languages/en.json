@@ -2116,6 +2116,7 @@
     "ServerMonitor.Infobase.Drop.OnlyFromCluster": "Just delete from the cluster",
     "ServerMonitor.Infobase.Drop.WithDatabase": "Delete together with the database on the DB server",
     "ServerMonitor.Infobase.Drop.Confirm": "Delete",
+    "ServerMonitor.Infobase.Drop.DbmsFormat": "DBMS type: {0}; DB server: {1}",
     "ServerMonitor.Servers.Add": "Add",
     "ServerMonitor.Servers.Edit": "Edit",
     "ServerMonitor.Servers.Delete": "Delete",
