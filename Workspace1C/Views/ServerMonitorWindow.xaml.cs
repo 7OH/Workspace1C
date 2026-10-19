@@ -354,7 +354,8 @@ namespace Workspace1C
 
                 case ServiceMenuItemKind.Settings:
                 {
-                    var settings = new MenuItem { Header = item.Text };
+                    // Экранирование '_' (WPF AccessKey; issue #11, 7OH 19.10).
+                    var settings = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text) };
                     settings.Icon = MenuIconText("⚙", "#6B7280");
                     settings.Click += (_, _) => ShowServicesSettings();
                     return settings;
@@ -362,7 +363,7 @@ namespace Workspace1C
 
                 case ServiceMenuItemKind.ServiceSubmenu:
                 {
-                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var submenu = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
                     if (!string.IsNullOrWhiteSpace(item.StatusColorHex))
                         submenu.Icon = MenuStatusCircle(item.StatusColorHex);
                     foreach (var child in item.Children)
@@ -373,7 +374,7 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupSubmenu:
                 case ServiceMenuItemKind.AllServicesSubmenu:
                 {
-                    var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var submenu = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
                     submenu.Icon = MenuIconText(
                         item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
                     foreach (var child in item.Children)
@@ -385,7 +386,7 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupCommand:
                 case ServiceMenuItemKind.AllServicesCommand:
                 {
-                    var command = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    var command = new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
                     var action = item.Action ?? ServiceAction.Start;
                     command.Icon = MenuIconText(ServiceCommandGlyphs.Glyph(action), ServiceCommandGlyphs.ColorHex(action));
                     var target = item.Target;
@@ -396,7 +397,7 @@ namespace Workspace1C
                 }
 
                 default:
-                    return new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled };
+                    return new MenuItem { Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text), IsEnabled = item.IsEnabled };
             }
         }
 

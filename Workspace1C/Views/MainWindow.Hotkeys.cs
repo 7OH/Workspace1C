@@ -472,7 +472,7 @@ namespace Workspace1C
                 case ServiceMenuItemKind.Settings:
                     return new MenuItem
                     {
-                        Header = item.Text,
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
                         Command = new ViewModels.RelayCommand(_ => ShowServicesSettings()),
                         Style = TryFindResource("ModernMenuItem") as Style,
                         Icon = MenuIconText("⚙", "#6B7280"),
@@ -490,7 +490,9 @@ namespace Workspace1C
                         : item.Text;
                     var node = new MenuItem
                     {
-                        Header = text,
+                        // Составная подпись группы «Имя (Статус)» экранируется целиком:
+                        // WPF трактует '_' как AccessKey (issue #11, 7OH 19.10).
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(text),
                         IsEnabled = item.IsEnabled,
                         Style = TryFindResource("ModernMenuItem") as Style,
                     };
@@ -520,7 +522,7 @@ namespace Workspace1C
                     var names = item.ServiceNames.ToList();
                     return new MenuItem
                     {
-                        Header = item.Text,
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
                         IsEnabled = item.IsEnabled,
                         Command = new ViewModels.RelayCommand(_ =>
                             ExecuteTrayServiceOperation(action, target, targetName, names)),
@@ -532,7 +534,7 @@ namespace Workspace1C
                 default:
                     return new MenuItem
                     {
-                        Header = item.Text,
+                        Header = ServiceTrayMenuBuilder.EscapeMenuText(item.Text),
                         IsEnabled = item.IsEnabled,
                         Style = TryFindResource("ModernMenuItem") as Style,
                     };

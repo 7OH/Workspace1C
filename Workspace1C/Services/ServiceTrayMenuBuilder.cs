@@ -520,4 +520,16 @@ public sealed class ServiceTrayMenuBuilder
         GroupStatusKind.Partial => "#F59E0B",
         _ => "#6B7280"
     };
+
+    /// <summary>
+    /// Экранирует '_' для WPF-заголовков <c>MenuItem</c> (issue #11, часть 2,
+    /// релиз 1.0.0.18; замечание 7OH от 19.10): WPF трактует '_' как мнемонику
+    /// AccessKey — «S_DB» превращается в «SDB» с подчёркнутой «D», а сам символ
+    /// пропадает. Двойное подчёркивание '__' WPF отображает как один '_' и мнемонику
+    /// не создаёт, поэтому <c>text.Replace("_", "__")</c>. В WinForms-трее мнемоника —
+    /// '&' (экранирование не требуется); в Avalonia '_' мнемоникой не считается.
+    /// null → пустая строка (конвенция модели: <see cref="ServiceMenuItem.Text"/>
+    /// по умолчанию <c>string.Empty</c>).
+    /// </summary>
+    public static string EscapeMenuText(string? text) => text?.Replace("_", "__") ?? string.Empty;
 }
