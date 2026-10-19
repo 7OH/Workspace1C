@@ -26,11 +26,29 @@ namespace Workspace1C
             InitializeComponent();
 
             foreach (var ib in infobases)
-                _rows.Add(new ClearHistoryRowViewModel(ib));
+            {
+                var row = new ClearHistoryRowViewModel(ib);
+                // Подписка на изменение флажка отдельной строки (issue #17): клик по чекбоксу
+                // базы должен сразу обновлять доступность кнопки «Очистить историю».
+                row.PropertyChanged += OnRowPropertyChanged;
+                _rows.Add(row);
+            }
 
             BasesGrid.ItemsSource = _rows;
             SummaryText.Text = string.Empty;
 
+            UpdateCheckedHeader();
+            UpdateClearButtonEnabled();
+        }
+
+        /// <summary>
+        /// Обработчик изменения свойств строки: при переключении флажка отдельной базы
+        /// обновляет счётчик в заголовке и доступность кнопки «Очистить историю».
+        /// </summary>
+        private void OnRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ClearHistoryRowViewModel.IsChecked))
+                return;
             UpdateCheckedHeader();
             UpdateClearButtonEnabled();
         }
@@ -109,6 +127,9 @@ namespace Workspace1C
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            // Отписка от PropertyChanged строк, чтобы не удерживать окно в памяти.
+            foreach (var row in _rows)
+                row.PropertyChanged -= OnRowPropertyChanged;
             base.OnClosing(e);
         }
     }

@@ -953,9 +953,9 @@ public sealed class ServerMonitorViewModelTests
         await vm.CreateInfobaseAsync(new RacInfobaseCreateRequest
         {
             Name = "База",
-            Dbms = RacDbms.File,
-            DbServer = "/srv/bases",
-            DbName = "1Cv8.1CD"
+            Dbms = RacDbms.PostgreSql,
+            DbServer = "pg-01",
+            DbName = "baza"
         });
 
         Assert.Single(client.CreateInfobaseCalls);
@@ -1016,13 +1016,12 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
-    public void CanDropDatabaseOnServer_ClientServer_True_File_False()
+    public void CanDropDatabaseOnServer_OnlyKnownClientServerTypes_True()
     {
         // Вариант «с удалением на сервере СУБД» доступен только клиент-серверным базам
-        // (комментарий 7OH от 2026-10-17); для файловых — только «просто удалить из кластера».
-        // С 1.0.0.14 — «белый список» известных СУБД (issue #3, 18.10 17:16): файловая база
-        // больше не получает вариант «с удалением на сервере СУБД», даже если rac отдал
-        // в «dbms» нестандартное значение.
+        // (комментарий 7OH от 2026-10-17). С 1.0.0.14 — «белый список» известных СУБД
+        // (issue #3, 18.10 17:16); с 1.0.0.15 — ровно значения rac «infobase create --dbms»
+        // (комментарий 7OH от 2026-10-18 20:24): SQLite/ServerODBC в кластере не бывают.
         Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.MssqlServer })));
         Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
@@ -1031,21 +1030,27 @@ public sealed class ServerMonitorViewModelTests
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.IbmDb2 })));
         Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.OracleDatabase })));
-        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
-            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.Sqlite })));
-        Assert.True(ServerMonitorViewModel.CanDropDatabaseOnServer(
-            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.ServerOdbc })));
+    }
 
+    [Fact]
+    public void CanDropDatabaseOnServer_UnknownOrFile_IsFalse()
+    {
+        // Файловых баз в кластере не бывает (комментарий 7OH от 2026-10-18 20:24);
+        // «FILE», SQLite, ServerODBC и незнакомые значения — вариант «с удалением на
+        // сервере СУБД» им не предлагается.
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.File })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "File" })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.Sqlite })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
+            new RacInfobaseRow(new RacInfobaseSummary { Dbms = RacDbms.ServerOdbc })));
+        Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = string.Empty })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "   " })));
-        // Незнакомое значение (например, версия rac отдаёт путь или иное «dbms» для
-        // файловой базы) — консервативно считаем файловой/неизвестной (1.0.0.14).
+        // Незнакомое значение — консервативно считаем неизвестным (1.0.0.14).
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(
             new RacInfobaseRow(new RacInfobaseSummary { Dbms = "FileBase" })));
         Assert.False(ServerMonitorViewModel.CanDropDatabaseOnServer(null));
@@ -1172,9 +1177,9 @@ public sealed class ServerMonitorViewModelTests
         await vm.UpdateSelectedInfobaseAsync(new RacInfobaseUpdateRequest
         {
             Name = "Бухгалтерия",
-            Dbms = RacDbms.File,
-            DbServer = "/srv/bases",
-            DbName = "1Cv8.1CD"
+            Dbms = RacDbms.PostgreSql,
+            DbServer = "pg-01",
+            DbName = "buh"
         });
 
         Assert.Single(client.UpdateInfobaseCalls);

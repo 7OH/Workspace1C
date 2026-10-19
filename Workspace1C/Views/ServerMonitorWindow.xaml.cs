@@ -234,7 +234,7 @@ namespace Workspace1C
         /// <summary>
         /// «Удалить базу» (issue #3, комментарий 7OH от 2026-10-17): диалог удаления
         /// с выбором «Просто удалить из кластера» / «Удалить с удалением на сервере
-        /// СУБД» (клиент-серверные базы; файловым доступен только первый вариант) →
+        /// СУБД» (в кластере бывают только клиент-серверные базы, 7OH 18.10 20:24) →
         /// rac «infobase drop [--drop-database]» → обновление.
         /// </summary>
         private async void OnDeleteInfobase_Click(object sender, RoutedEventArgs e)

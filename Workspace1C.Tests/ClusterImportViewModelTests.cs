@@ -168,20 +168,22 @@ public sealed class ClusterImportViewModelTests
     }
 
     [Fact]
-    public async Task FileBase_HasSkipReason_NotChecked_AndNotImported()
+    public async Task EmptyDbms_IsImportable_NotSkipped()
     {
+        // Файловых баз в кластере не бывает (комментарий 7OH от 2026-10-18 20:24):
+        // пустой «dbms» не является причиной пропуска — база импортируется как
+        // клиент-серверная (строка подключения строится из сервера/имени).
         var vm = new ClusterImportViewModel(new FakeRacClient(), Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
-        var fileRow = vm.Rows.Single(r => r.Name == "ФайловаяБаза");
-        Assert.False(fileRow.IsDuplicate);
-        Assert.False(fileRow.IsChecked);
-        Assert.Equal(LocalizationManager.T("ClusterImport.SkipFileBase"), fileRow.SkipReason);
+        var row = vm.Rows.Single(r => r.Name == "Кадры");
+        Assert.False(row.IsDuplicate);
+        Assert.True(row.IsChecked);
+        Assert.Null(row.SkipReason);
 
-        fileRow.IsChecked = true;
         vm.Import();
 
-        Assert.DoesNotContain(vm.SelectedBases, b => b.Name == "ФайловаяБаза");
+        Assert.Contains(vm.SelectedBases, b => b.Name == "Кадры");
     }
 
     [Fact]
@@ -193,20 +195,20 @@ public sealed class ClusterImportViewModelTests
         var vm = new ClusterImportViewModel(new FakeRacClient(), new[] { existing });
         await vm.ConnectAsync();
 
-        // Первый кластер: Бухгалтерия (дубликат), Управление персоналом (новая), ФайловаяБаза (пропущена).
-        Assert.Equal(1, vm.ReadyToImportCount);
-        Assert.Equal(2, vm.DuplicateCount);
+        // Первый кластер: Бухгалтерия (дубликат), Управление персоналом и Кадры (новые).
+        Assert.Equal(2, vm.ReadyToImportCount);
+        Assert.Equal(1, vm.DuplicateCount);
 
         vm.SelectNone();
         Assert.Equal(0, vm.ReadyToImportCount);
 
         vm.SelectAll();
-        Assert.Equal(1, vm.ReadyToImportCount);
-        Assert.Equal(2, vm.DuplicateCount);
+        Assert.Equal(2, vm.ReadyToImportCount);
+        Assert.Equal(1, vm.DuplicateCount);
 
-        // Ручное снятие отметки новой строки пересчитывает сводку.
-        var newRow = vm.Rows.Single(r => r.Name == "Управление персоналом");
-        newRow.IsChecked = false;
+        // Ручное снятие отметок новых строк пересчитывает сводку.
+        foreach (var row in vm.Rows.Where(r => !r.IsDuplicate))
+            row.IsChecked = false;
         Assert.Equal(0, vm.ReadyToImportCount);
     }
 
@@ -217,7 +219,7 @@ public sealed class ClusterImportViewModelTests
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
-        // Отмечаем только одну из двух новых баз — остальные строки сняты.
+        // Отмечаем только одну из новых баз — остальные строки сняты.
         vm.SelectNone();
         vm.Rows.Single(r => r.Name == "Управление персоналом").IsChecked = true;
         vm.Import();
@@ -426,7 +428,7 @@ public sealed class ClusterImportViewModelTests
                 {
                     new RacInfobaseSummary { Name = "Бухгалтерия", Descr = "Основная база", Dbms = "MSSQLServer", DbServer = "sql-01", DbName = "buho" },
                     new RacInfobaseSummary { Name = "Управление персоналом", Dbms = "PostgreSQL", DbServer = "pg-01", DbName = "hr" },
-                    new RacInfobaseSummary { Name = "ФайловаяБаза", Descr = "Файловая ИБ кластера", Dbms = "" }
+                    new RacInfobaseSummary { Name = "Кадры", Descr = "База без сведений о СУБД", Dbms = "" }
                 };
             }
 

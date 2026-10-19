@@ -2,13 +2,14 @@ namespace Workspace1C.Models;
 
 /// <summary>
 /// Значения параметра rac «--dbms» команды «infobase create» (issue #3, вкладка
-/// «Базы» монитора серверов 1С). FILE — файловая информационная база (в этом случае
-/// «--db-server» = путь к каталогу, «--db-name» = имя файла, обычно «1Cv8.1CD»);
-/// остальные — клиент-серверные СУБД.
+/// «Базы» монитора серверов 1С). В кластере бывают только клиент-серверные базы
+/// (комментарий 7OH от 2026-10-18 20:24), поэтому диалоги предлагают ровно четыре
+/// значения rac «--dbms»: MSSQLServer, PostgreSQL, IBMDB2, OracleDatabase. Константы
+/// FILE/SQLite/ServerODBC оставлены для разбора вывода rac и тестов.
 /// </summary>
 public static class RacDbms
 {
-    /// <summary>Файловая информационная база.</summary>
+    /// <summary>Файловая информационная база (в кластере не бывает).</summary>
     public const string File = "FILE";
 
     /// <summary>Microsoft SQL Server.</summary>

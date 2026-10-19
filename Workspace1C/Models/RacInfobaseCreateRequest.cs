@@ -2,11 +2,12 @@ namespace Workspace1C.Models;
 
 /// <summary>
 /// Параметры создания информационной базы в кластере серверов 1С (issue #3, вкладка
-/// «Базы» окна «Серверы 1С»): поля диалога → команда rac «infobase create». Для
-/// ФАЙЛОВОЙ базы используется <see cref="Dbms"/> = «FILE» и в <see cref="DbServer"/>
-/// передаётся путь к каталогу, а в <see cref="DbName"/> — имя файла (например
-/// «1Cv8.1CD»); для клиент-серверной — сервер/имя БД/пользователь/пароль СУБД.
-/// Только примитивные значения — диалог (WPF/Avalonia) не зависит от ViewModel.
+/// «Базы» окна «Серверы 1С»): поля диалога → команда rac «infobase create». В кластере
+/// бывают только клиент-серверные базы (комментарий 7OH от 2026-10-18 20:24), поэтому
+/// <see cref="Dbms"/> — одно из значений rac «--dbms»: MSSQLServer, PostgreSQL,
+/// IBMDB2, OracleDatabase; <see cref="DbServer"/>/<see cref="DbName"/> — сервер и имя
+/// БД на сервере СУБД. Только примитивные значения — диалог (WPF/Avalonia) не зависит
+/// от ViewModel.
 /// </summary>
 public sealed class RacInfobaseCreateRequest
 {
@@ -16,24 +17,15 @@ public sealed class RacInfobaseCreateRequest
     /// <summary>Описание информационной базы (параметр rac «--desc», необязательный).</summary>
     public string Description { get; set; } = string.Empty;
 
-    /// <summary>Признак файловой информационной базы (<see cref="Dbms"/> = «FILE»).</summary>
-    public bool IsFile { get; set; }
-
     /// <summary>
-    /// Тип СУБД (параметр rac «--dbms»): MSSQLServer, PostgreSQL, IBMDB2, OracleDatabase,
-    /// SQLite, ServerODBC или FILE (файловая база).
+    /// Тип СУБД (параметр rac «--dbms»): MSSQLServer, PostgreSQL, IBMDB2, OracleDatabase.
     /// </summary>
     public string Dbms { get; set; } = "MSSQLServer";
 
-    /// <summary>
-    /// Сервер СУБД (параметр rac «--db-server»); для файловой базы — путь к каталогу.
-    /// </summary>
+    /// <summary>Сервер СУБД (параметр rac «--db-server»).</summary>
     public string DbServer { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Имя базы данных на сервере СУБД (параметр rac «--db-name»); для файловой базы —
-    /// имя файла (обычно «1Cv8.1CD»).
-    /// </summary>
+    /// <summary>Имя базы данных на сервере СУБД (параметр rac «--db-name»).</summary>
     public string DbName { get; set; } = string.Empty;
 
     /// <summary>Пользователь СУБД (параметр rac «--db-user»; для файловой базы не нужен).</summary>

@@ -5,6 +5,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using Workspace1C.Controls;
 using Workspace1C.Localization;
@@ -605,7 +606,8 @@ namespace Workspace1C
                     return new MenuItem
                     {
                         Header = item.Text,
-                        Command = new ViewModels.RelayCommand(_ => _vm?.ShowServicesCommand.Execute(null))
+                        Command = new ViewModels.RelayCommand(_ => _vm?.ShowServicesCommand.Execute(null)),
+                        Icon = MenuGlyph("⚙", "#6B7280")
                     }.Styled(Themes.ControlThemes.ModernMenuItem);
 
                 case ServiceMenuItemKind.ServiceSubmenu:
@@ -623,6 +625,14 @@ namespace Workspace1C
                         Header = text,
                         IsEnabled = item.IsEnabled
                     }.Styled(Themes.ControlThemes.ModernMenuItem);
+                    // Иконки (замечание 7OH 19.10): служба — кружок статуса; группа —
+                    // папка с кружком статуса справа-снизу (как в трее); «Все сервисы» — ☰.
+                    node.Icon = item.Kind switch
+                    {
+                        ServiceMenuItemKind.ServiceSubmenu => StatusCircle(item.StatusColorHex),
+                        ServiceMenuItemKind.GroupSubmenu => MenuGroupIcon(item.StatusColorHex),
+                        _ => MenuGlyph("☰", "#7C3AED")
+                    };
                     if (item.Kind == ServiceMenuItemKind.ServiceSubmenu
                         && !string.IsNullOrEmpty(item.StatusText))
                         ToolTip.SetTip(node, item.StatusText);
@@ -644,7 +654,10 @@ namespace Workspace1C
                         Header = item.Text,
                         IsEnabled = item.IsEnabled,
                         Command = new ViewModels.RelayCommand(_ =>
-                            ExecuteTrayServiceAction(action, target, targetName, names))
+                            ExecuteTrayServiceAction(action, target, targetName, names)),
+                        Icon = MenuGlyph(
+                            ViewModels.ServiceCommandGlyphs.Glyph(action),
+                            ViewModels.ServiceCommandGlyphs.ColorHex(action))
                     }.Styled(Themes.ControlThemes.ModernMenuItem);
                 }
 
@@ -655,6 +668,67 @@ namespace Workspace1C
                         IsEnabled = item.IsEnabled
                     }.Styled(Themes.ControlThemes.ModernMenuItem);
             }
+        }
+
+        /// <summary>Цветной глиф-иконка пункта меню (Avalonia).</summary>
+        private static Control MenuGlyph(string text, string colorHex) => new TextBlock
+        {
+            Text = text,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            FontSize = 13,
+            Foreground = new SolidColorBrush(Color.Parse(colorHex))
+        };
+
+        /// <summary>Кружок статуса службы в пункте меню (цвет StatusColorHex).</summary>
+        private static Control StatusCircle(string colorHex)
+        {
+            var circle = new Border
+            {
+                Width = 9,
+                Height = 9,
+                CornerRadius = new CornerRadius(4.5),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            if (!string.IsNullOrWhiteSpace(colorHex))
+            {
+                try { circle.Background = new SolidColorBrush(Color.Parse(colorHex)); }
+                catch { circle.Background = Brushes.Gray; }
+            }
+            return circle;
+        }
+
+        /// <summary>
+        /// Иконка группы служб в пункте меню — «микс» (замечание 7OH 19.10): папка 📦 +
+        /// кружок статуса группы справа-снизу (цвет StatusColorHex), как в трее.
+        /// </summary>
+        private static Control MenuGroupIcon(string statusColorHex)
+        {
+            var grid = new Grid { Width = 16, Height = 16 };
+            grid.Children.Add(new TextBlock
+            {
+                Text = "📦",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.Parse("#7C3AED")),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            });
+            if (!string.IsNullOrWhiteSpace(statusColorHex))
+            {
+                grid.Children.Add(new Border
+                {
+                    Width = 6,
+                    Height = 6,
+                    CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush(Color.Parse(statusColorHex)),
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 1, 1),
+                    BorderBrush = Brushes.White,
+                    BorderThickness = new Thickness(1)
+                });
+            }
+            return grid;
         }
 
         /// <summary>

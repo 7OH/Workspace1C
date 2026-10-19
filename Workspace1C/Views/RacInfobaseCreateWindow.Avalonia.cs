@@ -16,7 +16,8 @@ namespace Workspace1C
     /// Диалог создания информационной базы в кластере (issue #3, вкладка «Базы»
     /// монитора серверов 1С): поля диалога → <see cref="RacInfobaseCreateRequest"/> →
     /// команда rac «infobase create». Avalonia/Linux-версия WPF-окна
-    /// <see cref="RacInfobaseCreateWindow"/>. Файловая база — тип СУБД «FILE».
+    /// <see cref="RacInfobaseCreateWindow"/>. Типы СУБД — только клиент-серверные
+    /// (комментарий 7OH от 2026-10-18 20:24): файловых баз в кластере не бывает.
     /// </summary>
     public sealed class RacInfobaseCreateWindow : ModalWindowBase
     {
@@ -33,7 +34,6 @@ namespace Workspace1C
         private readonly ComboBox _securityLevelBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
         private readonly CheckBox _createDbBox = new() { Content = T("ServerMonitor.Infobase.CreateDb") };
         private readonly CheckBox _scheduledJobsDenyBox = new() { Content = T("ServerMonitor.Infobase.ScheduledJobsDeny") };
-        private readonly TextBlock _fileHint;
         private bool _isEditMode;
 
         /// <summary>Готовый запрос создания базы при подтверждении, иначе <c>null</c>.</summary>
@@ -59,27 +59,10 @@ namespace Workspace1C
                 RacDbms.MssqlServer,
                 RacDbms.PostgreSql,
                 RacDbms.IbmDb2,
-                RacDbms.OracleDatabase,
-                RacDbms.Sqlite,
-                RacDbms.ServerOdbc,
-                RacDbms.File
+                RacDbms.OracleDatabase
             };
             _dbmsBox.SelectedItem = RacDbms.MssqlServer;
             _securityLevelBox.ItemsSource = new[] { "0", "1", "2" };
-
-            _fileHint = new TextBlock
-            {
-                Text = T("ServerMonitor.Infobase.FilePathHint"),
-                FontSize = 12,
-                Margin = new Thickness(150, 0, 0, 0),
-                IsVisible = false,
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap
-            };
-
-            // Для файловой базы — подсказка про каталог/файл.
-            _dbmsBox.SelectionChanged += (_, _) =>
-                _fileHint.IsVisible = string.Equals(
-                    _dbmsBox.SelectedItem as string, RacDbms.File, StringComparison.OrdinalIgnoreCase);
 
             Content = BuildRoot();
         }
@@ -108,8 +91,6 @@ namespace Workspace1C
             _localeBox.Text = summary.Locale;
 
             _dbmsBox.SelectedItem = NormalizeDbms(summary.Dbms);
-            _fileHint.IsVisible = string.Equals(
-                _dbmsBox.SelectedItem as string, RacDbms.File, StringComparison.OrdinalIgnoreCase);
             if (summary.SecurityLevel is >= 0 and <= 2)
                 _securityLevelBox.SelectedItem = summary.SecurityLevel.ToString();
         }
@@ -120,13 +101,10 @@ namespace Workspace1C
             var value = (summaryDbms ?? string.Empty).Trim().ToLowerInvariant();
             return value switch
             {
-                "file" => RacDbms.File,
                 "mssqlserver" => RacDbms.MssqlServer,
                 "postgresql" => RacDbms.PostgreSql,
                 "ibmdb2" => RacDbms.IbmDb2,
                 "oracledatabase" => RacDbms.OracleDatabase,
-                "sqlite" => RacDbms.Sqlite,
-                "serverodbc" => RacDbms.ServerOdbc,
                 _ => RacDbms.MssqlServer
             };
         }
@@ -156,7 +134,6 @@ namespace Workspace1C
             panel.Children.Add(MakeFieldRow(T("ServerMonitor.Infobase.DbPassword"), _dbPasswordBox));
             panel.Children.Add(MakeFieldRow(T("ServerMonitor.Infobase.Locale"), _localeBox));
             panel.Children.Add(MakeFieldRow(T("ServerMonitor.Infobase.SecurityLevel"), _securityLevelBox));
-            panel.Children.Add(_fileHint);
             panel.Children.Add(_createDbBox);
             panel.Children.Add(_scheduledJobsDenyBox);
 
@@ -211,7 +188,6 @@ namespace Workspace1C
             }
 
             var dbms = _dbmsBox.SelectedItem as string ?? RacDbms.MssqlServer;
-            var isFile = string.Equals(dbms, RacDbms.File, StringComparison.OrdinalIgnoreCase);
             var dbServer = _dbServerBox.Text?.Trim() ?? string.Empty;
             var dbName = _dbNameBox.Text?.Trim() ?? string.Empty;
             if (dbServer.Length == 0)
@@ -233,7 +209,6 @@ namespace Workspace1C
                 {
                     Name = name,
                     Description = _descriptionBox.Text?.Trim() ?? string.Empty,
-                    IsFile = isFile,
                     Dbms = dbms,
                     DbServer = dbServer,
                     DbName = dbName,
@@ -250,7 +225,6 @@ namespace Workspace1C
                 {
                     Name = name,
                     Description = _descriptionBox.Text?.Trim() ?? string.Empty,
-                    IsFile = isFile,
                     Dbms = dbms,
                     DbServer = dbServer,
                     DbName = dbName,
@@ -258,7 +232,7 @@ namespace Workspace1C
                     DbPassword = _dbPasswordBox.Password ?? string.Empty,
                     Locale = _localeBox.Text?.Trim() ?? string.Empty,
                     SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
-                    CreateDb = _createDbBox.IsChecked == true && !isFile,
+                    CreateDb = _createDbBox.IsChecked == true,
                     ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true
                 };
             }

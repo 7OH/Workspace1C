@@ -6,8 +6,10 @@ namespace Workspace1C
     /// <summary>
     /// Диалог удаления информационной базы кластера (issue #3, комментарий 7OH от
     /// 2026-10-17): повторяет выбор консоли 1С — «Просто удалить из кластера» или
-    /// «Удалить с удалением на сервере СУБД». Для файловых баз доступен только первый
-    /// вариант (rac «infobase drop» без флага <c>--drop-database</c>).
+    /// «Удалить с удалением на сервере СУБД». В кластере бывают только клиент-серверные
+    /// базы (комментарий 7OH от 2026-10-18 20:24), поэтому вариант «с удалением на
+    /// сервере СУБД» (rac «infobase drop --drop-database») доступен всегда; для
+    /// неизвестного типа СУБД он просто не показывается — без сообщений про файловую базу.
     /// </summary>
     public partial class RacInfobaseDropWindow : Window
     {
@@ -21,15 +23,10 @@ namespace Workspace1C
                 LocalizationManager.T("ServerMonitor.Infobase.Drop.QuestionFormat"),
                 string.IsNullOrWhiteSpace(infobaseName) ? "—" : infobaseName);
 
+            // Вариант «с удалением на сервере СУБД» показываем только клиент-серверным
+            // базам; файловых баз в кластере не бывает, поэтому никаких подсказок про них нет.
             if (canDropDatabase)
-            {
                 DropDatabaseRadio.Visibility = System.Windows.Visibility.Visible;
-            }
-            else
-            {
-                // Файловая база: вариант «с удалением на сервере СУБД» недоступен.
-                FileBaseHint.Visibility = System.Windows.Visibility.Visible;
-            }
         }
 
         private void OnDrop_Click(object sender, RoutedEventArgs e)

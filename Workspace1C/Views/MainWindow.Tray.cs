@@ -864,9 +864,11 @@ namespace Workspace1C
                 case ServiceMenuItemKind.GroupSubmenu:
                 {
                     var node = CreateTrayItem(item.Text, TrayIconKind.Group, null);
-                    // Значок группы — папка (как иконка-индикатор 📦 на панели), НЕ кружок
-                    // статуса (замечание 7OH 18.10: «иконки в трее — такие же как на панели»);
-                    // статус группы — подсказкой (текст «Все запущены»/«Частично»/…).
+                    // Микс иконок (замечание 7OH 19.10): папка + кружок статуса группы
+                    // справа-снизу (цвет StatusColorHex — зелёный/жёлтый/серый, как кружок
+                    // статуса группы на панели окна «Управление службами»); статус группы —
+                    // подсказкой (текст «Все запущены»/«Частично»/…).
+                    node.Image = DrawGroupStatusIcon(item.StatusColorHex) ?? node.Image;
                     node.ToolTipText = item.StatusText;
                     ApplyModernDropDownStyle(node.DropDown);
                     foreach (var child in item.Children)
@@ -998,6 +1000,9 @@ namespace Workspace1C
         /// <summary>Кэш глифов команд служб по операции.</summary>
         private static readonly Dictionary<ServiceAction, Drawing.Image> CommandGlyphCache = new();
 
+        /// <summary>Кэш иконок «папка + кружок статуса» по цвету (#RRGGBB).</summary>
+        private static readonly Dictionary<string, Drawing.Image> GroupStatusIconCache = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Глиф команды службы 16×16 — тот же, что у кнопки панели окна «Управление
         /// службами» (замечание 7OH 18.10: «иконки в трее — такие же как на панели»):
@@ -1102,6 +1107,54 @@ namespace Workspace1C
             using var brush = new Drawing.SolidBrush(color);
             g.FillEllipse(brush, 3f, 3f, 10f, 10f);
             StatusDotCache[colorHex] = bmp;
+            return bmp;
+        }
+
+        /// <summary>
+        /// Иконка группы служб 16×16 — «микс» (замечание 7OH 19.10): папка (та же
+        /// геометрия, что у <see cref="TrayIconKind.Group"/>) + маленький кружок статуса
+        /// группы справа-снизу (цвет <paramref name="statusColorHex"/> — зелёный/жёлтый/
+        /// серый, как кружок статуса группы на панели окна «Управление службами»).
+        /// Рисуется через GDI+ по геометрии папки — без зависимости от шрифтов и WPF
+        /// visual tree. null — без статуса (остаётся обычная папка).
+        /// </summary>
+        private static Drawing.Image? DrawGroupStatusIcon(string? statusColorHex)
+        {
+            if (string.IsNullOrWhiteSpace(statusColorHex))
+                return null;
+            if (GroupStatusIconCache.TryGetValue(statusColorHex, out var cached))
+                return cached;
+
+            var bmp = new Drawing.Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using var g = Drawing.Graphics.FromImage(bmp);
+            g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.Clear(Drawing.Color.Transparent);
+
+            // Папка — та же геометрия, что у TrayIconKind.Group (фиолетовая).
+            var folderColor = Drawing.Color.FromArgb(139, 92, 246);
+            using var folderBrush = new Drawing.SolidBrush(folderColor);
+            using var folderPen = new Drawing.Pen(folderColor, Math.Max(1.4f, 16f / 11f))
+            {
+                StartCap = Drawing.Drawing2D.LineCap.Round,
+                EndCap = Drawing.Drawing2D.LineCap.Round,
+                LineJoin = Drawing.Drawing2D.LineJoin.Round
+            };
+            float s = 16;
+            g.FillRectangle(folderBrush, s * 0.10f, s * 0.32f, s * 0.80f, s * 0.50f);
+            g.DrawLine(folderPen, s * 0.10f, s * 0.36f, s * 0.42f, s * 0.36f);
+            g.FillRectangle(folderBrush, s * 0.10f, s * 0.28f, s * 0.30f, s * 0.10f);
+
+            // Кружок статуса справа-снизу (с белой обводкой для контраста на папке).
+            Drawing.Color color;
+            try { color = Drawing.ColorTranslator.FromHtml(statusColorHex); }
+            catch { color = Drawing.Color.FromArgb(107, 114, 128); }
+            using var dotBrush = new Drawing.SolidBrush(color);
+            using var ring = new Drawing.Pen(Drawing.Color.White, 1.2f);
+            g.FillEllipse(dotBrush, 9.5f, 9.5f, 5.5f, 5.5f);
+            g.DrawEllipse(ring, 9.5f, 9.5f, 5.5f, 5.5f);
+
+            GroupStatusIconCache[statusColorHex] = bmp;
             return bmp;
         }
 

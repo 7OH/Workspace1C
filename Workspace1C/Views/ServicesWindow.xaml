@@ -234,7 +234,9 @@
                 <!-- Папка-группа: кружок статуса + иконка-папка + имя + статус;
                      дети — службы группы (ItemsSource на Children). -->
                 <HierarchicalDataTemplate DataType="{x:Type vm:ServiceGroupRow}" ItemsSource="{Binding Children}">
-                    <Grid>
+                    <!-- Нижний отступ строки-папки (замечание 7OH 19.10): без него высота
+                         строки группы чуть меньше высоты обычной строки службы. -->
+                    <Grid Margin="0,0,0,2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>

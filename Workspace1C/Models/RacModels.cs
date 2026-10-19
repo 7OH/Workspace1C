@@ -376,7 +376,7 @@ public sealed class RacInfobaseSummary
     /// <summary>Описание информационной базы (колонка «descr», может содержать пробелы и кириллицу).</summary>
     public string Descr { get; set; } = string.Empty;
 
-    /// <summary>Тип СУБД (колонка «dbms»); пусто для файловой информационной базы кластера.</summary>
+    /// <summary>Тип СУБД (колонка «dbms»): MSSQLServer, PostgreSQL, IBMDB2, OracleDatabase.</summary>
     public string Dbms { get; set; } = string.Empty;
 
     /// <summary>Имя сервера СУБД (колонка «db-server»).</summary>

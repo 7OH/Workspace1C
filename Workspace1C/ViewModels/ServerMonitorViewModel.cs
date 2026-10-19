@@ -496,21 +496,22 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     /// <summary>
     /// Можно ли удалить базу вместе с БД на сервере СУБД (комментарий 7OH от 2026-10-17):
-    /// вариант диалога удаления доступен только клиент-серверным базам; файловым —
-    /// только «просто удалить из кластера».
+    /// вариант диалога удаления доступен только клиент-серверным базам. Файловых баз
+    /// в кластере не бывает (комментарий 7OH от 2026-10-18 20:24), поэтому «--drop-database»
+    /// разрешён только для заведомо клиент-серверных значений rac «--dbms».
     /// </summary>
     public static bool CanDropDatabaseOnServer(RacInfobaseRow? row) =>
         row is not null && IsClientServerDbms(row.Dbms);
 
     /// <summary>
     /// Известные клиент-серверные СУБД rac — «белый список» для команды rac
-    /// «infobase drop --drop-database». До 1.0.0.14 использовался «анти-FILE»
+    /// «infobase drop --drop-database»: ровно значения rac «infobase create --dbms»
+    /// (комментарий 7OH от 2026-10-18 20:24). До 1.0.0.14 использовался «анти-FILE»
     /// (не пусто И не FILE): на версиях rac, отдающих для файловой базы кластера
     /// иное значение «dbms», файловая база ошибочно получала вариант «с удалением
     /// на сервере СУБД» (комментарий 7OH 18.10 17:16 — «Как может быть файловая
-    /// база в кластере?»). Теперь «--drop-database» разрешён только для заведомо
-    /// клиент-серверных значений; пустое, «File» и незнакомое значения считаются
-    /// файловой/неизвестной базой.
+    /// база в кластере?»). Пустое, «File» и незнакомое значения считаются
+    /// неизвестными — вариант «с удалением на сервере СУБД» им не предлагается.
     /// </summary>
     internal static bool IsClientServerDbms(string? dbms) =>
         !string.IsNullOrWhiteSpace(dbms) && ClientServerDbmsValues.Contains(dbms.Trim());
@@ -520,9 +521,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         RacDbms.MssqlServer,
         RacDbms.PostgreSql,
         RacDbms.IbmDb2,
-        RacDbms.OracleDatabase,
-        RacDbms.Sqlite,
-        RacDbms.ServerOdbc
+        RacDbms.OracleDatabase
     };
 
     /// <summary>

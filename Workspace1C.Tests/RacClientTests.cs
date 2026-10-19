@@ -764,9 +764,9 @@ public sealed class RacClientTests
         var args = RacClient.InfobaseCreateArgs(clusterId, new RacInfobaseCreateRequest
         {
             Name = "Минимум",
-            Dbms = "FILE",
-            DbServer = "/srv/bases",
-            DbName = "1Cv8.1CD"
+            Dbms = "PostgreSQL",
+            DbServer = "pg-01",
+            DbName = "mini"
         });
 
         Assert.DoesNotContain(args, a => a.StartsWith("--descr="));

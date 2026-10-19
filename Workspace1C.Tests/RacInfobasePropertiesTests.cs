@@ -184,7 +184,7 @@ public sealed class RacInfobasePropertiesTests
         Assert.Null(value);
     }
 
-    // ---- Файловая база кластера (issue #3, 1.0.0.14) ----
+    // ---- Типы СУБД кластера (комментарий 7OH от 2026-10-18 20:24) ----
 
     [Theory]
     [InlineData("MSSQLServer", RacDbms.MssqlServer)]
@@ -192,24 +192,35 @@ public sealed class RacInfobasePropertiesTests
     [InlineData("PostgreSQL", RacDbms.PostgreSql)]
     [InlineData("  IBMDB2  ", RacDbms.IbmDb2)]
     [InlineData("oracledatabase", RacDbms.OracleDatabase)]
-    [InlineData("SQLite", RacDbms.Sqlite)]
-    [InlineData("ServerODBC", RacDbms.ServerOdbc)]
-    [InlineData("FILE", RacDbms.File)]
-    [InlineData("File", RacDbms.File)]
-    [InlineData("", RacDbms.File)]
-    [InlineData("   ", RacDbms.File)]
-    public void NormalizeDbms_FileSupportedAndCaseInsensitive(string input, string expected)
+    [InlineData("", RacDbms.MssqlServer)]
+    [InlineData("   ", RacDbms.MssqlServer)]
+    public void NormalizeDbms_ClientServerTypesAndCaseInsensitive(string input, string expected)
     {
-        // Пустое значение — файловая база кластера; раньше оно подменялось на MSSQLServer.
+        // В кластере бывают только клиент-серверные базы: пустое значение — MSSQLServer
+        // (по умолчанию), а не «FILE» (файловых баз в кластере не бывает).
         Assert.Equal(expected, RacInfobasePropertiesViewModel.NormalizeDbms(input));
     }
 
     [Fact]
-    public void DbmsOptions_ContainsFile()
+    public void NormalizeDbms_UnknownValue_ReturnedAsIs()
     {
-        // Диалог свойств обязан предлагать «файловую базу» (issue #3, 1.0.0.14):
-        // иначе правка файловой базы кластера портит её тип.
-        Assert.Contains(RacDbms.File, RacInfobasePropertiesViewModel.DbmsOptions);
+        // Незнакомое значение rac не подменяется — пользователь видит, что вернул rac.
+        Assert.Equal("SQLite", RacInfobasePropertiesViewModel.NormalizeDbms("SQLite"));
+        Assert.Equal("ServerODBC", RacInfobasePropertiesViewModel.NormalizeDbms("ServerODBC"));
+    }
+
+    [Fact]
+    public void DbmsOptions_OnlyClientServerTypes()
+    {
+        // Диалог свойств предлагает ровно значения rac «infobase create --dbms»
+        // (комментарий 7OH от 2026-10-18 20:24): файловых баз в кластере не бывает.
+        Assert.Equal(new[]
+        {
+            RacDbms.MssqlServer,
+            RacDbms.PostgreSql,
+            RacDbms.IbmDb2,
+            RacDbms.OracleDatabase
+        }, RacInfobasePropertiesViewModel.DbmsOptions);
     }
 
     // ---- Учётные данные администратора ИБ из списка баз ----

@@ -52,7 +52,7 @@
                 <TextBlock Grid.Column="0" Text="{loc:Loc ServerMonitor.Infobase.Dbms}"
                            Style="{StaticResource FieldLabel}"/>
                 <ComboBox x:Name="DbmsBox" Grid.Column="1" Style="{StaticResource ModernComboBox}"
-                          Padding="6,3" VerticalContentAlignment="Center" SelectionChanged="OnDbmsChanged"/>
+                          Padding="6,3" VerticalContentAlignment="Center"/>
             </Grid>
 
             <Grid Margin="0,4">
@@ -124,10 +124,6 @@
                     <ComboBoxItem Content="2"/>
                 </ComboBox>
             </Grid>
-
-            <TextBlock x:Name="FileHint" FontSize="12" Foreground="#D97706" TextWrapping="Wrap"
-                       Margin="160,4,0,0" Visibility="Collapsed"
-                       Text="{loc:Loc ServerMonitor.Infobase.FilePathHint}"/>
 
             <CheckBox x:Name="CreateDbBox" Margin="160,8,0,0" VerticalContentAlignment="Center"
                       IsChecked="False">

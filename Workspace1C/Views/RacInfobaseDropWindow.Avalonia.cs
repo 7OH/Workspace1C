@@ -13,9 +13,10 @@ namespace Workspace1C
     /// <summary>
     /// Диалог удаления информационной базы кластера (issue #3, комментарий 7OH от
     /// 2026-10-17) — Avalonia/Linux-версия WPF-окна <see cref="RacInfobaseDropWindow"/>:
-    /// выбор «Просто удалить из кластера» или «Удалить с удалением на сервере СУБД»
-    /// (client-server базы; файловым доступен только первый вариант). Команда rac:
-    /// «infobase drop [--drop-database]».
+    /// выбор «Просто удалить из кластера» или «Удалить с удалением на сервере СУБД».
+    /// В кластере бывают только клиент-серверные базы (7OH 18.10 20:24), поэтому
+    /// вариант «с удалением на сервере СУБД» доступен всегда; для неизвестного типа
+    /// СУБД он просто скрыт. Команда rac: «infobase drop [--drop-database]».
     /// </summary>
     public sealed class RacInfobaseDropWindow : ModalWindowBase
     {
@@ -94,15 +95,9 @@ namespace Workspace1C
             var fromCluster = Radio("ServerMonitor.Infobase.Drop.OnlyFromCluster", "DropOption", isChecked: true);
             _withDatabaseRadio = Radio("ServerMonitor.Infobase.Drop.WithDatabase", "DropOption");
             var withDatabase = _withDatabaseRadio;
-            var hint = new TextBlock
-            {
-                FontSize = 12,
-                Opacity = 0.65,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(2, 10, 0, 0),
-                Text = LocalizationManager.T("ServerMonitor.Infobase.Drop.FileOnlyHint"),
-                IsVisible = !canDropDatabase
-            };
+            // Вариант «с удалением на сервере СУБД» показываем только клиент-серверным
+            // базам; файловых баз в кластере не бывает — подсказок про них нет.
+            withDatabase.IsVisible = canDropDatabase;
 
             var options = new StackPanel
             {
@@ -119,7 +114,7 @@ namespace Workspace1C
             };
             ThemeBrushes.Bind(group, Border.BorderBrushProperty, "BorderColorBrush");
 
-            var form = new StackPanel { Children = { question, group, hint } };
+            var form = new StackPanel { Children = { question, group } };
             root.Children.Add(form);
             return root;
         }

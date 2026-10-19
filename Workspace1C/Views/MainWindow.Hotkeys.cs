@@ -475,6 +475,7 @@ namespace Workspace1C
                         Header = item.Text,
                         Command = new ViewModels.RelayCommand(_ => ShowServicesSettings()),
                         Style = TryFindResource("ModernMenuItem") as Style,
+                        Icon = MenuIconText("⚙", "#6B7280"),
                     };
 
                 case ServiceMenuItemKind.ServiceSubmenu:
@@ -492,6 +493,14 @@ namespace Workspace1C
                         Header = text,
                         IsEnabled = item.IsEnabled,
                         Style = TryFindResource("ModernMenuItem") as Style,
+                    };
+                    // Иконки (замечание 7OH 19.10): служба — кружок статуса; группа —
+                    // папка с кружком статуса справа-снизу (как в трее); «Все сервисы» — ☰.
+                    node.Icon = item.Kind switch
+                    {
+                        ServiceMenuItemKind.ServiceSubmenu => MenuStatusCircle(item.StatusColorHex),
+                        ServiceMenuItemKind.GroupSubmenu => MenuGroupIcon(item.StatusColorHex),
+                        _ => MenuIconText("☰", "#7C3AED")
                     };
                     if (item.Kind == ServiceMenuItemKind.ServiceSubmenu
                         && !string.IsNullOrEmpty(item.StatusText))
@@ -516,6 +525,7 @@ namespace Workspace1C
                         Command = new ViewModels.RelayCommand(_ =>
                             ExecuteTrayServiceOperation(action, target, targetName, names)),
                         Style = TryFindResource("ModernMenuItem") as Style,
+                        Icon = MenuIconText(ServiceCommandGlyphs.Glyph(action), ServiceCommandGlyphs.ColorHex(action)),
                     };
                 }
 
@@ -527,6 +537,58 @@ namespace Workspace1C
                         Style = TryFindResource("ModernMenuItem") as Style,
                     };
             }
+        }
+
+        /// <summary>Цветная иконка пункта меню (глиф-текст, как в контекстном меню основного окна).</summary>
+        private static TextBlock MenuIconText(string text, string colorHex) => new()
+        {
+            Text = text,
+            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        /// <summary>Кружок статуса службы в пункте меню (цвет StatusColorHex).</summary>
+        private static Border MenuStatusCircle(string colorHex) => new()
+        {
+            Width = 9,
+            Height = 9,
+            CornerRadius = new CornerRadius(4.5),
+            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        /// <summary>
+        /// Иконка группы служб в пункте меню — «микс» (замечание 7OH 19.10): папка 📦 +
+        /// кружок статуса группы справа-снизу (цвет StatusColorHex), как в трее.
+        /// </summary>
+        private static FrameworkElement MenuGroupIcon(string statusColorHex)
+        {
+            var grid = new Grid { Width = 16, Height = 16 };
+            grid.Children.Add(new TextBlock
+            {
+                Text = "📦",
+                FontSize = 13,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7C3AED")),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            if (!string.IsNullOrWhiteSpace(statusColorHex))
+            {
+                grid.Children.Add(new Border
+                {
+                    Width = 6,
+                    Height = 6,
+                    CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(statusColorHex)),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 1, 1),
+                    BorderBrush = new SolidColorBrush(Colors.White),
+                    BorderThickness = new Thickness(1)
+                });
+            }
+            return grid;
         }
 
         /// <summary>

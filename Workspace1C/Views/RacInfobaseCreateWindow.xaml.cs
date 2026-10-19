@@ -13,8 +13,8 @@ namespace Workspace1C
     /// либо <see cref="RacInfobaseUpdateRequest"/> (rac «infobase update», кнопка
     /// «Изменить»). В режиме правки конструктор принимает <see cref="RacInfobaseSummary"/>
     /// и предзаполняет поля; галочка «создать базу на сервере СУБД» скрывается
-    /// (при изменении rac её не поддерживает). Файловая база — тип СУБД «FILE»
-    /// (сервер СУБД = путь к каталогу, имя БД = имя файла, обычно «1Cv8.1CD»).
+    /// (при изменении rac её не поддерживает). Типы СУБД — только клиент-серверные
+    /// (комментарий 7OH от 2026-10-18 20:24): файловых баз в кластере не бывает.
     /// </summary>
     public partial class RacInfobaseCreateWindow : Window
     {
@@ -32,16 +32,14 @@ namespace Workspace1C
             Title = LocalizationManager.T("ServerMonitor.Infobase.CreateTitle");
             EditorTitle.Text = Title;
 
-            // Типы СУБД для rac «infobase create/update»: FILE — файловая база, остальные — серверные.
+            // Типы СУБД для rac «infobase create/update» (комментарий 7OH от 2026-10-18 20:24):
+            // в кластере бывают только клиент-серверные базы — ровно значения rac «--dbms».
             DbmsBox.ItemsSource = new[]
             {
                 RacDbms.MssqlServer,
                 RacDbms.PostgreSql,
                 RacDbms.IbmDb2,
-                RacDbms.OracleDatabase,
-                RacDbms.Sqlite,
-                RacDbms.ServerOdbc,
-                RacDbms.File
+                RacDbms.OracleDatabase
             };
             DbmsBox.SelectedItem = RacDbms.MssqlServer;
             SecurityLevelBox.SelectedIndex = -1; // «по умолчанию»
@@ -71,13 +69,9 @@ namespace Workspace1C
 
             var dbms = NormalizeDbms(summary.Dbms);
             DbmsBox.SelectedItem = dbms;
-            UpdateFileHintVisibility();
-            if (dbms != RacDbms.File)
-            {
-                SecurityLevelBox.SelectedIndex = summary.SecurityLevel is >= 0 and <= 2
-                    ? summary.SecurityLevel
-                    : -1;
-            }
+            SecurityLevelBox.SelectedIndex = summary.SecurityLevel is >= 0 and <= 2
+                ? summary.SecurityLevel
+                : -1;
 
             // «Создать базу на сервере СУБД» применимо только при создании.
             CreateDbBox.Visibility = Visibility.Collapsed;
@@ -89,28 +83,12 @@ namespace Workspace1C
             var value = (summaryDbms ?? string.Empty).Trim().ToLowerInvariant();
             return value switch
             {
-                "file" => RacDbms.File,
                 "mssqlserver" => RacDbms.MssqlServer,
                 "postgresql" => RacDbms.PostgreSql,
                 "ibmdb2" => RacDbms.IbmDb2,
                 "oracledatabase" => RacDbms.OracleDatabase,
-                "sqlite" => RacDbms.Sqlite,
-                "serverodbc" => RacDbms.ServerOdbc,
                 _ => RacDbms.MssqlServer
             };
-        }
-
-        private void OnDbmsChanged(object sender, SelectionChangedEventArgs e)
-        {
-            // Для файловой базы показываем подсказку про каталог/файл.
-            UpdateFileHintVisibility();
-        }
-
-        /// <summary>Показывает подсказку про каталог/файл для файловой базы.</summary>
-        private void UpdateFileHintVisibility()
-        {
-            var isFile = string.Equals(DbmsBox.SelectedItem as string, RacDbms.File, StringComparison.OrdinalIgnoreCase);
-            FileHint.Visibility = isFile ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnSaveClick(object sender, RoutedEventArgs e)
@@ -124,7 +102,6 @@ namespace Workspace1C
             }
 
             var dbms = DbmsBox.SelectedItem as string ?? RacDbms.MssqlServer;
-            var isFile = string.Equals(dbms, RacDbms.File, StringComparison.OrdinalIgnoreCase);
             var dbServer = DbServerBox.Text?.Trim() ?? string.Empty;
             var dbName = DbNameBox.Text?.Trim() ?? string.Empty;
             if (dbServer.Length == 0)
@@ -146,7 +123,6 @@ namespace Workspace1C
                 {
                     Name = name,
                     Description = DescriptionBox.Text?.Trim() ?? string.Empty,
-                    IsFile = isFile,
                     Dbms = dbms,
                     DbServer = dbServer,
                     DbName = dbName,
@@ -167,7 +143,6 @@ namespace Workspace1C
                 {
                     Name = name,
                     Description = DescriptionBox.Text?.Trim() ?? string.Empty,
-                    IsFile = isFile,
                     Dbms = dbms,
                     DbServer = dbServer,
                     DbName = dbName,
@@ -179,7 +154,7 @@ namespace Workspace1C
                     SecurityLevel = SecurityLevelBox.SelectedIndex >= 0
                         ? SecurityLevelBox.SelectedIndex
                         : null,
-                    CreateDb = CreateDbBox.IsChecked == true && !isFile,
+                    CreateDb = CreateDbBox.IsChecked == true,
                     ScheduledJobsDeny = ScheduledJobsDenyBox.IsChecked == true
                 };
             }

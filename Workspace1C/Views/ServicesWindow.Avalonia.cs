@@ -492,8 +492,11 @@ namespace Workspace1C
             };
             status.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceListRow.StatusText)));
 
+            // Нижний отступ строки-папки (замечание 7OH 19.10): без него высота строки
+            // группы чуть меньше высоты обычной строки службы.
             var grid = new Grid
             {
+                Margin = row.IsGroup ? new Thickness(0, 0, 0, 2) : new Thickness(0),
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(GridLength.Auto),

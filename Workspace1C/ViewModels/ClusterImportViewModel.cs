@@ -12,10 +12,11 @@ namespace Workspace1C.ViewModels;
 /// ViewModel окна «Импорт из кластера 1С» (0.3.9.173, цикл 0.3.9.172–0.3.9.175):
 /// подключение к агенту сервера/серверу администрирования через rac (адрес/порт/логин/
 /// пароль), список кластеров, загрузка информационных баз выбранного кластера в чеклист
-/// (<see cref="ClusterImportRow"/>) с пометкой дубликатов (по строке подключения) и файловых
-/// баз кластера, сводка перед подтверждением и команда «Импортировать» (возвращает отмеченные
-/// новые базы через <see cref="SelectedBases"/>). Чистый .NET без платформенных зависимостей —
-/// обе платформы (WPF и Avalonia); окна только привязываются.
+/// (<see cref="ClusterImportRow"/>) с пометкой дубликатов (по строке подключения), сводка
+/// перед подтверждением и команда «Импортировать» (возвращает отмеченные новые базы через
+/// <see cref="SelectedBases"/>). Файловых баз в кластере не бывает (комментарий 7OH от
+/// 2026-10-18 20:24). Чистый .NET без платформенных зависимостей — обе платформы
+/// (WPF и Avalonia); окна только привязываются.
 /// </summary>
 public sealed class ClusterImportViewModel : ViewModelBase
 {
@@ -140,14 +141,14 @@ public sealed class ClusterImportViewModel : ViewModelBase
         private set => SetProperty(ref _readyToImportCount, value);
     }
 
-    /// <summary>Число дубликатов и пропущенных баз («уже есть в списке», «файловая база кластера»).</summary>
+    /// <summary>Число дубликатов и пропущенных баз («уже есть в списке»).</summary>
     public int DuplicateCount
     {
         get => _duplicateCount;
         private set => SetProperty(ref _duplicateCount, value);
     }
 
-    /// <summary>Результат импорта: отмеченные новые базы (без дубликатов и файловых).</summary>
+    /// <summary>Результат импорта: отмеченные новые базы (без дубликатов).</summary>
     public IReadOnlyList<Infobase> SelectedBases
     {
         get => _selectedBases;
@@ -181,7 +182,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
     public ICommand ImportCommand =>
         _importCommand ??= new RelayCommand(Import);
 
-    /// <summary>«Выделить все»: отметить все импортируемые (не дубликаты, не файловые) строки.</summary>
+    /// <summary>«Выделить все»: отметить все импортируемые (не дубликаты) строки.</summary>
     public ICommand SelectAllCommand =>
         _selectAllCommand ??= new RelayCommand(SelectAll);
 
@@ -331,9 +332,9 @@ public sealed class ClusterImportViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// «Импортировать»: собрать отмеченные новые базы (не дубликаты, не файловые) в
+    /// «Импортировать»: собрать отмеченные новые базы (не дубликаты) в
     /// <see cref="SelectedBases"/> и установить <see cref="ImportCompleted"/>. Повторный чек
-    /// дубликата/файловой базы пользователем не приводит к импорту — фильтр на этом шаге.
+    /// дубликата пользователем не приводит к импорту — фильтр на этом шаге.
     /// </summary>
     public void Import()
     {
@@ -347,7 +348,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
         ImportCompleted = true;
     }
 
-    /// <summary>«Выделить все»: отметить все импортируемые строки (дубликаты и файловые не трогаем).</summary>
+    /// <summary>«Выделить все»: отметить все импортируемые строки (дубликаты не трогаем).</summary>
     public void SelectAll()
     {
         foreach (var row in Rows)
@@ -427,9 +428,10 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// <summary>
     /// Строит строку чеклиста: маппинг в базу списка приложения
     /// (<see cref="RacInfobaseMapper.ToInfobase"/>, группа — имя кластера при
-    /// <see cref="UseClusterGrouping"/>), пометка дубликатов по строке подключения
-    /// (<see cref="RacInfobaseMapper.IsDuplicate"/> против существующих баз) и файловых баз
-    /// кластера (пустой <c>Dbms</c>) — такие строки приходят со снятым флажком и причиной пропуска.
+    /// <see cref="UseClusterGrouping"/>) и пометка дубликатов по строке подключения
+    /// (<see cref="RacInfobaseMapper.IsDuplicate"/> против существующих баз). Файловых баз
+    /// в кластере не бывает (комментарий 7OH от 2026-10-18 20:24), поэтому пустой <c>Dbms</c>
+    /// не считается причиной пропуска — база импортируется как клиент-серверная.
     /// </summary>
     private ClusterImportRow BuildRow(
         RacInfobaseSummary source,
@@ -442,12 +444,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
 
         string? skipReason = null;
         var isDuplicate = false;
-        if (string.IsNullOrWhiteSpace(source.Dbms))
-        {
-            // Файловая ИБ внутри кластера: для импорта нужен file-descriptor (вне цикла, п. 11 плана).
-            skipReason = LocalizationManager.T("ClusterImport.SkipFileBase");
-        }
-        else if (RacInfobaseMapper.IsDuplicate(_existingInfobases, infobase))
+        if (RacInfobaseMapper.IsDuplicate(_existingInfobases, infobase))
         {
             skipReason = LocalizationManager.T("ClusterImport.AlreadyExists");
             isDuplicate = true;
