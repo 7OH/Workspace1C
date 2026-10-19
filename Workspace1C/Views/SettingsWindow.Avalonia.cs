@@ -2842,6 +2842,8 @@ namespace Workspace1C
             var hotkeyServerConsole = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.ServerConsole"), _viewModel.HotkeyServerConsole);
             // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
             var hotkeyServices = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.Services"), _viewModel.HotkeyServices);
+            // Меню служб (issue #11, пункт 6): Ctrl+Shift+Alt+S по умолчанию.
+            var hotkeyServicesMenu = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.ServicesMenu"), _viewModel.HotkeyServicesMenu);
             // Сохранение копии экрана (функция №30 StartManager).
             var hotkeyScreenshot = HotkeyRow(hotkeys, LocalizationManager.T("Settings.Hotkeys.Screenshot"), _viewModel.ScreenshotHotkey);
             // У автора последняя строка идёт без нижнего поля, а весь блок строк
@@ -3096,6 +3098,9 @@ namespace Workspace1C
                     (LocalizationManager.T("AppLock.LockTitle"), hotkeyLockApp),
                     (LocalizationManager.T("Admin.CheckIntegrityTitle"), hotkeyCheckIntegrity),
                     (LocalizationManager.T("Admin.ServerConsoleTitle"), hotkeyServerConsole),
+                    // Меню служб (issue #11, пункт 6): по умолчанию Ctrl+Shift+Alt+S;
+                    // конфликт с другими сочетаниями проверяется наравне с ними.
+                    (LocalizationManager.T("Settings.Hotkeys.ServicesMenu"), hotkeyServicesMenu),
                     (LocalizationManager.T("Settings.Screenshot.Title"), hotkeyScreenshot)
                 };
 
@@ -3202,6 +3207,7 @@ namespace Workspace1C
                     hotkeySwitchUser.Value, hotkeyFindInList.Value, hotkeySessionLock.Value, hotkeyLockApp.Value,
                     hotkeyCheckIntegrity.Value, hotkeyServerConsole.Value,
                     hotkeyServices.Value,
+                    servicesMenu: hotkeyServicesMenu.Value,
                     hotkeyZoomIn.Value, hotkeyZoomOut.Value, hotkeyZoomReset.Value,
                     hotkeyCommandPalette.Value, hotkeyPlatformUpdate.Value,
                     hotkeyShowRunning.Value,

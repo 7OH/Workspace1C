@@ -503,7 +503,9 @@ namespace Workspace1C
                     or nameof(MainViewModel.HotkeyShowRunning)
                     or nameof(MainViewModel.HotkeyRightPanelDetails)
                     or nameof(MainViewModel.HotkeyFindInList)
-                    or nameof(MainViewModel.HotkeySwitchUser))
+                    or nameof(MainViewModel.HotkeySwitchUser)
+                    // Меню служб (issue #11, пункт 6): настраиваемый хоткей.
+                    or nameof(MainViewModel.HotkeyServicesMenu))
                 {
                     try { RegisterLaunchHotkeys(); } catch { /* ignore */ }
                     // RegisterLaunchHotkeys снимает и системные биндинги закладок (все

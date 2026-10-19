@@ -584,14 +584,218 @@ public sealed class ServicesGroupViewModelTests
         };
         await env.Vm.LoadAsync();
 
+        // Группы свёрнуты по умолчанию (issue #11: без самопроизвольного разворачивания).
         var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
-        Assert.True(group.IsExpanded);
+        Assert.False(group.IsExpanded);
 
         env.Vm.CollapseAllCommand.Execute(null);
         Assert.False(group.IsExpanded);
 
         env.Vm.ExpandAllCommand.Execute(null);
         Assert.True(group.IsExpanded);
+    }
+
+    [Fact]
+    public async Task Groups_AreCollapsedByDefault_AndSelectionDoesNotExpandThem()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() },
+                new ServiceGroup { Name = "Г2", Services = new[] { "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "group:Г2", "a" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        // Группы свёрнуты по умолчанию (issue #11: без самопроизвольного разворачивания).
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.False(g.IsExpanded));
+
+        // Выделение строки службы не разворачивает папки-группы.
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First();
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.False(g.IsExpanded));
+
+        // Перестроение строк (Refresh) тоже не разворачивает группы.
+        await env.Vm.RefreshAsync();
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.False(g.IsExpanded));
+    }
+
+    [Fact]
+    public async Task LoadAsync_RestoresCollapsedStateFromSettings()
+    {
+        // Сохранённое состояние (issue #11, пункт 4): «Г1» свёрнута, «Г2» — развёрнута.
+        var env = Create(collapsedServiceGroups: new[] { "Г1" });
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() },
+                new ServiceGroup { Name = "Г2", Services = new[] { "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "group:Г2", "a" }.ToList()
+        };
+
+        await env.Vm.LoadAsync();
+
+        Assert.False(env.Vm.Rows.OfType<ServiceGroupRow>().Single(g => g.Name == "Г1").IsExpanded);
+        Assert.True(env.Vm.Rows.OfType<ServiceGroupRow>().Single(g => g.Name == "Г2").IsExpanded);
+    }
+
+    [Fact]
+    public async Task LoadAsync_EmptySavedState_AllGroupsExpanded()
+    {
+        // Пустой (но сохранённый) набор — «пользователь развернул все группы» (issue #11,
+        // пункт 4): при открытии все группы развёрнуты, в отличие от первого запуска (C1).
+        var env = Create(collapsedServiceGroups: Array.Empty<string>());
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() },
+                new ServiceGroup { Name = "Г2", Services = new[] { "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "group:Г2" }.ToList()
+        };
+
+        await env.Vm.LoadAsync();
+
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.True(g.IsExpanded));
+        Assert.Empty(env.SavedCollapsed);
+    }
+
+    [Fact]
+    public async Task GroupExpandedChanged_SavesCollapsedState()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        Assert.False(group.IsExpanded);
+        Assert.Contains("Г", env.SavedCollapsed);
+
+        // Разворачивание (клик по стрелке/«+») убирает группу из набора свёрнутых.
+        group.IsExpanded = true;
+        Assert.DoesNotContain("Г", env.SavedCollapsed);
+
+        // Повторное сворачивание возвращает группу в набор.
+        group.IsExpanded = false;
+        Assert.Contains("Г", env.SavedCollapsed);
+    }
+
+    [Fact]
+    public async Task ExpandAllCommand_UpdatesSavedState()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() },
+                new ServiceGroup { Name = "Г2", Services = new[] { "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1", "group:Г2" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+        Assert.Equal(new[] { "Г1", "Г2" }, env.SavedCollapsed.OrderBy(n => n));
+
+        // «Развернуть все» — набор свёрнутых пуст.
+        env.Vm.ExpandAllCommand.Execute(null);
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.True(g.IsExpanded));
+        Assert.Empty(env.SavedCollapsed);
+
+        // «Свернуть все» — все группы снова в наборе.
+        env.Vm.CollapseAllCommand.Execute(null);
+        Assert.All(env.Vm.Rows.OfType<ServiceGroupRow>(), g => Assert.False(g.IsExpanded));
+        Assert.Equal(new[] { "Г1", "Г2" }, env.SavedCollapsed.OrderBy(n => n));
+    }
+
+    [Fact]
+    public async Task AddGroup_NewGroupCollapsed_AndSaved()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a" }.ToList(),
+            Order = new[] { "a" }.ToList()
+        };
+        env.Vm.GroupEditorProvider = (_, _) => new ServiceGroup { Name = "Новая", Services = new List<string>() };
+        await env.Vm.LoadAsync();
+
+        await env.Vm.AddGroupAsync();
+
+        // Новая группа свёрнута по умолчанию (C1) и зафиксирована в настройках (issue #11, пункт 4).
+        var newGroup = env.Vm.Rows.OfType<ServiceGroupRow>().Single(g => g.Name == "Новая");
+        Assert.False(newGroup.IsExpanded);
+        Assert.Contains("Новая", env.SavedCollapsed);
+    }
+
+    [Fact]
+    public async Task EditGroup_Rename_PreservesCollapsedState()
+    {
+        var env = Create(collapsedServiceGroups: new[] { "Г1" });
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1" }.ToList()
+        };
+        env.Vm.GroupEditorProvider = (_, _) => new ServiceGroup { Name = "Г2", Services = new[] { "a" }.ToList() };
+        await env.Vm.LoadAsync();
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+
+        await env.Vm.EditGroupAsync();
+
+        // Состояние сворачивания следует за переименованием (issue #11, пункт 4).
+        var renamed = env.Vm.Rows.OfType<ServiceGroupRow>().Single(g => g.Name == "Г2");
+        Assert.False(renamed.IsExpanded);
+        Assert.Contains("Г2", env.SavedCollapsed);
+        Assert.DoesNotContain("Г1", env.SavedCollapsed);
+    }
+
+    [Fact]
+    public async Task DeleteGroup_RemovesFromSavedState()
+    {
+        var env = Create(collapsedServiceGroups: new[] { "Г1" });
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г1", Services = new[] { "a" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г1" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+
+        await env.Vm.DeleteGroupAsync();
+
+        Assert.Empty(env.Vm.Rows.OfType<ServiceGroupRow>());
+        Assert.DoesNotContain("Г1", env.SavedCollapsed);
     }
 
     [Fact]
@@ -673,6 +877,143 @@ public sealed class ServicesGroupViewModelTests
         Assert.Empty(normalized.Groups[1].Services);
     }
 
+    [Fact]
+    public async Task MoveUpDown_ServiceInsideGroup_ReordersChildrenAndSaves()
+    {
+        // Кнопки «Вверх/Вниз» для службы ВНУТРИ группы (issue #11, пункт 5): порядок
+        // Children/ChildServices группы и ServiceGroup.Services в хранилище меняются.
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Fake.Services["c"] = Info("c", "C", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a", "b", "c" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        var children = group.Children;
+
+        // Последняя служба: вверх доступно, вниз — нет.
+        env.Vm.SelectedRow = children[2];
+        Assert.True(env.Vm.CanMoveUp);
+        Assert.False(env.Vm.CanMoveDown);
+
+        env.Vm.MoveUpCommand.Execute(null);
+
+        Assert.Equal(new[] { "a", "c", "b" }, children.Select(r => r.ServiceName));
+        Assert.Equal(new[] { "a", "c", "b" }, group.ChildServices);
+        Assert.Equal(new[] { "a", "c", "b" }, env.Store.Stored.Groups.Single().Services);
+
+        // Первая служба: вверх недоступно; вниз — меняет порядок.
+        env.Vm.SelectedRow = children[0];
+        Assert.False(env.Vm.CanMoveUp);
+        Assert.True(env.Vm.CanMoveDown);
+
+        env.Vm.MoveDownCommand.Execute(null);
+
+        Assert.Equal(new[] { "c", "a", "b" }, children.Select(r => r.ServiceName));
+        Assert.Equal(new[] { "c", "a", "b" }, env.Store.Stored.Groups.Single().Services);
+    }
+
+    [Fact]
+    public async Task MoveUpDown_ServiceInsideGroup_DoesNotAffectRootOrder()
+    {
+        // Перемещение службы внутри группы не трогает корневой список (Rows/Order):
+        // группа и корневые службы остаются на своих местах (issue #11, пункт 5).
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Fake.Services["x"] = Info("x", "X", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "x" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a", "b" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г", "x" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        env.Vm.SelectedRow = group.Children[1]; // b
+        env.Vm.MoveUpCommand.Execute(null);
+
+        Assert.Equal(new[] { "b", "a" }, group.Children.Select(r => r.ServiceName));
+        Assert.Equal(new[] { "group:Г", "x" }, env.Store.Stored.Order);
+        Assert.Equal(new[] { "x" }, env.Store.Stored.Services);
+        Assert.Equal(2, env.Vm.Rows.Count);
+        Assert.Equal("Г", ((ServiceGroupRow)env.Vm.Rows[0]).Name);
+        Assert.Equal("x", ((ServiceInfoRow)env.Vm.Rows[1]).ServiceName);
+    }
+
+    [Fact]
+    public async Task CanMoveUpDown_ForServiceInsideGroup_RespectsPosition()
+    {
+        // Доступность кнопок для службы внутри группы: первый — вверх нет, последний — вниз нет,
+        // средний — обе доступны (issue #11, пункт 5).
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Fake.Services["c"] = Info("c", "C", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new[] { "a", "b", "c" }.ToList() }
+            }.ToList(),
+            Order = new[] { "group:Г" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        var children = env.Vm.Rows.OfType<ServiceGroupRow>().Single().Children;
+
+        env.Vm.SelectedRow = children[0];
+        Assert.False(env.Vm.CanMoveUp);
+        Assert.True(env.Vm.CanMoveDown);
+
+        env.Vm.SelectedRow = children[1];
+        Assert.True(env.Vm.CanMoveUp);
+        Assert.True(env.Vm.CanMoveDown);
+
+        env.Vm.SelectedRow = children[2];
+        Assert.True(env.Vm.CanMoveUp);
+        Assert.False(env.Vm.CanMoveDown);
+    }
+
+    [Fact]
+    public async Task MoveUpDown_RootService_WithGroupsPresent_StillReordersRoot()
+    {
+        // Корневая служба при наличии групп по-прежнему перемещается в общем списке
+        // (поведение не сломано добавлением перемещения внутри групп, issue #11, пункт 5).
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Services = new[] { "a", "b" }.ToList(),
+            Groups = new[]
+            {
+                new ServiceGroup { Name = "Г", Services = new List<string>() }
+            }.ToList(),
+            Order = new[] { "group:Г", "a", "b" }.ToList()
+        };
+        await env.Vm.LoadAsync();
+
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "b");
+        Assert.True(env.Vm.CanMoveUp);
+        env.Vm.MoveUpCommand.Execute(null);
+
+        Assert.Equal(new[] { "group:Г", "b", "a" }, env.Store.Stored.Order);
+        Assert.Equal("b", ((ServiceInfoRow)env.Vm.Rows[1]).ServiceName);
+    }
+
     // ===================== Вспомогательное =====================
 
     private static ServiceInfo Info(string name, string display, ServiceStatus status, bool canPause = false, bool canStop = true) => new()
@@ -684,13 +1025,22 @@ public sealed class ServicesGroupViewModelTests
         CanStop = canStop
     };
 
-    private static TestEnv Create()
+    private static TestEnv Create(
+        IReadOnlyCollection<string>? collapsedServiceGroups = null,
+        Action<IReadOnlyCollection<string>>? collapsedGroupsChanged = null)
     {
         var fake = new ServicesWindowViewModelTests.FakeServiceController();
         var store = new ServicesWindowViewModelTests.FakeServicesStore();
         var dialogs = new ServicesWindowViewModelTests.FakeDialogService();
-        var vm = new ServicesWindowViewModel(fake, store, dialogs, dispatchToUi: null);
-        return new TestEnv(vm, fake, dialogs, store);
+        var savedCollapsed = new List<string>();
+        var vm = new ServicesWindowViewModel(fake, store, dialogs, dispatchToUi: null,
+            collapsedServiceGroups: collapsedServiceGroups,
+            collapsedGroupsChanged: collapsedGroupsChanged ?? (c =>
+            {
+                savedCollapsed.Clear();
+                savedCollapsed.AddRange(c);
+            }));
+        return new TestEnv(vm, fake, dialogs, store, savedCollapsed);
     }
 
     /// <summary>Сборка окружения теста: VM + фейковые сервисы (переиспользуются фейки из ServicesWindowViewModelTests).</summary>
@@ -698,5 +1048,6 @@ public sealed class ServicesGroupViewModelTests
         ServicesWindowViewModel Vm,
         ServicesWindowViewModelTests.FakeServiceController Fake,
         ServicesWindowViewModelTests.FakeDialogService Dialogs,
-        ServicesWindowViewModelTests.FakeServicesStore Store);
+        ServicesWindowViewModelTests.FakeServicesStore Store,
+        List<string> SavedCollapsed);
 }

@@ -462,6 +462,10 @@ public partial class MainViewModel : ViewModelBase
         _hotkeyServerConsole = string.IsNullOrWhiteSpace(settings.HotkeyServerConsole) ? "Ctrl+Alt+S" : settings.HotkeyServerConsole.Trim();
         // Управление службами (issue #11): хоткей по умолчанию Ctrl+Shift+S.
         _hotkeyServices = string.IsNullOrWhiteSpace(settings.HotkeyServices) ? "Ctrl+Shift+S" : settings.HotkeyServices.Trim();
+        // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
+        _hotkeyServicesMenu = string.IsNullOrWhiteSpace(settings.HotkeyServicesMenu)
+            ? "Ctrl+Shift+Alt+S"
+            : settings.HotkeyServicesMenu.Trim();
         _appLockPasswordHash = settings.AppLockPasswordHash ?? "";
         // Активная блокировка восстанавливается только при наличии пароля: флаг без
         // хэша (сброшен вручную в файле настроек) гасим (issue #294).

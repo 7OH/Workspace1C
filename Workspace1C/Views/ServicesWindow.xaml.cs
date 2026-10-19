@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -54,12 +55,28 @@ namespace Workspace1C
             var services = AppServices.GetRequiredService<IServiceControllerService>();
             var store = AppServices.GetRequiredService<IServicesStore>();
             var dialogs = AppServices.GetRequiredService<IDialogService>();
+            var repository = AppServices.GetRequiredService<IInfobaseRepository>();
+            var settings = repository.LoadSettings();
 
+            // Состояние сворачивания групп служб запоминается между сеансами (issue #11,
+            // пункт 4): при открытии восстанавливается из AppSettings.CollapsedServiceGroups,
+            // при изменении — сохраняется туда же (как CollapsedGroups у списка баз).
+            // null — состояние ещё не сохранялось (первый запуск): все группы свёрнуты (C1).
             _vm = new ServicesWindowViewModel(
                 services,
                 store,
                 dialogs,
-                action => Application.Current?.Dispatcher.BeginInvoke(action));
+                action => Application.Current?.Dispatcher.BeginInvoke(action),
+                collapsedServiceGroups: settings.ServiceGroupsStateInitialized
+                    ? settings.CollapsedServiceGroups
+                    : null,
+                collapsedGroupsChanged: collapsed =>
+                {
+                    var s = repository.LoadSettings();
+                    s.CollapsedServiceGroups = collapsed.ToList();
+                    s.ServiceGroupsStateInitialized = true;
+                    repository.SaveSettings(s);
+                });
 
             DataContext = _vm;
             Title = LocalizationManager.T("Services.Title");
@@ -142,11 +159,16 @@ namespace Workspace1C
 
         private void OnDeleteGroup_Click(object sender, RoutedEventArgs e) => _vm.DeleteGroupCommand.Execute(null);
 
-        /// <summary>Пункт меню с цветной иконкой (issue #11, 7OH 17.10).</summary>
-        private static MenuItem CommandItem(string textKey, string icon, string colorHex, ICommand command) => new()
+        /// <summary>
+        /// Пункт меню с цветной иконкой и стилем скина ModernMenuItem (issue #11, 7OH
+        /// 17.10; стили — как в контекстном меню основного окна, #16). Метод экземплярный:
+        /// стиль берётся из ресурсов окна (TryFindResource), как в MainWindow.Hotkeys.cs.
+        /// </summary>
+        private MenuItem CommandItem(string textKey, string icon, string colorHex, ICommand command) => new()
         {
             Header = LocalizationManager.T(textKey),
             Command = command,
+            Style = TryFindResource("ModernMenuItem") as Style,
             Icon = new TextBlock
             {
                 Text = icon,
@@ -170,7 +192,14 @@ namespace Workspace1C
         private void OnAllServices_Click(object sender, RoutedEventArgs e)
         {
             var button = (Button)sender;
-            var menu = new ContextMenu { PlacementTarget = button };
+            // issue #11 (7OH 18.10): меню собирается в коде и должно подчиняться скинингу —
+            // стиль ModernContextMenu (карточный фон, контур, MinWidth 280), как у остальных
+            // контекстных меню главного окна (issue #16).
+            var menu = new ContextMenu
+            {
+                PlacementTarget = button,
+                Style = TryFindResource("ModernContextMenu") as Style,
+            };
             menu.Items.Add(CommandItem("Services.StartAll", "▶", "#16A34A", _vm.StartAllCommand));
             menu.Items.Add(CommandItem("Services.StopAll", "■", "#DC2626", _vm.StopAllCommand));
             menu.Items.Add(new Separator());
@@ -246,6 +275,17 @@ namespace Workspace1C
                 item.BringIntoView();
                 return true;
             }
+            // Целевая строка-группа всегда корневая — внутри другой папки её нет.
+            if (row is ServiceGroupRow)
+                return false;
+            // Папку раскрываем ТОЛЬКО если целевая строка-служба находится внутри неё
+            // (иначе при выделении разворачиваются все папки — issue #11).
+            if (item.DataContext is ServiceGroupRow group &&
+                row is ServiceInfoRow serviceRow &&
+                !group.Children.Contains(serviceRow))
+            {
+                return false;
+            }
             if (item.HasItems && item.IsExpanded is false)
                 item.IsExpanded = true;
             foreach (var child in item.Items)
@@ -259,7 +299,12 @@ namespace Workspace1C
 
         private ContextMenu BuildRowContextMenu()
         {
-            var menu = new ContextMenu();
+            // issue #11 (7OH 18.10): меню собирается в коде и должно подчиняться скинингу —
+            // стиль ModernContextMenu, как у контекстных меню основного окна (issue #16).
+            var menu = new ContextMenu
+            {
+                Style = TryFindResource("ModernContextMenu") as Style,
+            };
             if (_vm.SelectedRow is ServiceGroupRow)
             {
                 // Меню группы: команды группы + разделитель + изменить/удалить + перемещение.

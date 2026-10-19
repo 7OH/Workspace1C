@@ -700,6 +700,7 @@
     "Settings.Hotkeys.CheckIntegrity": "Проверка целостности ИБ (chdbfl):",
     "Settings.Hotkeys.ServerConsole": "Серверы 1С (встроенный монитор):",
     "Settings.Hotkeys.Services": "Управление службами:",
+    "Settings.Hotkeys.ServicesMenu": "Меню служб:",
     "Settings.Hotkeys.Screenshot": "Копия экрана:",
     "Settings.Hotkeys.FavoritesOrder": "Порядок избранного (Alt+1 … Alt+9)",
     "Admin.CheckIntegrity": "Проверить целостность (chdbfl)",

@@ -105,6 +105,22 @@ public class AppSettings
     public List<string> CollapsedGroups { get; set; } = new();
 
     /// <summary>
+    /// Имена групп служб, свёрнутых в окне «Управление службами» (issue #11, пункт 4):
+    /// состояние сворачивания групп запоминается между сеансами, как у списка баз
+    /// (<see cref="CollapsedGroups"/>). Группы из набора открываются свёрнутыми,
+    /// остальные — развёрнутыми.
+    /// </summary>
+    public List<string> CollapsedServiceGroups { get; set; } = new();
+
+    /// <summary>
+    /// Состояние сворачивания групп служб хотя бы раз сохранено (issue #11, пункт 4):
+    /// false — первый запуск, все группы свёрнуты по умолчанию (C1); true — при открытии
+    /// окна восстанавливается <see cref="CollapsedServiceGroups"/>. Флаг отличает
+    /// «пользователь развернул все группы» (пустой список) от «состояние ещё не сохранялось».
+    /// </summary>
+    public bool ServiceGroupsStateInitialized { get; set; }
+
+    /// <summary>
     /// Автосохранять состояние списка баз (раскрытые группы) по таймеру (Этап 13,
     /// функция №15 StartManager). false — состояние сохраняется только штатно
     /// (при завершении работы и по событиям изменения раскрытия).
@@ -752,6 +768,13 @@ public class AppSettings
     /// </summary>
     public string HotkeyServices { get; set; } = "Ctrl+Shift+S";
 
+    /// <summary>
+    /// Горячая клавиша «Меню служб» (issue #11, пункт 6 комментария 7OH): показывает
+    /// подменю служб у курсора (как меню закладок по Ctrl+B). По умолчанию
+    /// Ctrl+Shift+Alt+S. Настраивается в «Настройки → Клавиши».
+    /// </summary>
+    public string HotkeyServicesMenu { get; set; } = "Ctrl+Shift+Alt+S";
+
     // ===================== Встроенный монитор серверов 1С (0.3.9.124) =====================
     // Адрес/порт/логин администратора кластера сохраняются как обычные настройки
     // интерфейса. Пароль НЕ сохраняется (решение планирования, раздел 5 плана
@@ -898,6 +921,7 @@ public class AppSettings
     {
         // Восстанавливаем непустые коллекции, которые могли прийти как null.
         CollapsedGroups ??= new List<string>();
+        CollapsedServiceGroups ??= new List<string>();
         InstalledPlatformVersions ??= new List<string>();
         AdditionalPlatformSearchPaths ??= new List<string>();
         ColumnOrder ??= new List<string>();

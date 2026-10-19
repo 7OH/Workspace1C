@@ -182,6 +182,7 @@ public class CustomActionEditViewModel : ViewModelBase
                     settings.HotkeyCheckUpdate, settings.HotkeyActualReleases, settings.HotkeyRunBackup,
                     settings.HotkeyExportsList, settings.HotkeyFindInList, settings.HotkeyCommandPalette,
                     settings.HotkeyBookmarksMenu,
+                    settings.HotkeyServicesMenu,
                     settings.HotkeySwitchUser, settings.HotkeyClearSearch, settings.HotkeyClearTags,
                     settings.HotkeyRightPanelDetails, settings.HotkeyShowAll, settings.HotkeyShowFavorites,
                     settings.HotkeyShowRecent, settings.HotkeyShowRunning, settings.HotkeyZoomIn, settings.HotkeyZoomOut,

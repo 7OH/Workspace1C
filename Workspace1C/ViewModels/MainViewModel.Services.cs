@@ -15,6 +15,7 @@ public partial class MainViewModel
 {
     private ICommand? _showServicesCommand;
     private string _hotkeyServices = "Ctrl+Shift+S";
+    private string _hotkeyServicesMenu = "Ctrl+Shift+Alt+S";
 
     /// <summary>
     /// Открытое окно «Управление службами» (issue #11): немодальное, при повторном
@@ -31,6 +32,20 @@ public partial class MainViewModel
         set
         {
             if (SetProperty(ref _hotkeyServices, NormalizeHotkey(value, "Ctrl+Shift+S")))
+                ScheduleSaveSettings();
+        }
+    }
+
+    /// <summary>
+    /// Горячая клавиша «Меню служб» (issue #11, пункт 6): показывает подменю служб
+    /// у курсора (как меню закладок по Ctrl+B). По умолчанию Ctrl+Shift+Alt+S.
+    /// </summary>
+    public string HotkeyServicesMenu
+    {
+        get => _hotkeyServicesMenu;
+        set
+        {
+            if (SetProperty(ref _hotkeyServicesMenu, NormalizeHotkey(value, "Ctrl+Shift+Alt+S")))
                 ScheduleSaveSettings();
         }
     }

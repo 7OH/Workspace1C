@@ -700,6 +700,7 @@
     "Settings.Hotkeys.CheckIntegrity": "Infobase integrity check (chdbfl):",
     "Settings.Hotkeys.ServerConsole": "1C servers (built-in monitor):",
     "Settings.Hotkeys.Services": "Service management:",
+    "Settings.Hotkeys.ServicesMenu": "Services menu:",
     "Settings.Hotkeys.Screenshot": "Screen capture:",
     "Settings.Hotkeys.FavoritesOrder": "Favorites order (Alt+1 … Alt+9)",
     "Admin.CheckIntegrity": "Check integrity (chdbfl)",

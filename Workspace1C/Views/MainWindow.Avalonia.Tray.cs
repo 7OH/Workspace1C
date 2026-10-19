@@ -444,6 +444,32 @@ namespace Workspace1C
         }
 
         /// <summary>
+        /// Пункты подменю «Службы» по данным services.json и статусам из кэша
+        /// (issue #11, 1.0.0.14): построение не блокирует UI — статусы читаются
+        /// из <see cref="ServiceStatusCache"/> и обновляются фоном. Используется
+        /// и меню трея, и контекстным меню служб у курсора (issue #11, пункт 6).
+        /// </summary>
+        private List<ServiceMenuItem> BuildServicesMenuItems()
+        {
+            var services = AppServices.TryGetService<IServiceControllerService>();
+            var store = AppServices.TryGetService<IServicesStore>();
+            var data = store?.Load() ?? new ServiceStoreData();
+            var builder = new ServiceTrayMenuBuilder();
+            if (services is null)
+            {
+                // Контроллер недоступен — команды неактивны; остаются «Настроить…»
+                // и «Все сервисы» с пустым набором.
+                return builder.Build(data, _ => new ServiceInfo { Status = ServiceStatus.Unknown }, ServicePlatform.Linux);
+            }
+            // Мгновенный показ: статусы из кэша (фоновый таймер держит их свежими).
+            EnsureServicesStatusTimer();
+            RefreshServicesStatusesInBackground();
+            return builder.Build(data,
+                name => ServicesStatusCache()?.GetStatus(name).Status ?? ServiceStatus.Unknown,
+                ServicePlatform.Linux);
+        }
+
+        /// <summary>
         /// Заголовок раздела в меню трея. В Windows это отдельный нерабочий
         /// пункт (MainWindow.Tray.cs:216), здесь он же, но недоступный:
         /// собственного вида у заголовка в системном меню нет.

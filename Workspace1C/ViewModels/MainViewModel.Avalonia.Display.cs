@@ -443,6 +443,8 @@ public partial class MainViewModel : ViewModelBase
     public string HotkeyCommandPalette => _settings.HotkeyCommandPalette;
     /// <summary>Горячая клавиша меню закладок (issue #356). По умолчанию Ctrl+B.</summary>
     public string HotkeyBookmarksMenu => _settings.HotkeyBookmarksMenu;
+    /// <summary>Горячая клавиша «Меню служб» (issue #11, пункт 6). По умолчанию Ctrl+Shift+Alt+S.</summary>
+    public string HotkeyServicesMenu => _settings.HotkeyServicesMenu;
     public string HotkeySwitchUser => _settings.HotkeySwitchUser;
     public string HotkeyCheckUpdate => _settings.HotkeyCheckUpdate;
     public string HotkeyActualReleases => _settings.HotkeyActualReleases;
@@ -464,6 +466,8 @@ public partial class MainViewModel : ViewModelBase
         string checkIntegrity = "", string serverConsole = "",
         // Управление службами (issue #11): настраиваемый хоткей, по умолчанию Ctrl+Shift+S.
         string hotkeyServices = "",
+        // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
+        string servicesMenu = "",
         string zoomIn = "", string zoomOut = "", string zoomReset = "",
         string commandPalette = "", string platformUpdate = "",
         string showRunning = "",
@@ -500,6 +504,8 @@ public partial class MainViewModel : ViewModelBase
         _settings.HotkeyServerConsole = serverConsole ?? string.Empty;
         // Управление службами (issue #11).
         _settings.HotkeyServices = hotkeyServices ?? string.Empty;
+        // Меню служб (issue #11, пункт 6).
+        _settings.HotkeyServicesMenu = servicesMenu ?? string.Empty;
         // Масштаб строк списка (issue #303): Ctrl++ / Ctrl+- / Ctrl+0.
         _settings.HotkeyZoomIn = zoomIn ?? string.Empty;
         _settings.HotkeyZoomOut = zoomOut ?? string.Empty;
@@ -534,6 +540,7 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(HotkeyCheckIntegrity));
         OnPropertyChanged(nameof(HotkeyServerConsole));
         OnPropertyChanged(nameof(HotkeyServices));
+        OnPropertyChanged(nameof(HotkeyServicesMenu));
         // Масштаб строк списка (issue #303).
         OnPropertyChanged(nameof(HotkeyZoomIn));
         OnPropertyChanged(nameof(HotkeyZoomOut));

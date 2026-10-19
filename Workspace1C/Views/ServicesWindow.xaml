@@ -4,6 +4,7 @@
         xmlns:loc="clr-namespace:Workspace1C.Localization"
         xmlns:local="clr-namespace:Workspace1C"
         xmlns:vm="clr-namespace:Workspace1C.ViewModels"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         Icon="{StaticResource AppIcon}"
         Height="600" Width="900" MinHeight="460" MinWidth="760"
         WindowStartupLocation="CenterOwner"
@@ -88,17 +89,20 @@
              Изменить группу / Удалить группу / Переместить выше / ниже») скрыты —
              место зарезервировано комментарием (итерация 2 issue #11). -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-            <!-- «Свернуть все»/«Развернуть все» (issue #11, 1.0.0.14): как в основном
-                 окне, в виде иконок, с разделителем после них. -->
+            <!-- «Свернуть все»/«Развернуть все» (issue #11; замечание 7OH: глифы ⏷/⏶ не
+                 совпадали с главным окном): те же PackIcon ExpandAll/CollapseAll, что в
+                 главном окне (MainWindow.xaml:567 и 574), с разделителем после них. -->
             <Button x:Name="ExpandAllButton" Style="{StaticResource IconOnlyButton}"
                     ToolTip="{loc:Loc Services.ExpandAll}" IsEnabled="{Binding CanExpandAllGroups}"
                     Click="OnExpandAll_Click">
-                <TextBlock Text="⏷" VerticalAlignment="Center" Foreground="#2563EB"/>
+                <materialDesign:PackIcon Kind="ExpandAll" Width="18" Height="18"
+                                         Foreground="{DynamicResource TextSecondaryBrush}"/>
             </Button>
             <Button x:Name="CollapseAllButton" Style="{StaticResource IconOnlyButton}"
                     ToolTip="{loc:Loc Services.CollapseAll}" IsEnabled="{Binding CanExpandAllGroups}"
                     Click="OnCollapseAll_Click">
-                <TextBlock Text="⏶" VerticalAlignment="Center" Foreground="#2563EB"/>
+                <materialDesign:PackIcon Kind="CollapseAll" Width="18" Height="18"
+                                         Foreground="{DynamicResource TextSecondaryBrush}"/>
             </Button>
             <Border Style="{StaticResource ToolbarSeparator}"/>
             <!-- Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже»

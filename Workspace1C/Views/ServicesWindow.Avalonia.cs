@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -50,13 +51,29 @@ namespace Workspace1C
             var services = AppServices.GetRequiredService<IServiceControllerService>();
             var store = AppServices.GetRequiredService<IServicesStore>();
             var dialogs = AppServices.GetRequiredService<IDialogService>();
+            var repository = AppServices.GetRequiredService<IInfobaseRepository>();
+            var settings = repository.LoadSettings();
 
+            // Состояние сворачивания групп служб запоминается между сеансами (issue #11,
+            // пункт 4): при открытии восстанавливается из AppSettings.CollapsedServiceGroups,
+            // при изменении — сохраняется туда же (как CollapsedGroups у списка баз).
+            // null — состояние ещё не сохранялось (первый запуск): все группы свёрнуты (C1).
             _vm = new ServicesWindowViewModel(
                 services,
                 store,
                 dialogs,
                 action => Dispatcher.UIThread.Post(action),
-                ServicePlatform.Linux);
+                ServicePlatform.Linux,
+                settings.ServiceGroupsStateInitialized
+                    ? settings.CollapsedServiceGroups
+                    : null,
+                collapsed =>
+                {
+                    var s = repository.LoadSettings();
+                    s.CollapsedServiceGroups = collapsed.ToList();
+                    s.ServiceGroupsStateInitialized = true;
+                    repository.SaveSettings(s);
+                });
 
             DataContext = _vm;
             _vm.ServicesPickerProvider = ShowServicesPicker;
@@ -98,13 +115,17 @@ namespace Workspace1C
             // ---- Строка кнопок над списком (issue #11, итерация 2 — группы служб). ----
             // Порядок задаёт пользователь (issue #11, 7OH 17.10): «Переместить выше / ниже»
             // работает для строк обоих типов (службы и группы).
-            // «Свернуть все»/«Развернуть все» (issue #11, 1.0.0.14): как в основном окне,
-            // иконками, с разделителем после них (перед «Переместить выше/ниже»).
-            var expandAllButton = BuildIconButton("⏷", LocalizationManager.T("Services.ExpandAll"),
-                () => _vm.ExpandAllCommand.Execute(null), "#2563EB");
+            // «Свернуть все»/«Развернуть все» (issue #11; замечание 7OH: глифы ⏷/⏶ не
+            // совпадали с главным окном): те же векторные иконки, что в панели главного
+            // окна (MainWindow.Avalonia.Columns.cs — "IconExpandAllBox"/"IconCollapseAllBox"),
+            // с разделителем после них (перед «Переместить выше/ниже»).
+            var expandAllButton = BuildToolbarIconButton("IconExpandAllBox",
+                LocalizationManager.T("Services.ExpandAll"),
+                () => _vm.ExpandAllCommand.Execute(null));
             expandAllButton.Bind(Button.IsEnabledProperty, new Binding("CanExpandAllGroups"));
-            var collapseAllButton = BuildIconButton("⏶", LocalizationManager.T("Services.CollapseAll"),
-                () => _vm.CollapseAllCommand.Execute(null), "#2563EB");
+            var collapseAllButton = BuildToolbarIconButton("IconCollapseAllBox",
+                LocalizationManager.T("Services.CollapseAll"),
+                () => _vm.CollapseAllCommand.Execute(null));
             collapseAllButton.Bind(Button.IsEnabledProperty, new Binding("CanExpandAllGroups"));
 
             var moveUpButton = BuildIconButton("▲", LocalizationManager.T("Services.MoveUp"),
@@ -155,29 +176,18 @@ namespace Workspace1C
                 () => _vm.RestartCommand.Execute(null), ServiceCommandGlyphs.ColorHex(ServiceAction.Restart));
             restartButton.Bind(Button.IsEnabledProperty, new Binding("CanRestart"));
 
-            // Подменю «Все сервисы» (Запустить / Остановить / Перезапустить).
+            // Подменю «Все сервисы» (Запустить / Остановить / Перезапустить) со стилями
+            // скина и цветными иконками — как контекстное меню основного окна (issue #11).
             Button? allServicesButton = null;
             allServicesButton = BuildActionButton(LocalizationManager.T("Services.AllServices"),
                 "▾",
                 () =>
                 {
-                    var menu = new ContextMenu();
-                    menu.Items.Add(new MenuItem
-                    {
-                        Header = LocalizationManager.T("Services.StartAll"),
-                        Command = _vm.StartAllCommand
-                    });
-                    menu.Items.Add(new MenuItem
-                    {
-                        Header = LocalizationManager.T("Services.StopAll"),
-                        Command = _vm.StopAllCommand
-                    });
+                    var menu = new ContextMenu().Styled(ControlThemes.ModernContextMenu);
+                    AddRowMenuCommand(menu, "Services.StartAll", _vm.StartAllCommand, "▶", "#16A34A");
+                    AddRowMenuCommand(menu, "Services.StopAll", _vm.StopAllCommand, "■", "#DC2626");
                     menu.Items.Add(new Separator());
-                    menu.Items.Add(new MenuItem
-                    {
-                        Header = LocalizationManager.T("Services.RestartAll"),
-                        Command = _vm.RestartAllCommand
-                    });
+                    AddRowMenuCommand(menu, "Services.RestartAll", _vm.RestartAllCommand, "⟲", "#2563EB");
                     menu.Open(allServicesButton!);
                 });
 
@@ -392,6 +402,26 @@ namespace Workspace1C
             return button;
         }
 
+        /// <summary>
+        /// Кнопка-иконка с векторной иконкой из темы для «Свернуть все»/«Развернуть все»
+        /// (issue #11, замечание 7OH: глифы ⏷/⏶ не совпадали с главным окном). Использует
+        /// те же ключи иконок, что панель главного окна (MainWindow.Avalonia.Columns.cs,
+        /// HeaderIconButton), размер 18 и кисть TextSecondaryBrush — как там.
+        /// </summary>
+        private static Button BuildToolbarIconButton(string iconKey, string tooltip, Action onClick)
+        {
+            var button = new Button
+            {
+                Content = IconHelper.MakeIcon(iconKey, UiMetrics.Scaled(18), "TextSecondaryBrush"),
+                Padding = new Thickness(8, 5)
+            };
+            ToolTip.SetTip(button, tooltip);
+            button.Styled(ControlThemes.ModernButton);
+            ThemeBrushes.Bind(button, Button.BackgroundProperty, "ItemHoverBrush");
+            button.Click += (_, _) => onClick();
+            return button;
+        }
+
         /// <summary>Вертикальный разделитель в строке кнопок.</summary>
         private static Border Divider() => new()
         {
@@ -493,8 +523,9 @@ namespace Workspace1C
 
             // Контекстное меню строки: для службы — команды службы; для группы — команды
             // группы + «Изменить/Удалить группу» + перемещение (issue #11, итерация 2).
-            // Пункты с цветными иконками — как контекстное меню основного окна (1.0.0.14).
-            var menu = new ContextMenu();
+            // Пункты с цветными иконками и стиль скина — как контекстное меню основного
+            // окна (1.0.0.14; issue #11, замечание 7OH 18.10).
+            var menu = new ContextMenu().Styled(ControlThemes.ModernContextMenu);
             if (row.IsGroup)
             {
                 AddRowMenuCommand(menu, "Services.Start", _vm.StartGroupCommand, "▶", "#16A34A");
@@ -539,7 +570,9 @@ namespace Workspace1C
             // Пункт добавляется с командой VM (не биндингом): контекстное меню лежит вне
             // визуального дерева, команда уже резолвлена в конструкторе строки. Иконка —
             // цветной глиф, как в контекстном меню основного окна (issue #11, 1.0.0.14).
-            var item = new MenuItem { Header = LocalizationManager.T(textKey), Command = command };
+            // Стиль скина ModernMenuItem — чтобы меню выглядело «родно» (issue #11, 7OH 18.10).
+            var item = new MenuItem { Header = LocalizationManager.T(textKey), Command = command }
+                .Styled(ControlThemes.ModernMenuItem);
             if (icon is not null)
             {
                 item.Icon = new TextBlock

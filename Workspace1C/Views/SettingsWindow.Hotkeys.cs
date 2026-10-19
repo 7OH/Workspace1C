@@ -48,6 +48,8 @@ namespace Workspace1C
             BindHotkeyBox(HotkeyCommandPaletteBox, _viewModel.HotkeyCommandPalette);
             // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
             BindHotkeyBox(HotkeyBookmarksMenuBox, _viewModel.HotkeyBookmarksMenu);
+            // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
+            BindHotkeyBox(HotkeyServicesMenuBox, _viewModel.HotkeyServicesMenu);
             BindHotkeyBox(HotkeySwitchUserBox, _viewModel.HotkeySwitchUser);
         }
 

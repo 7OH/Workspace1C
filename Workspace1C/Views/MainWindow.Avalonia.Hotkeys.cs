@@ -10,6 +10,7 @@ using Workspace1C.Controls;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
+using Workspace1C.Themes;
 using Workspace1C.ViewModels;
 
 namespace Workspace1C
@@ -185,6 +186,16 @@ namespace Workspace1C
             AddHotkey(_vm.HotkeyServerConsole, _vm.OpenServerConsoleCommand);
             // Управление службами (issue #11): Ctrl+Shift+S по умолчанию.
             AddHotkey(_vm.HotkeyServices, _vm.ShowServicesCommand);
+            // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
+            if (Controls.HotkeyBox.TryParse(_vm.HotkeyServicesMenu, out var servicesMenuGesture)
+                && servicesMenuGesture is not null)
+            {
+                KeyBindings.Add(new KeyBinding
+                {
+                    Gesture = servicesMenuGesture,
+                    Command = new ViewModels.RelayCommand(_ => ShowServicesMenu())
+                });
+            }
             // Сохранение копии экрана (функция №30 StartManager): сочетание настраивается в настройках.
             AddHotkey(_vm.ScreenshotHotkey, _vm.TakeScreenshotCommand);
             // Ctrl+Shift+Plus / Ctrl+Shift+Minus — развернуть/свернуть все узлы дерева.
@@ -369,6 +380,18 @@ namespace Workspace1C
                     return;
                 }
 
+                // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию
+                // Ctrl+Shift+Alt+S. Показываем подменю служб у курсора, как меню закладок.
+                if (Controls.HotkeyBox.TryParse(_vm.HotkeyServicesMenu, out var servicesMenuGesture)
+                    && servicesMenuGesture is not null
+                    && e.Key == servicesMenuGesture.Key
+                    && km == servicesMenuGesture.KeyModifiers)
+                {
+                    ShowServicesMenu();
+                    e.Handled = true;
+                    return;
+                }
+
                 // Ctrl+Alt+X — очистить все закладки.
                 if (e.Key == Key.X && altKm && !shiftKm)
                 {
@@ -492,39 +515,44 @@ namespace Workspace1C
         {
             if (_vm is not { } vm)
                 return;
-            var menu = new ContextMenu();
+            // issue #16: меню закладок собирается в коде и должно подчиняться скинингу —
+            // стиль ModernContextMenu (карточный фон, контур, MinWidth 280), как у остальных
+            // контекстных меню главного окна.
+            var menu = new ContextMenu().Styled(Themes.ControlThemes.ModernContextMenu);
             var bookmarks = vm.GetBookmarks();
 
             if (bookmarks.Count == 0)
             {
-                menu.Items.Add(new MenuItem { Header = LocalizationManager.T("Main.BookmarksNone"), IsEnabled = false });
+                menu.Items.Add(new MenuItem { Header = LocalizationManager.T("Main.BookmarksNone"), IsEnabled = false }
+                    .Styled(Themes.ControlThemes.ModernMenuItem));
             }
             else
             {
                 foreach (var (number, ib) in bookmarks)
                 {
-                    var sub = new MenuItem { Header = string.Format(LocalizationManager.T("Main.BookmarksItem"), number, ib.Name) };
+                    var sub = new MenuItem { Header = string.Format(LocalizationManager.T("Main.BookmarksItem"), number, ib.Name) }
+                        .Styled(Themes.ControlThemes.ModernMenuItem);
                     sub.Items.Add(new MenuItem
                     {
                         Header = string.Format(LocalizationManager.T("Main.BookmarksEnterprise"), number),
                         Command = new ViewModels.RelayCommand(_ => _vm.LaunchBookmark(number, false))
-                    });
+                    }.Styled(Themes.ControlThemes.ModernMenuItem));
                     sub.Items.Add(new MenuItem
                     {
                         Header = string.Format(LocalizationManager.T("Main.BookmarksConfigurator"), number),
                         Command = new ViewModels.RelayCommand(_ => _vm.LaunchBookmark(number, true))
-                    });
+                    }.Styled(Themes.ControlThemes.ModernMenuItem));
                     sub.Items.Add(new MenuItem
                     {
                         Header = string.Format(LocalizationManager.T("Main.BookmarksNavigate"), number),
                         Command = new ViewModels.RelayCommand(_ => _vm.NavigateToBookmark(number))
-                    });
+                    }.Styled(Themes.ControlThemes.ModernMenuItem));
                     sub.Items.Add(new Separator());
                     sub.Items.Add(new MenuItem
                     {
                         Header = LocalizationManager.T("Main.BookmarksRemove"),
                         Command = new ViewModels.RelayCommand(_ => _vm.RemoveBookmark(ib))
-                    });
+                    }.Styled(Themes.ControlThemes.ModernMenuItem));
                     menu.Items.Add(sub);
                 }
                 menu.Items.Add(new Separator());
@@ -534,7 +562,7 @@ namespace Workspace1C
             {
                 Header = LocalizationManager.T("Main.BookmarksClearAll"),
                 Command = new ViewModels.RelayCommand(_ => _vm.ClearAllBookmarks())
-            });
+            }.Styled(Themes.ControlThemes.ModernMenuItem));
 
             // issue #356 (комментарий 2): меню закладок участвует в стабилизации
             // выделения после закрытия (механизм issue #340) наравне с контекстным
@@ -543,6 +571,90 @@ namespace Workspace1C
             menu.Tag = BatchSelectionHelper.BookmarksMenuTag;
 
             menu.Open(this);
+        }
+
+        /// <summary>
+        /// Показывает контекстное меню служб (issue #11, пункт 6) у курсора — как меню
+        /// закладок (Ctrl+B). Строится на основе <see cref="ServiceTrayMenuBuilder"/>
+        /// (та же модель, что у меню трея): «Настроить…», службы/группы списка и
+        /// «Все сервисы» с командами и доступностью.
+        /// </summary>
+        private void ShowServicesMenu()
+        {
+            if (_vm is not { } vm)
+                return;
+            var menu = new ContextMenu().Styled(Themes.ControlThemes.ModernContextMenu);
+            foreach (var item in BuildServicesMenuItems())
+                menu.Items.Add(ToServiceMenuItem(item));
+            menu.Open(this);
+        }
+
+        /// <summary>
+        /// Адаптер пункта модели меню служб к Avalonia (<see cref="MenuItem"/>) со
+        /// стилями скина (ControlThemes.ModernMenuItem), как у остальных контекстных
+        /// меню главного окна.
+        /// </summary>
+        private object ToServiceMenuItem(ServiceMenuItem item)
+        {
+            switch (item.Kind)
+            {
+                case ServiceMenuItemKind.Separator:
+                    return new Separator();
+
+                case ServiceMenuItemKind.Settings:
+                    return new MenuItem
+                    {
+                        Header = item.Text,
+                        Command = new ViewModels.RelayCommand(_ => _vm?.ShowServicesCommand.Execute(null))
+                    }.Styled(Themes.ControlThemes.ModernMenuItem);
+
+                case ServiceMenuItemKind.ServiceSubmenu:
+                case ServiceMenuItemKind.GroupSubmenu:
+                case ServiceMenuItemKind.AllServicesSubmenu:
+                {
+                    // Статус группы — в подписи (как в нативном меню трея):
+                    // «Имя группы (Частично)»; у службы статус — подсказкой.
+                    var text = item.Kind == ServiceMenuItemKind.GroupSubmenu
+                              && !string.IsNullOrEmpty(item.StatusText)
+                        ? $"{item.Text} ({item.StatusText})"
+                        : item.Text;
+                    var node = new MenuItem
+                    {
+                        Header = text,
+                        IsEnabled = item.IsEnabled
+                    }.Styled(Themes.ControlThemes.ModernMenuItem);
+                    if (item.Kind == ServiceMenuItemKind.ServiceSubmenu
+                        && !string.IsNullOrEmpty(item.StatusText))
+                        ToolTip.SetTip(node, item.StatusText);
+                    foreach (var child in item.Children)
+                        node.Items.Add(ToServiceMenuItem(child));
+                    return node;
+                }
+
+                case ServiceMenuItemKind.ServiceCommand:
+                case ServiceMenuItemKind.GroupCommand:
+                case ServiceMenuItemKind.AllServicesCommand:
+                {
+                    var action = item.Action ?? ServiceAction.Start;
+                    var target = item.Target;
+                    var targetName = item.TargetName;
+                    var names = item.ServiceNames.ToList();
+                    return new MenuItem
+                    {
+                        Header = item.Text,
+                        IsEnabled = item.IsEnabled,
+                        Command = new ViewModels.RelayCommand(_ =>
+                            ExecuteTrayServiceAction(action, target, targetName, names))
+                    }.Styled(Themes.ControlThemes.ModernMenuItem);
+                }
+
+                default:
+                    return new MenuItem
+                    {
+                        Header = item.Text,
+                        IsEnabled = item.IsEnabled
+                    }.Styled(Themes.ControlThemes.ModernMenuItem);
+            }
         }
 
         /// <summary>

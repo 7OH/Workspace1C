@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -124,14 +125,19 @@ public sealed class ServiceGroupRow : ServiceListRow
     private GroupStatusKind _groupStatus = GroupStatusKind.Unknown;
     private string _statusText = string.Empty;
     private string _statusColorHex = ServiceGroupStatusDisplay.ColorHex(GroupStatusKind.Unknown);
-    private bool _isExpanded = true;
+    // Свёрнута по умолчанию (issue #11): папки не должны разворачиваться сами собой
+    // при выделении строки; раскрытие — только явно (стрелка/«+») или командами
+    // «Свернуть/Развернуть все».
+    private bool _isExpanded;
 
     /// <param name="group">Группа из хранилища (имя + состав).</param>
     /// <param name="statuses">Статусы служб (по имени) для расчёта агрегированного статуса.</param>
+    private readonly List<string> _childServices = new();
+
     public ServiceGroupRow(ServiceGroup group, IReadOnlyDictionary<string, ServiceInfo> statuses)
     {
         Name = group.Name;
-        ChildServices = group.Services.ToList();
+        _childServices.AddRange(group.Services);
         UpdateChildrenStatuses(statuses);
         // Дети-строки для иерархического списка (issue #11, 1.0.0.14): службы
         // показываются ВНУТРИ папки-группы, как базы внутри групп в основном окне.
@@ -149,7 +155,7 @@ public sealed class ServiceGroupRow : ServiceListRow
     public string GroupId => Name;
 
     /// <summary>Имена служб группы в порядке пользователя.</summary>
-    public IReadOnlyList<string> ChildServices { get; }
+    public IReadOnlyList<string> ChildServices => _childServices;
 
     /// <summary>Строки-службы ВНУТРИ папки-группы (иерархический список, issue #11, 1.0.0.14).</summary>
     public ObservableCollection<ServiceInfoRow> Children { get; } = new();
@@ -157,7 +163,30 @@ public sealed class ServiceGroupRow : ServiceListRow
     /// <summary>Есть ли службы в группе (для шаблона узла дерева).</summary>
     public bool HasChildren => Children.Count > 0;
 
-    /// <summary>Развёрнута ли папка-группа в дереве (команды «Свернуть/Развернуть все»).</summary>
+    /// <summary>
+    /// Перемещает службу внутри группы (issue #11, пункт 5): обновляет порядок
+    /// <see cref="ChildServices"/> (сохраняется в services.json) и <see cref="Children"/>
+    /// (строки дерева) согласованно. Индексы — позиции в списке служб группы.
+    /// </summary>
+    public void MoveChild(int oldIndex, int newIndex)
+    {
+        if (oldIndex < 0 || oldIndex >= _childServices.Count ||
+            newIndex < 0 || newIndex >= _childServices.Count)
+            return;
+        var name = _childServices[oldIndex];
+        _childServices.RemoveAt(oldIndex);
+        _childServices.Insert(newIndex, name);
+        if (oldIndex >= 0 && oldIndex < Children.Count &&
+            newIndex >= 0 && newIndex < Children.Count)
+            Children.Move(oldIndex, newIndex);
+    }
+
+    /// <summary>
+    /// Развёрнута ли папка-группа в дереве (команды «Свернуть/Развернуть все»).
+    /// По умолчанию свёрнута (issue #11): папки не разворачиваются сами собой при
+    /// выделении строки; раскрытие — только явно пользователем или программно
+    /// (показать конкретную строку — раскрывается лишь папка-предок).
+    /// </summary>
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -287,6 +316,29 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     private readonly Action<Action>? _dispatchToUi;
     private readonly ServicePlatform _platform;
 
+    /// <summary>
+    /// Имена групп служб, свёрнутых в дереве (issue #11, пункт 4): состояние запоминается
+    /// между сеансами, как у списка баз в главном окне (<see cref="Models.AppSettings.CollapsedGroups"/>).
+    /// Сравнение без учёта регистра — имена групп уникальны и сравниваются так же в хранилище.
+    /// </summary>
+    private readonly HashSet<string> _collapsedServiceGroups = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Колбэк сохранения набора свёрнутых групп (окно пишет его в <see cref="Models.AppSettings.CollapsedServiceGroups"/>);
+    /// null — тесты/отсутствие персистентности.
+    /// </summary>
+    private readonly Action<IReadOnlyCollection<string>>? _collapsedGroupsChanged;
+
+    /// <summary>Подавление сохранения при массовых операциях («Свернуть/Развернуть все»): набор обновляется, сохраняется один раз.</summary>
+    private bool _suppressCollapsedSave;
+
+    /// <summary>
+    /// Состояние сворачивания групп служб загружено из настроек (issue #11, пункт 4):
+    /// false — первый запуск, при первой загрузке все группы сворачиваются (C1) и набор
+    /// фиксируется в настройках; true — восстанавливается сохранённый набор.
+    /// </summary>
+    private bool _collapsedStateInitialized;
+
     private ServiceListRow? _selectedRow;
     private bool _isBusy;
     private string _statusText = string.Empty;
@@ -328,18 +380,40 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// <param name="dispatchToUi">Доставка применения результатов в UI-поток; null — тесты.</param>
     /// <param name="platform">Платформа для таблицы доступности (Linux разрешает
     /// «Перезапустить» остановленной службы — systemctl restart).</param>
+    /// <param name="collapsedServiceGroups">Сохранённые имена свёрнутых групп служб
+    /// (issue #11, пункт 4): группы из набора открываются свёрнутыми, остальные — развёрнутыми.
+    /// null — состояние ещё не сохранялось (первый запуск): все группы свёрнуты по умолчанию
+    /// (C1) и набор фиксируется в настройках; пустой список — «пользователь развернул все группы».</param>
+    /// <param name="collapsedGroupsChanged">Колбэк сохранения набора свёрнутых групп
+    /// (окно пишет его в <see cref="Models.AppSettings.CollapsedServiceGroups"/>); null — без персистентности.</param>
     public ServicesWindowViewModel(
         IServiceControllerService services,
         IServicesStore store,
         IDialogService dialogs,
         Action<Action>? dispatchToUi = null,
-        ServicePlatform platform = ServicePlatform.Windows)
+        ServicePlatform platform = ServicePlatform.Windows,
+        IReadOnlyCollection<string>? collapsedServiceGroups = null,
+        Action<IReadOnlyCollection<string>>? collapsedGroupsChanged = null)
     {
         _services = services ?? throw new ArgumentNullException(nameof(services));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _dispatchToUi = dispatchToUi;
         _platform = platform;
+        _collapsedGroupsChanged = collapsedGroupsChanged;
+        // null — состояние ещё не сохранялось (первый запуск): при первой загрузке все
+        // группы будут свёрнуты (C1) и набор зафиксируется в настройках. Непустой список —
+        // восстановление сохранённого состояния; пустой список — «пользователь развернул
+        // все группы» (см. AppSettings.ServiceGroupsStateInitialized).
+        _collapsedStateInitialized = collapsedServiceGroups is not null;
+        if (collapsedServiceGroups is not null)
+        {
+            foreach (var name in collapsedServiceGroups)
+            {
+                if (!string.IsNullOrWhiteSpace(name))
+                    _collapsedServiceGroups.Add(name);
+            }
+        }
         if (!_services.IsAvailable)
             _statusText = LocalizationManager.T("Services.NotAvailable");
     }
@@ -387,11 +461,40 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// </summary>
     public bool CanGrantRights => _services.CanGrantControlRights;
 
-    /// <summary>Можно ли переместить выбранную строку выше (issue #11: порядок задаёт пользователь).</summary>
-    public bool CanMoveUp => _selectedRow is not null && Rows.IndexOf(_selectedRow) > 0;
+    /// <summary>
+    /// Можно ли переместить выбранную строку выше (issue #11: порядок задаёт пользователь;
+    /// для службы внутри группы — позиция внутри папки, пункт 5).
+    /// </summary>
+    public bool CanMoveUp
+    {
+        get
+        {
+            var row = _selectedRow;
+            if (row is null)
+                return false;
+            if (row is ServiceInfoRow serviceRow && ParentGroupOf(serviceRow) is { } group)
+                return group.Children.IndexOf(serviceRow) > 0;
+            return Rows.IndexOf(row) > 0;
+        }
+    }
 
-    /// <summary>Можно ли переместить выбранную строку ниже.</summary>
-    public bool CanMoveDown => _selectedRow is not null && Rows.IndexOf(_selectedRow) is var i && i >= 0 && i < Rows.Count - 1;
+    /// <summary>Можно ли переместить выбранную строку ниже (для службы внутри группы — позиция внутри папки).</summary>
+    public bool CanMoveDown
+    {
+        get
+        {
+            var row = _selectedRow;
+            if (row is null)
+                return false;
+            if (row is ServiceInfoRow serviceRow && ParentGroupOf(serviceRow) is { } group)
+            {
+                var i = group.Children.IndexOf(serviceRow);
+                return i >= 0 && i < group.Children.Count - 1;
+            }
+            var index = Rows.IndexOf(row);
+            return index >= 0 && index < Rows.Count - 1;
+        }
+    }
 
     // ===================== Доступность команд (таблица 3.1 плана) =====================
 
@@ -633,17 +736,36 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         return result;
     }
 
-    /// <summary>Перемещает выбранную строку на <paramref name="delta"/> позиций и сохраняет порядок.</summary>
+    /// <summary>
+    /// Перемещает выбранную строку на <paramref name="delta"/> позиций и сохраняет порядок.
+    /// Служба внутри группы перемещается в пределах папки (issue #11, пункт 5), корневая
+    /// строка (служба или группа) — в общем списке <see cref="Rows"/>.
+    /// </summary>
     private void Move(int delta)
     {
         var row = _selectedRow;
         if (row is null)
             return;
-        var index = Rows.IndexOf(row);
-        var target = index + delta;
-        if (index < 0 || target < 0 || target >= Rows.Count)
+
+        // Служба внутри группы: порядок Children/ChildServices группы и ServiceGroup.Services.
+        if (row is ServiceInfoRow serviceRow && ParentGroupOf(serviceRow) is { } group)
+        {
+            var index = group.Children.IndexOf(serviceRow);
+            var target = index + delta;
+            if (index < 0 || target < 0 || target >= group.Children.Count)
+                return;
+            group.MoveChild(index, target);
+            _store.Save(BuildStoreData());
+            RefreshCommandStates();
             return;
-        Rows.Move(index, target);
+        }
+
+        // Корневая строка (группа или корневая служба): порядок Rows/Order.
+        var rootIndex = Rows.IndexOf(row);
+        var rootTarget = rootIndex + delta;
+        if (rootIndex < 0 || rootTarget < 0 || rootTarget >= Rows.Count)
+            return;
+        Rows.Move(rootIndex, rootTarget);
         _store.Save(BuildStoreData());
         RefreshCommandStates();
     }
@@ -757,12 +879,42 @@ public sealed class ServicesWindowViewModel : ViewModelBase
                         var groupName = key.Substring(ServiceStoreData.GroupKeyPrefix.Length);
                         var group = data.Groups.FirstOrDefault(g => string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
                         if (group is not null)
-                            Rows.Add(new ServiceGroupRow(group, statuses));
+                        {
+                            var groupRow = new ServiceGroupRow(group, statuses);
+                            // Восстановление сохранённого состояния сворачивания (issue #11,
+                            // пункт 4): группы из набора свёрнутых — свёрнуты, остальные —
+                            // развёрнуты. Подписка на IsExpanded — ПОСЛЕ установки начального
+                            // значения, чтобы не сохранять без изменений.
+                            groupRow.IsExpanded = !_collapsedServiceGroups.Contains(groupRow.Name);
+                            groupRow.PropertyChanged += OnGroupExpandedChanged;
+                            Rows.Add(groupRow);
+                        }
                     }
                     else if (statuses.TryGetValue(key, out var info))
                     {
                         Rows.Add(new ServiceInfoRow(info));
                     }
+                }
+                // Первый запуск (состояние ещё не сохранялось): все группы свёрнуты по
+                // умолчанию (C1, issue #11). Набор фиксируется в настройках, чтобы пустой
+                // список после «Развернуть все» не путался с «нет сохранённого состояния».
+                if (!_collapsedStateInitialized)
+                {
+                    _collapsedStateInitialized = true;
+                    _suppressCollapsedSave = true;
+                    try
+                    {
+                        foreach (var group in Rows.OfType<ServiceGroupRow>())
+                        {
+                            _collapsedServiceGroups.Add(group.Name);
+                            group.IsExpanded = false;
+                        }
+                    }
+                    finally
+                    {
+                        _suppressCollapsedSave = false;
+                    }
+                    SaveCollapsedGroups();
                 }
                 OnPropertyChanged(nameof(HasRows));
                 RestoreSelection(selectedKey);
@@ -957,6 +1109,13 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         await RebuildRowsAsync(_store.Load());
         SelectedRow = Rows.OfType<ServiceGroupRow>()
             .FirstOrDefault(g => string.Equals(g.Name, group.Name, StringComparison.OrdinalIgnoreCase));
+        // Новая группа свёрнута по умолчанию (C1) — фиксируем в настройках, чтобы
+        // состояние сохранилось между сеансами (issue #11, пункт 4). Установка IsExpanded
+        // обновляет набор свёрнутых групп и сохраняет его.
+        var newGroupRow = Rows.OfType<ServiceGroupRow>()
+            .FirstOrDefault(g => string.Equals(g.Name, group.Name, StringComparison.OrdinalIgnoreCase));
+        if (newGroupRow is not null)
+            newGroupRow.IsExpanded = false;
     }
 
     /// <summary>
@@ -969,6 +1128,8 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             return;
         if (SelectedRow is not ServiceGroupRow row)
             return;
+        // Состояние сворачивания сохраняется при переименовании (issue #11, пункт 4).
+        var wasExpanded = row.IsExpanded;
         var data = _store.Load();
         var group = data.Groups.FirstOrDefault(g => string.Equals(g.Name, row.Name, StringComparison.OrdinalIgnoreCase));
         if (group is null)
@@ -993,6 +1154,9 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             data.Order = data.Order
                 .Select(k => string.Equals(k, oldKey, StringComparison.OrdinalIgnoreCase) ? newKey : k)
                 .ToList();
+            // Ключ свёрнутой группы в настройках следует за переименованием (issue #11,
+            // пункт 4): старый ключ больше не актуален, новое состояние восстановится ниже.
+            _collapsedServiceGroups.Remove(row.Name);
         }
         // Члены обновлённой группы уходят из корневого списка (инвариант «служба
         // ровно в одном месте», issue #11, 1.0.0.14).
@@ -1018,6 +1182,12 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         await RebuildRowsAsync(_store.Load());
         SelectedRow = Rows.OfType<ServiceGroupRow>()
             .FirstOrDefault(g => string.Equals(g.Name, newGroup.Name, StringComparison.OrdinalIgnoreCase));
+        // Состояние сворачивания сохраняется при переименовании (issue #11, пункт 4):
+        // установка IsExpanded обновляет набор свёрнутых групп и сохраняет его.
+        var renamedRow = Rows.OfType<ServiceGroupRow>()
+            .FirstOrDefault(g => string.Equals(g.Name, newGroup.Name, StringComparison.OrdinalIgnoreCase));
+        if (renamedRow is not null)
+            renamedRow.IsExpanded = wasExpanded;
     }
 
     /// <summary>
@@ -1037,6 +1207,9 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         var key = ServiceStoreData.GroupKey(row.Name);
         data.Order = data.Order.Where(k => !string.Equals(k, key, StringComparison.OrdinalIgnoreCase)).ToList();
         _store.Save(data);
+        // Удалённая группа больше не хранится в настройках (issue #11, пункт 4).
+        _collapsedServiceGroups.Remove(row.Name);
+        SaveCollapsedGroups();
         await RebuildRowsAsync(_store.Load());
     }
 
@@ -1081,6 +1254,10 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             .FirstOrDefault(g => g.ChildServices.Contains(serviceName, StringComparer.OrdinalIgnoreCase))
             ?.Name;
 
+    /// <summary>Группа, в папке которой находится строка-служба; null — служба корневая.</summary>
+    private ServiceGroupRow? ParentGroupOf(ServiceInfoRow serviceRow) =>
+        Rows.OfType<ServiceGroupRow>().FirstOrDefault(g => g.Children.Contains(serviceRow));
+
     /// <summary>
     /// Перенос службы между корнем («Без группы») и группами (issue #11, 1.0.0.14):
     /// служба может находиться ровно в одном месте; из текущего места удаляется,
@@ -1117,11 +1294,50 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             : ServiceStoreData.GroupKey(targetGroupName));
     }
 
-    /// <summary>Раскрывает/сворачивает все папки-группы (команды «Развернуть/Свернуть все»).</summary>
+    /// <summary>
+    /// Раскрывает/сворачивает все папки-группы (команды «Развернуть/Свернуть все»).
+    /// Набор свёрнутых групп обновляется по каждому изменению IsExpanded, но сохраняется
+    /// один раз после массовой операции (issue #11, пункт 4).
+    /// </summary>
     private void SetAllGroupsExpanded(bool isExpanded)
     {
-        foreach (var group in Rows.OfType<ServiceGroupRow>())
-            group.IsExpanded = isExpanded;
+        _suppressCollapsedSave = true;
+        try
+        {
+            foreach (var group in Rows.OfType<ServiceGroupRow>())
+                group.IsExpanded = isExpanded;
+        }
+        finally
+        {
+            _suppressCollapsedSave = false;
+        }
+        SaveCollapsedGroups();
+    }
+
+    /// <summary>
+    /// Отслеживает изменение развёрнутости папки-группы (клик по стрелке/«+» в дереве,
+    /// команды «Свернуть/Развернуть все», добавление/переименование/удаление групп):
+    /// обновляет набор свёрнутых групп и сохраняет его в настройки (issue #11, пункт 4 —
+    /// запоминание состояния, как у списка баз в главном окне).
+    /// </summary>
+    private void OnGroupExpandedChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ServiceGroupRow.IsExpanded))
+            return;
+        if (sender is not ServiceGroupRow group)
+            return;
+        if (group.IsExpanded)
+            _collapsedServiceGroups.Remove(group.Name);
+        else
+            _collapsedServiceGroups.Add(group.Name);
+        if (!_suppressCollapsedSave)
+            SaveCollapsedGroups();
+    }
+
+    /// <summary>Сохраняет набор свёрнутых групп служб через колбэк (окно пишет в AppSettings).</summary>
+    private void SaveCollapsedGroups()
+    {
+        _collapsedGroupsChanged?.Invoke(_collapsedServiceGroups.ToList());
     }
 
     /// <summary>Есть ли группы в списке (доступность «Свернуть/Развернуть все»).</summary>
@@ -1232,7 +1448,12 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         else
         {
             SelectedRow = Rows.OfType<ServiceInfoRow>()
-                .FirstOrDefault(r => string.Equals(r.ServiceName, key, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(r => string.Equals(r.ServiceName, key, StringComparison.OrdinalIgnoreCase))
+                // Служба может находиться внутри папки-группы (issue #11, 1.0.0.14):
+                // ищем и среди детей групп, чтобы выделение не терялось после перестроения.
+                ?? Rows.OfType<ServiceGroupRow>()
+                    .SelectMany(g => g.Children)
+                    .FirstOrDefault(r => string.Equals(r.ServiceName, key, StringComparison.OrdinalIgnoreCase));
         }
     }
 

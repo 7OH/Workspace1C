@@ -718,6 +718,8 @@ public partial class MainViewModel : ViewModelBase
         s.HotkeyServerConsole = _hotkeyServerConsole;
         // Управление службами (issue #11): хоткей по умолчанию Ctrl+Shift+S.
         s.HotkeyServices = _hotkeyServices;
+        // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
+        s.HotkeyServicesMenu = _hotkeyServicesMenu;
         s.AppLockPasswordHash = _appLockPasswordHash;
         // Активная блокировка переживает перезапуск приложения (issue #294).
         s.AppLockActive = _appLockActive;
