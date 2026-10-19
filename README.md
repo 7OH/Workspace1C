@@ -1,12 +1,12 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.17-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.18-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.17**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.18**.
 
 ## 📣 Telegram-канал
 
@@ -178,6 +178,16 @@
 - **«Управление службами»: хоткей «Меню служб» (1.0.0.15, issue #11, Windows и Linux)** —
   по умолчанию `Ctrl+Shift+Alt+S`; по нажатию у курсора показывается контекстное меню служб
   (как подменю закладок по Ctrl+B); настраивается в «Настройки → Клавиши».
+- **«Управление службами»: мгновенный Ctrl+ПКМ в трее (1.0.0.18, issue #11, Windows)** —
+  Ctrl+ПКМ по значку трея сразу открывает меню служб (раньше Ctrl приходилось удерживать около
+  секунды перед нажатием, иначе показывалось штатное меню). Контрол определяется нативно
+  (`GetKeyState`), штатное меню подавляется на `MouseDown`, кэш статусов прогревается при
+  старте; на Linux нативные треи не передают Ctrl+ПКМ — подменю «Службы» доступно из нативного
+  меню (ограничение платформы).
+- **«Управление службами»: экранирование `_` в WPF-меню служб (1.0.0.18, issue #11, Windows)** —
+  имена служб/групп с `_` (например `S_DB`) в меню по хоткею «Меню служб» (Ctrl+Shift+Alt+S)
+  и в меню «СЛУЖБЫ» отображаются как есть: символ не пропадает, буква не подчёркивается
+  (`ServiceTrayMenuBuilder.EscapeMenuText`).
 - **«Очистка истории запусков»: сброс даты последнего запуска (1.0.0.17, issue #18, Windows
   и Linux)** — «Очистить историю» теперь полностью очищает историю запусков базы: удаляет все
   записи И сбрасывает `LastLaunchDate`, поэтому база уходит из раздела «Недавние» (раньше
