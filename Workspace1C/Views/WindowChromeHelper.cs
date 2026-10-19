@@ -82,6 +82,18 @@ namespace Workspace1C
         public static void SetFocusBrush(DependencyObject element, Brush value) => element.SetValue(FocusBrushProperty, value);
         public static Brush GetFocusBrush(DependencyObject element) => (Brush)element.GetValue(FocusBrushProperty);
 
+        /// <summary>
+        /// Вложенное свойство: при true у окна не рисуется кнопка «развернуть/восстановить»
+        /// в собственной шапке, а системная максимизация (Win+Up, двойной клик по шапке)
+        /// подавляется снятием WS_MAXIMIZEBOX (issue #3). Ресайз (CanResize/CanResizeWithGrip)
+        /// сохраняется. Устанавливается окном в конструкторе до показа.
+        /// </summary>
+        public static readonly DependencyProperty SuppressMaximizeButtonProperty =
+            DependencyProperty.RegisterAttached(
+                "SuppressMaximizeButton", typeof(bool), typeof(WindowChromeHelper), new PropertyMetadata(false));
+        public static void SetSuppressMaximizeButton(DependencyObject element, bool value) => element.SetValue(SuppressMaximizeButtonProperty, value);
+        public static bool GetSuppressMaximizeButton(DependencyObject element) => (bool)element.GetValue(SuppressMaximizeButtonProperty);
+
         [DllImport("dwmapi.dll", PreserveSig = true)]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
@@ -125,6 +137,21 @@ namespace Workspace1C
         // ---- WM_GETMINMAXINFO: максимизация строго на рабочую область (issue #368) ----
 
         private const int WmGetMinMaxInfo = 0x0024;
+
+        // ---- Подавление максимизации (issue #3): WM_STYLECHANGING / WM_SYSCOMMAND ----
+        // WM_STYLECHANGING: система собирается изменить стиль окна — снимаем WS_MAXIMIZEBOX
+        // из предлагаемого стиля, чтобы максимизация не вернулась. WM_SYSCOMMAND/SC_MAXIMIZE:
+        // команда разворота (Win+Up, системное меню) — игнорируется.
+        private const int WmStyleChanging = 0x007C;
+        private const int WmSysCommand = 0x0112;
+        private const int ScMaximize = 0xF030;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct StyleStruct
+        {
+            public int StyleOld;
+            public int StyleNew;
+        }
 
         /// <summary>MONITOR_DEFAULTTONEAREST — ближайший к окну монитор (если окно невидимо).</summary>
         private const uint MonitorDefaultToNearest = 2;
@@ -252,6 +279,12 @@ namespace Workspace1C
             // может рисовать «призрачными» поверх расширенной стеклянной рамки.
             RemoveSystemCaptionButtons(window);
 
+            // Подавление максимизации (issue #3): окно с SuppressMaximizeButton=true не
+            // получает кнопку «развернуть» в собственной шапке и не разворачивается
+            // системно (Win+Up, двойной клик по шапке). Ресайз сохраняется.
+            if (GetSuppressMaximizeButton(window))
+                HookSuppressMaximize(window);
+
             // Максимизация — строго на рабочую область монитора (без панели задач) + Win+Up
             // снова работает: WS_MAXIMIZEBOX сохранён (issue #368).
             HookMaximizeToWorkArea(window);
@@ -324,6 +357,70 @@ namespace Workspace1C
             {
                 // Не критично: останется системное поведение максимизации.
             }
+        }
+
+        /// <summary>
+        /// Подавляет максимизацию окна (issue #3): снимает WS_MAXIMIZEBOX со стиля окна
+        /// и ставит хук <see cref="SuppressMaximizeWndProc"/>, чтобы Win+Up и системная
+        /// максимизация не разворачивали окно. Ресайз (CanResize/CanResizeWithGrip)
+        /// не затрагивается. Идемпотентно, безопасно до создания HWND.
+        /// </summary>
+        private static void HookSuppressMaximize(Window window)
+        {
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                if (hwnd == IntPtr.Zero)
+                    return;
+                System.Windows.Interop.HwndSource.FromHwnd(hwnd)
+                    ?.AddHook(SuppressMaximizeWndProc);
+
+                // Снимаем WS_MAXIMIZEBOX сразу: без флага системная максимизация
+                // (Win+Up, двойной клик по системному заголовку) не работает вовсе.
+                int style = GetWindowLong(hwnd, GwlStyle);
+                if ((style & WsMaximizeBox) != 0)
+                {
+                    SetWindowLong(hwnd, GwlStyle, style & ~WsMaximizeBox);
+                    SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                        SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+                }
+            }
+            catch
+            {
+                // Не критично: кнопка максимизации уже не рисуется в собственной шапке.
+            }
+        }
+
+        /// <summary>
+        /// WndProc-хук подавления максимизации: не даёт системе вернуть WS_MAXIMIZEBOX
+        /// (WM_STYLECHANGING) и игнорирует команду разворота (WM_SYSCOMMAND/SC_MAXIMIZE).
+        /// Не пересекается с <see cref="MaximizeToWorkAreaWndProc"/> (issue #368): тот
+        /// обрабатывает только WM_GETMINMAXINFO.
+        /// </summary>
+        private static IntPtr SuppressMaximizeWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WmStyleChanging)
+            {
+                try
+                {
+                    var ss = Marshal.PtrToStructure<StyleStruct>(lParam);
+                    ss.StyleNew &= ~WsMaximizeBox;
+                    Marshal.StructureToPtr(ss, lParam, true);
+                }
+                catch
+                {
+                    // Не критично: максимизация подавлена и снятием флага в HookSuppressMaximize.
+                }
+                return IntPtr.Zero;
+            }
+
+            if (msg == WmSysCommand && (wParam.ToInt32() & 0xFFF0) == ScMaximize)
+            {
+                handled = true;
+                return IntPtr.Zero;
+            }
+
+            return IntPtr.Zero;
         }
 
         /// <summary>
@@ -404,10 +501,12 @@ namespace Workspace1C
             {
                 // Двойной клик по шапке — развернуть/восстановить (как в MainWindow,
                 // issue #368: поведение шапки второстепенных окон должно совпадать
-                // с главным).
+                // с главным). У окон с SuppressMaximizeButton=true (issue #3) двойной
+                // клик окно не разворачивает — как и системная максимизация.
                 if (e.ClickCount == 2)
                 {
-                    ToggleMaximize(window);
+                    if (!GetSuppressMaximizeButton(window))
+                        ToggleMaximize(window);
                     return;
                 }
 
@@ -439,8 +538,11 @@ namespace Workspace1C
             };
             // В диалоговых окнах показываем только кнопку «закрыть». У больших
             // изменяемых окон (например «Серверы 1С», issue #324) добавляем кнопку
-            // «развернуть/восстановить» — ResizeMode по умолчанию CanResize.
-            if (window.ResizeMode is ResizeMode.CanResize or ResizeMode.CanResizeWithGrip)
+            // «развернуть/восстановить» — ResizeMode по умолчанию CanResize. Окна
+            // с SuppressMaximizeButton=true (issue #3) кнопку не получают, ресайз
+            // при этом сохраняется.
+            if (window.ResizeMode is ResizeMode.CanResize or ResizeMode.CanResizeWithGrip &&
+                !GetSuppressMaximizeButton(window))
                 buttons.Children.Add(BuildMaximizeButton(window));
             buttons.Children.Add(BuildButton(window));
 

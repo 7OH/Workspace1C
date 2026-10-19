@@ -20,6 +20,11 @@ namespace Workspace1C
         public RacInfobasePropertiesWindow(RacInfobasePropertiesViewModel vm)
         {
             InitializeComponent();
+
+            // Кнопка «развернуть» в собственной шапке не нужна (issue #3): ресайз
+            // (ResizeMode по умолчанию CanResize) сохраняется, максимизация подавляется.
+            WindowChromeHelper.SetSuppressMaximizeButton(this, true);
+
             _vm = vm;
             DataContext = vm;
             AdminPasswordBox.Password = vm.InfobasePassword;

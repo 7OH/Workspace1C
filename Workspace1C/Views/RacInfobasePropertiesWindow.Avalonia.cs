@@ -39,7 +39,9 @@ namespace Workspace1C
             MinWidth = 680;
             MinHeight = 520;
             FontSize = 13;
-            CanResize = true;
+            // Окно без максимизации (issue #3): в Avalonia кнопка разворота в системном
+            // заголовке управляется через CanResize — выставляем false (ресайз некритичен).
+            CanResize = false;
             Content = BuildRoot();
             Opened += async (_, _) => await _vm.RefreshAsync();
             // Модальное окно центрируется по владельцу, но не ограничивается рабочей

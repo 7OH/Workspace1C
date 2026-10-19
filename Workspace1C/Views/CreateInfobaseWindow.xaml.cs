@@ -48,6 +48,10 @@ namespace Workspace1C
             _selectedGroupPath = defaultGroupPath ?? string.Empty;
             InitializeComponent();
 
+            // Кнопка «развернуть» в собственной шапке не нужна (issue #3): ресайз
+            // (CanResizeWithGrip) сохраняется, максимизация подавляется.
+            WindowChromeHelper.SetSuppressMaximizeButton(this, true);
+
             // Список известных серверов 1С из зарегистрированных клиент-серверных
             // баз — выпадающий список поля «Сервер 1С» (issue #305).
             ServerBox.ItemsSource = _availableServers;

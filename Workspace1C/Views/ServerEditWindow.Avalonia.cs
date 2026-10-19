@@ -46,7 +46,8 @@ namespace Workspace1C
             MinWidth = 440;
             MinHeight = 400;
             FontSize = 13;
-            CanResize = true;
+            // Окно фиксированного размера (issue #3): без ресайза и без максимизации.
+            CanResize = false;
 
             _descriptionBox.Text = model?.Description ?? string.Empty;
             _addressBox.Text = string.IsNullOrWhiteSpace(model?.Address) ? "localhost" : model!.Address;
