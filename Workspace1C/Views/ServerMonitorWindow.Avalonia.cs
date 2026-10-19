@@ -1219,9 +1219,14 @@ namespace Workspace1C
                 {
                     var submenu = new MenuItem { Header = item.Text, IsEnabled = item.IsEnabled }
                         .Styled(Themes.ControlThemes.ModernMenuItem);
-                    submenu.Icon = item.Kind == ServiceMenuItemKind.ServiceSubmenu
-                        ? StatusCircle(item.StatusColorHex)
-                        : MenuIcon(item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
+                    // Группа — «микс» папка + кружок статуса (замечание 7OH 19.10),
+                    // как в трее и в меню главного окна; «Все сервисы» — ☰.
+                    submenu.Icon = item.Kind switch
+                    {
+                        ServiceMenuItemKind.ServiceSubmenu => StatusCircle(item.StatusColorHex),
+                        ServiceMenuItemKind.GroupSubmenu => MenuGroupIcon(item.StatusColorHex),
+                        _ => MenuIcon("☰", "#7C3AED")
+                    };
                     foreach (var child in item.Children)
                         submenu.Items.Add(ToAvaloniaMenuItem(child));
                     return submenu;
@@ -1276,6 +1281,48 @@ namespace Workspace1C
                 catch { circle.Background = Brushes.Gray; }
             }
             return circle;
+        }
+
+        /// <summary>
+        /// Иконка группы служб в пункте меню — «микс» (замечание 7OH 19.10): папка 📦 +
+        /// кружок статуса группы справа-снизу (цвет StatusColorHex — зелёный/жёлтый/серый),
+        /// как в трее и в меню главного окна. При отсутствии статуса (кэш пуст, локальная
+        /// машина) — обычная папка без кружка.
+        /// </summary>
+        private static Control MenuGroupIcon(string statusColorHex)
+        {
+            var grid = new Grid { Width = 16, Height = 16 };
+            grid.Children.Add(new TextBlock
+            {
+                Text = "📦",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.Parse("#7C3AED")),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            if (!string.IsNullOrWhiteSpace(statusColorHex))
+            {
+                try
+                {
+                    grid.Children.Add(new Border
+                    {
+                        Width = 6,
+                        Height = 6,
+                        CornerRadius = new CornerRadius(3),
+                        Background = new SolidColorBrush(Color.Parse(statusColorHex)),
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(0, 0, 1, 1),
+                        BorderBrush = Brushes.White,
+                        BorderThickness = new Thickness(1)
+                    });
+                }
+                catch
+                {
+                    // Неизвестный цвет статуса не должен ломать построение меню.
+                }
+            }
+            return grid;
         }
 
         /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>

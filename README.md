@@ -1,12 +1,12 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.21-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.22-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.21**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.22**.
 
 ## 📣 Telegram-канал
 
@@ -222,6 +222,14 @@
   клиент-серверные базы (инвариант кластера), поэтому второй вариант удаления предлагается
   всегда, независимо от распознанного `dbms`; белый список СУБД остался только
   диагностической подписью в диалоге удаления и больше не блокирует вариант.
+- **«Серверы 1С»: цветной кружок статуса на папках-группах меню «СЛУЖБЫ» (1.0.0.22, issue #3,
+  Windows и Linux)** — микс-иконка «папка 📦 + кружок статуса справа-снизу» (зелёный/жёлтый/
+  серый), как в меню служб трея и главного окна, добавлена группам в меню «СЛУЖБЫ» окна
+  «Серверы 1С» (WPF и Avalonia).
+- **«Серверы 1С»: ошибка «Вызывающим потоком должен быть STA» при добавлении базы (1.0.0.22,
+  issue #3, Windows)** — предупреждения в `ServerMonitorViewModel` (создание/изменение/удаление
+  базы и другие действия) показываются в UI-потоке через `_dispatchToUi`, а не из фонового
+  продолжения после `ConfigureAwait(false)`.
 - **«Серверы 1С»: типы СУБД при создании/редактировании базы кластера (1.0.0.16, issue #3,
   Windows и Linux)** — список типов СУБД ограничен четырьмя значениями rac (MSSQLServer,
   PostgreSQL, IBMDB2, OracleDatabase); убраны SQLite, ServerODBC, FILE и подсказка про

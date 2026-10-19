@@ -1057,6 +1057,41 @@ public sealed class ServerMonitorViewModelTests
     }
 
     [Fact]
+    public async Task CreateInfobaseAsync_ClientFails_ShowsWarningOnUiThread()
+    {
+        // Замечание 7OH от 19.10: «Вызывающим потоком должен быть STA». После
+        // ConfigureAwait(false) продолжение CreateInfobaseAsync выполняется в потоке
+        // пула, поэтому предупреждение WPF нельзя создавать напрямую — оно обязано
+        // уйти через dispatch-маршалер в UI-поток (issue #3, 1.0.0.22).
+        var client = new FakeRacClient(actionFails: true);
+        var dialogs = new RecordingDialogs();
+        var inUi = false;
+        dialogs.OnUiProvider = () => inUi;
+        void dispatch(Action action)
+        {
+            var previous = inUi;
+            inUi = true; // имитация UI-потока (WPF Dispatcher / Avalonia UIThread)
+            try { action(); }
+            finally { inUi = previous; }
+        }
+        var vm = new ServerMonitorViewModel(client, dialogs, dispatch);
+        await vm.ConnectAsync();
+
+        await vm.CreateInfobaseAsync(new RacInfobaseCreateRequest
+        {
+            Name = "База",
+            Dbms = RacDbms.PostgreSql,
+            DbServer = "pg-01",
+            DbName = "baza"
+        });
+
+        Assert.Single(client.CreateInfobaseCalls);
+        Assert.NotEmpty(dialogs.Warnings);
+        Assert.True(dialogs.WarningsShownOnUi,
+            "предупреждение должно показываться в UI-потоке (через dispatch), а не из потока пула");
+    }
+
+    [Fact]
     public async Task DropSelectedInfobase_FromClusterOnly_PassesFalse()
     {
         // «Просто удалить из кластера» (диалог удаления с выбором, issue #3):
@@ -1698,9 +1733,25 @@ public sealed class ServerMonitorViewModelTests
         public List<(string message, string title)> Confirms { get; } = new();
         public List<(string message, string title)> Warnings { get; } = new();
 
+        /// <summary>
+        /// Провайдер «мы сейчас в UI-потоке»: задаёт тест STA-фикса (issue #3, 1.0.0.22) —
+        /// проверяет, что <see cref="ShowWarning"/> выполняется внутри dispatch-маршалера.
+        /// </summary>
+        public Func<bool>? OnUiProvider { get; set; }
+
+        /// <summary>True, если хотя бы одно предупреждение показано в контексте UI-потока.</summary>
+        public bool WarningsShownOnUi { get; private set; }
+
         public void ShowInfo(string message, string title = "") { }
         public void ShowError(string message, string title = "") { }
-        public void ShowWarning(string message, string title = "") => Warnings.Add((message, title));
+
+        public void ShowWarning(string message, string title = "")
+        {
+            Warnings.Add((message, title));
+            if (OnUiProvider?.Invoke() == true)
+                WarningsShownOnUi = true;
+        }
+
         public bool Confirm(string message, string title = "")
         {
             Confirms.Add((message, title));

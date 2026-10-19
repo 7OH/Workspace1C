@@ -436,8 +436,11 @@ namespace Workspace1C
                         IsEnabled = item.IsEnabled,
                         Style = TryFindResource("ModernMenuItem") as Style,
                     };
-                    submenu.Icon = MenuIconText(
-                        item.Kind == ServiceMenuItemKind.GroupSubmenu ? "📦" : "☰", "#7C3AED");
+                    // Группа — «микс» папка + кружок статуса (замечание 7OH 19.10),
+                    // как в трее и в контекстном меню служб главного окна; «Все сервисы» — ☰.
+                    submenu.Icon = item.Kind == ServiceMenuItemKind.GroupSubmenu
+                        ? MenuGroupIcon(item.StatusColorHex)
+                        : MenuIconText("☰", "#7C3AED");
                     foreach (var child in item.Children)
                         submenu.Items.Add(ToWpfServiceMenuItem(child));
                     return submenu;
@@ -490,6 +493,41 @@ namespace Workspace1C
             Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorHex)),
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        /// <summary>
+        /// Иконка группы служб в пункте меню — «микс» (замечание 7OH 19.10): папка 📦 +
+        /// кружок статуса группы справа-снизу (цвет StatusColorHex — зелёный/жёлтый/серый),
+        /// как в трее и в контекстном меню служб главного окна. При отсутствии статуса
+        /// (кэш пуст, локальная машина) — обычная папка без кружка.
+        /// </summary>
+        private static FrameworkElement MenuGroupIcon(string statusColorHex)
+        {
+            var grid = new Grid { Width = 16, Height = 16 };
+            grid.Children.Add(new TextBlock
+            {
+                Text = "📦",
+                FontSize = 13,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#7C3AED")),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            if (!string.IsNullOrWhiteSpace(statusColorHex))
+            {
+                grid.Children.Add(new Border
+                {
+                    Width = 6,
+                    Height = 6,
+                    CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(statusColorHex)),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 1, 1),
+                    BorderBrush = new SolidColorBrush(Colors.White),
+                    BorderThickness = new Thickness(1)
+                });
+            }
+            return grid;
+        }
 
         /// <summary>«Настроить…»: окно «Управление службами» (модально к монитору).</summary>
         private void ShowServicesSettings()

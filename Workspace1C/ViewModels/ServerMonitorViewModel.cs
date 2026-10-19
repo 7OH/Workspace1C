@@ -593,7 +593,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     LocalizationManager.T("ServerMonitor.Infobase.CreateFailed") + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.Infobase.CreateTitle"));
                 StatusText = detail;
@@ -605,7 +605,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 LocalizationManager.T("ServerMonitor.Infobase.CreateFailed") + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.Infobase.CreateTitle"));
             StatusText = BuildErrorMessage(ex);
@@ -636,7 +636,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     LocalizationManager.T("ServerMonitor.Infobase.DropFailed") + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.Infobase.DropTitle"));
                 StatusText = detail;
@@ -648,7 +648,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 LocalizationManager.T("ServerMonitor.Infobase.DropFailed") + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.Infobase.DropTitle"));
             StatusText = BuildErrorMessage(ex);
@@ -676,7 +676,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     LocalizationManager.T("ServerMonitor.Infobase.UpdateFailed") + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.Infobase.UpdateTitle"));
                 StatusText = detail;
@@ -688,7 +688,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 LocalizationManager.T("ServerMonitor.Infobase.UpdateFailed") + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.Infobase.UpdateTitle"));
             StatusText = BuildErrorMessage(ex);
@@ -1144,7 +1144,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     string.Format(LocalizationManager.T("ServerMonitor.TerminateFailedFormat"), row.User) + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.TerminateTitle"));
                 StatusText = detail;
@@ -1156,7 +1156,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 string.Format(LocalizationManager.T("ServerMonitor.TerminateFailedFormat"), row.User) + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.TerminateTitle"));
             StatusText = BuildErrorMessage(ex);
@@ -1189,7 +1189,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     string.Format(LocalizationManager.T("ServerMonitor.DisconnectFailedFormat"), row.Host) + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.DisconnectTitle"));
                 StatusText = detail;
@@ -1201,7 +1201,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 string.Format(LocalizationManager.T("ServerMonitor.DisconnectFailedFormat"), row.Host) + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.DisconnectTitle"));
             StatusText = BuildErrorMessage(ex);
@@ -1243,6 +1243,23 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// <inheritdoc />
     /// <summary>Останавливает таймер автообновления (вызывается окном при закрытии).</summary>
     public void Dispose() => StopAutoRefresh();
+
+    /// <summary>
+    /// Показывает предупреждение в UI-потоке (issue #3, 1.0.0.22; замечание 7OH 19.10):
+    /// async-методы используют <c>ConfigureAwait(false)</c>, поэтому продолжение после
+    /// await выполняется в потоке пула, а WPF-окно MaterialMessageWindow можно
+    /// создавать только в STA-потоке UI — иначе «Вызывающим потоком должен быть STA».
+    /// При отсутствии маршалера (тесты) предупреждение показывается сразу, как раньше.
+    /// </summary>
+    private void ShowWarningOnUi(string message, string title)
+    {
+        if (_dispatchToUi is null)
+        {
+            _dialogs.ShowWarning(message, title);
+            return;
+        }
+        _dispatchToUi(() => _dialogs.ShowWarning(message, title));
+    }
 
     // ===================== Внутреннее =====================
 
@@ -1523,7 +1540,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         var message = string.Format(
             LocalizationManager.T("ServerMonitor.Cluster.InvalidNumberFormat"),
             row.DisplayName, value);
-        _dialogs.ShowWarning(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+        ShowWarningOnUi(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
         return false;
     }
 
@@ -1536,7 +1553,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         var message = string.Format(
             LocalizationManager.T("ServerMonitor.Cluster.InvalidNumberFormat"),
             row.DisplayName, value);
-        _dialogs.ShowWarning(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
+        ShowWarningOnUi(message, LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
         return false;
     }
 
@@ -1572,7 +1589,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             if (!ok)
             {
                 var detail = BuildActionError(_rac.LastActionError);
-                _dialogs.ShowWarning(
+                ShowWarningOnUi(
                     LocalizationManager.T("ServerMonitor.Cluster.SaveFailedFormat") + "\n" + detail,
                     LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
                 StatusText = detail;
@@ -1583,7 +1600,7 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            _dialogs.ShowWarning(
+            ShowWarningOnUi(
                 LocalizationManager.T("ServerMonitor.Cluster.SaveFailedFormat") + "\n" + BuildErrorMessage(ex),
                 LocalizationManager.T("ServerMonitor.Cluster.SaveTitle"));
             StatusText = BuildErrorMessage(ex);
