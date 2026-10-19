@@ -915,6 +915,22 @@ public class Infobase : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Очистить историю запусков базы (issue #18): удаляет все записи и сбрасывает
+    /// <see cref="LastLaunchDate"/>, чтобы база покинула режим «Недавние». Поднимает
+    /// <see cref="OnPropertyChanged"/> для <see cref="LaunchHistory"/>,
+    /// <see cref="LaunchHistoryDisplay"/> и <see cref="LastLaunchDisplay"/> — по образцу
+    /// <see cref="AddLaunchHistory"/>. Чистый метод модели, общий для обеих платформ.
+    /// </summary>
+    public void ClearLaunchHistory()
+    {
+        _launchHistory.Clear();
+        LastLaunchDate = null;
+        OnPropertyChanged(nameof(LaunchHistory));
+        OnPropertyChanged(nameof(LaunchHistoryDisplay));
+        OnPropertyChanged(nameof(LastLaunchDisplay));
+    }
+
+    /// <summary>
     /// Возвращает глубину истории из глобальной настройки (issue #246). Считывается из
     /// <c>settings.json</c> так же, как это делает <see cref="Services.ConfigurationInfoService"/>
     /// для таймаута COM: значения небольшие, чтение файла происходит редко (только при

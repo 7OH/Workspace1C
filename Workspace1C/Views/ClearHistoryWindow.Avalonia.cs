@@ -125,7 +125,7 @@ namespace Workspace1C
             var cleared = 0;
             foreach (var row in targets)
             {
-                row.Infobase.LaunchHistory = new List<LaunchHistoryEntry>();
+                row.Infobase.ClearLaunchHistory();
                 DataChanged = true;
                 cleared++;
                 row.SyncFromInfobase();

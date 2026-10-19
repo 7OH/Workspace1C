@@ -78,6 +78,20 @@ public sealed class ClearHistoryRowViewModelTests
     }
 
     [Fact]
+    public void HistoryCount_AfterClearLaunchHistory_IsZero()
+    {
+        var row = CreateRow(withHistory: true);
+        row.Infobase.LastLaunchDate = DateTime.Now;
+
+        row.Infobase.ClearLaunchHistory();
+        row.SyncFromInfobase();
+
+        Assert.Equal(0, row.HistoryCount);
+        Assert.False(row.HasHistory);
+        Assert.Null(row.Infobase.LastLaunchDate);
+    }
+
+    [Fact]
     public void SyncFromInfobase_RaisesPropertyChangedForCount()
     {
         var row = CreateRow();
