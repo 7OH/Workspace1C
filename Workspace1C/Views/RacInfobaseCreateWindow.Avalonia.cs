@@ -30,7 +30,7 @@ namespace Workspace1C
         private readonly TextBox _dbNameBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
         private readonly TextBox _dbUserBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
         private readonly PasswordBox _dbPasswordBox = new PasswordBox { Height = 32 }.Styled(ControlThemes.ModernPasswordBox);
-        private readonly TextBox _localeBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
+        private readonly ComboBox _localeBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
         private readonly ComboBox _securityLevelBox = new() { Height = 32, VerticalContentAlignment = VerticalAlignment.Center };
         private readonly CheckBox _createDbBox = new() { Content = T("ServerMonitor.Infobase.CreateDb") };
         private readonly CheckBox _scheduledJobsDenyBox = new() { Content = T("ServerMonitor.Infobase.ScheduledJobsDeny") };
@@ -67,6 +67,12 @@ namespace Workspace1C
             _dbmsBox.SelectedItem = RacDbms.MssqlServer;
             _securityLevelBox.ItemsSource = new[] { "0", "1", "2" };
 
+            // Локаль — список выбора (issue #3, 7OH 19.10): пустое значение rac не
+            // принимает, поэтому по умолчанию выбран Русский.
+            _localeBox.Styled(ControlThemes.ModernComboBox);
+            _localeBox.ItemsSource = RacLocales.Values;
+            _localeBox.SelectedItem = RacLocales.Default;
+
             Content = BuildRoot();
         }
 
@@ -91,7 +97,7 @@ namespace Workspace1C
             _dbServerBox.Text = summary.DbServer;
             _dbNameBox.Text = summary.DbName;
             _dbUserBox.Text = summary.DbUser;
-            _localeBox.Text = summary.Locale;
+            _localeBox.SelectedItem = SelectLocale(summary.Locale);
 
             _dbmsBox.SelectedItem = NormalizeDbms(summary.Dbms);
             if (summary.SecurityLevel is >= 0 and <= 2)
@@ -110,6 +116,19 @@ namespace Workspace1C
                 "oracledatabase" => RacDbms.OracleDatabase,
                 _ => RacDbms.MssqlServer
             };
+        }
+
+        /// <summary>
+        /// Выбирает локаль из списка: нормализует код из rac («ru_RU» → «ru») и, если
+        /// его нет в списке, добавляет в ItemsSource, чтобы не потерять значение.
+        /// </summary>
+        private string SelectLocale(string? summaryLocale)
+        {
+            var normalized = RacLocales.Normalize(summaryLocale);
+            if (_localeBox.Items.Contains(normalized))
+                return normalized;
+            _localeBox.Items.Add(normalized);
+            return normalized;
         }
 
         /// <summary>Показывает окно модально (синхронно).</summary>
@@ -217,7 +236,7 @@ namespace Workspace1C
                     DbName = dbName,
                     DbUser = _dbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = _dbPasswordBox.Password ?? string.Empty,
-                    Locale = _localeBox.Text?.Trim() ?? string.Empty,
+                    Locale = _localeBox.SelectedItem as string ?? RacLocales.Default,
                     SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
                     ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true
                 };
@@ -233,7 +252,7 @@ namespace Workspace1C
                     DbName = dbName,
                     DbUser = _dbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = _dbPasswordBox.Password ?? string.Empty,
-                    Locale = _localeBox.Text?.Trim() ?? string.Empty,
+                    Locale = _localeBox.SelectedItem as string ?? RacLocales.Default,
                     SecurityLevel = int.TryParse(_securityLevelBox.SelectedItem as string, out var level) ? level : null,
                     CreateDb = _createDbBox.IsChecked == true,
                     ScheduledJobsDeny = _scheduledJobsDenyBox.IsChecked == true

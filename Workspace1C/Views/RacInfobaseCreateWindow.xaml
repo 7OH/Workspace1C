@@ -105,9 +105,8 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{loc:Loc ServerMonitor.Infobase.Locale}"
                            Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="LocaleBox" Grid.Column="1" Style="{StaticResource ModernTextBox}"
-                         Padding="6,3" VerticalContentAlignment="Center"
-                         ToolTip="Например ru_RU. Пусто — локаль по умолчанию сервера."/>
+                <ComboBox x:Name="LocaleBox" Grid.Column="1" Style="{StaticResource ModernComboBox}"
+                          Padding="6,3" VerticalContentAlignment="Center"/>
             </Grid>
 
             <Grid Margin="0,4">

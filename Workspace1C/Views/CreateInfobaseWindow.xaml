@@ -92,7 +92,6 @@
                             <ComboBoxItem Content="PostgreSQL"/>
                             <ComboBoxItem Content="IBMDB2"/>
                             <ComboBoxItem Content="OracleDatabase"/>
-                            <ComboBoxItem Content="SQLite"/>
                         </ComboBox>
                         <CheckBox x:Name="CreateDbCheck" Margin="0,2,0,8"
                                   Foreground="{DynamicResource TextPrimaryBrush}">

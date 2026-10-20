@@ -49,6 +49,11 @@ namespace Workspace1C
             };
             DbmsBox.SelectedItem = RacDbms.MssqlServer;
             SecurityLevelBox.SelectedIndex = -1; // «по умолчанию»
+
+            // Локаль — список выбора (issue #3, 7OH 19.10): пустое значение rac не
+            // принимает, поэтому по умолчанию выбран Русский.
+            LocaleBox.ItemsSource = RacLocales.Values;
+            LocaleBox.SelectedItem = RacLocales.Default;
         }
 
         /// <summary>
@@ -71,7 +76,7 @@ namespace Workspace1C
             DbServerBox.Text = summary.DbServer;
             DbNameBox.Text = summary.DbName;
             DbUserBox.Text = summary.DbUser;
-            LocaleBox.Text = summary.Locale;
+            LocaleBox.SelectedItem = SelectLocale(summary.Locale);
 
             var dbms = NormalizeDbms(summary.Dbms);
             DbmsBox.SelectedItem = dbms;
@@ -95,6 +100,19 @@ namespace Workspace1C
                 "oracledatabase" => RacDbms.OracleDatabase,
                 _ => RacDbms.MssqlServer
             };
+        }
+
+        /// <summary>
+        /// Выбирает локаль из списка: нормализует код из rac («ru_RU» → «ru») и, если
+        /// его нет в списке, добавляет в ItemsSource, чтобы не потерять значение.
+        /// </summary>
+        private string SelectLocale(string? summaryLocale)
+        {
+            var normalized = RacLocales.Normalize(summaryLocale);
+            if (LocaleBox.Items.Contains(normalized))
+                return normalized;
+            LocaleBox.Items.Add(normalized);
+            return normalized;
         }
 
         private void OnSaveClick(object sender, RoutedEventArgs e)
@@ -134,7 +152,7 @@ namespace Workspace1C
                     DbName = dbName,
                     DbUser = DbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = DbPasswordBox.Password ?? string.Empty,
-                    Locale = LocaleBox.Text?.Trim() ?? string.Empty,
+                    Locale = LocaleBox.SelectedItem as string ?? RacLocales.Default,
                     // Элементы списка — ComboBoxItem «0/1/2»: значение = индекс (issue #3:
                     // приведение SelectedItem к int? бросало InvalidCastException).
                     SecurityLevel = SecurityLevelBox.SelectedIndex >= 0
@@ -154,7 +172,7 @@ namespace Workspace1C
                     DbName = dbName,
                     DbUser = DbUserBox.Text?.Trim() ?? string.Empty,
                     DbPassword = DbPasswordBox.Password ?? string.Empty,
-                    Locale = LocaleBox.Text?.Trim() ?? string.Empty,
+                    Locale = LocaleBox.SelectedItem as string ?? RacLocales.Default,
                     // Элементы списка — ComboBoxItem «0/1/2»: значение = индекс (issue #3:
                     // приведение SelectedItem к int? бросало InvalidCastException).
                     SecurityLevel = SecurityLevelBox.SelectedIndex >= 0

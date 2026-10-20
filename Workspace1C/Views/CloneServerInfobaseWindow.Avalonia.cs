@@ -59,7 +59,7 @@ namespace Workspace1C
         /// <summary>Доступные значения СУБД для клиент-серверного создания.</summary>
         private static readonly string[] DbmsValues =
         {
-            "MSSQLServer", "PostgreSQL", "IBMDB2", "OracleDatabase", "SQLite"
+            "MSSQLServer", "PostgreSQL", "IBMDB2", "OracleDatabase"
         };
 
         public CloneServerInfobaseWindow(
