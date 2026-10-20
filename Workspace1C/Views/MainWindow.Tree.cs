@@ -301,6 +301,14 @@ namespace Workspace1C
                 if (target is null)
                     return;
 
+                // Ранний выход (issue #21): если цель не присутствует в текущем дереве данных
+                // (например, выбранная база не входит в режим вкладки «Избранное»), её контейнер
+                // никогда не материализуется — не гоняем повторные проходы с принудительными
+                // полными раскладками (UpdateLayout на каждой попытке до MaxRevealAttempts).
+                // Проверка только по ViewModel-данным, визуальное дерево не трогаем.
+                if (!IsRevealTargetReachable(target))
+                    return;
+
                 // «Найти в списке» (issue #285): строка должна быть во «Все базы» — в настоящей
                 // группе базы или узле «Без группы», а НЕ первой копией в «Закреплённых».
                 // Закреплённая база присутствует в дереве дважды, и общий поиск всегда отдавал
@@ -676,6 +684,49 @@ namespace Workspace1C
             }
             if (node.Infobases.Any(ib => ReferenceEquals(UnwrapInfobase(ib), infobase)))
                 return node;
+            return null;
+        }
+
+        /// <summary>
+        /// Проверяет, присутствует ли цель восстановления выделения в текущем дереве данных
+        /// (issue #21): база размещена в каком-либо узле <see cref="MainViewModel.GroupNodes"/>,
+        /// выбранная группа с реальной моделью — в дереве (перепривязка по Id). Спец-узлы
+        /// («Закреплённые», «Без группы») целью не являются (их выбор не восстанавливается).
+        /// Работает только по ViewModel-данным, без обращения к визуальному дереву.
+        /// </summary>
+        private bool IsRevealTargetReachable(object target)
+        {
+            return target switch
+            {
+                Infobase infobase => FindGroupNodeByInfobase(infobase) is not null,
+                GroupNodeViewModel group => IsGroupInTree(group),
+                _ => false
+            };
+        }
+
+        private bool IsGroupInTree(GroupNodeViewModel group)
+        {
+            if (group.Group is null)
+                return false; // спец-узлы как цель выбора не восстанавливаются
+            var id = group.Group.Id;
+            if (string.IsNullOrEmpty(id))
+                return false;
+            foreach (var root in _viewModel.GroupNodes)
+                if (FindGroupNodeByIdData(root, id) is not null)
+                    return true;
+            return false;
+        }
+
+        private static GroupNodeViewModel? FindGroupNodeByIdData(GroupNodeViewModel node, string id)
+        {
+            if (node.Group is not null && string.Equals(node.Group.Id, id, StringComparison.OrdinalIgnoreCase))
+                return node;
+            foreach (var child in node.Children)
+            {
+                var found = FindGroupNodeByIdData(child, id);
+                if (found is not null)
+                    return found;
+            }
             return null;
         }
 

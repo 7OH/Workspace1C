@@ -275,7 +275,14 @@ namespace Workspace1C
             // иначе список «уезжает» после отмены правки (issue #252).
             _vm.TreeModalOpening += RememberTreeScroll;
             _vm.TreeModalClosed += RestoreTreeScrollAfterCancel;
-            _vm.TreeRebuilt += RestoreTreeSelection;
+            _vm.TreeRebuilt += () =>
+            {
+                // Чистое переключение вкладки (issue #21): цель выделения из прежнего режима
+                // в новом, как правило, недостижима, а восстановление выбора и прокрутки
+                // к ней только добавляло работу на каждое переключение.
+                if (!_vm.IsListModeSwitchInProgress)
+                    RestoreTreeSelection();
+            };
             // «Найти в списке» (issue #285): цель выставлена и дерево пересобрано — окну
             // нужно показать строку, а не возвращать прежнюю позицию прокрутки.
             _vm.RevealFindInListRequested += RevealFindInList;
@@ -1630,7 +1637,16 @@ namespace Workspace1C
 
                 // Строки пересобираются вместе с деревом, поэтому заголовок
                 // выравнивается по ним заново: отступ уровня мог измениться.
-                _groupNodesChanged = (_, _) => { UpdateEmptyState(); QueueHeaderAlign(); };
+                // При чистом переключении вкладки (issue #21, Этап B) выравнивание приходит
+                // позже — от ContainerPrepared материализованных строк, — чтобы не запускать
+                // повторный цикл выравнивания на каждое переключение. В остальных случаях
+                // (поиск, данные, группировка) ставим, как раньше.
+                _groupNodesChanged = (_, _) =>
+                {
+                    UpdateEmptyState();
+                    if (!_vm.IsListModeSwitchInProgress)
+                        QueueHeaderAlign();
+                };
                 _flatItemsChanged = (_, _) => UpdateEmptyState();
                 _tagFiltersRebuilt = (_, _) => RefreshTagFilterPanel();
                 _vmPropertyChanged = (_, e) =>

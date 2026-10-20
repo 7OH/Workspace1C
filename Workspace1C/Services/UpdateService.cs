@@ -28,6 +28,10 @@ public sealed class UpdateService : IAppUpdateService
     /// <summary>Каталог (относительно %TEMP%) для загрузки и временных скриптов обновления.</summary>
     private const string UpdateTempDir = @"Workspace1C\update";
 
+    /// <summary>ключ локализации заголовка окна результата проверки обновлений (issue #23):
+    /// «Проверка обновлений», единый для всех исходов (ошибка/актуально/сбой загрузки).</summary>
+    private const string CheckResultTitleKey = "Updates.CheckTitle";
+
     private readonly GitHubReleaseService _gitHub;
     private readonly IDialogService _dialogs;
     private readonly INotificationService _notifications;
@@ -144,7 +148,7 @@ public sealed class UpdateService : IAppUpdateService
             {
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.CheckFailed"),
-                    LocalizationManager.T("Update.NewVersionAvailable")));
+                    LocalizationManager.T(CheckResultTitleKey)));
                 return;
             }
 
@@ -152,7 +156,7 @@ public sealed class UpdateService : IAppUpdateService
             {
                 ShowOnUi(() => _dialogs.ShowInfo(
                     LocalizationManager.T("Update.UpToDate"),
-                    LocalizationManager.T("Update.NewVersionAvailable")));
+                    LocalizationManager.T(CheckResultTitleKey)));
                 return;
             }
 
@@ -173,7 +177,7 @@ public sealed class UpdateService : IAppUpdateService
         {
             ShowOnUi(() => _dialogs.ShowError(
                 LocalizationManager.T("Update.CheckFailed"),
-                LocalizationManager.T("Update.NewVersionAvailable")));
+                LocalizationManager.T(CheckResultTitleKey)));
         }
     }
 
@@ -750,7 +754,7 @@ public sealed class UpdateService : IAppUpdateService
 
     /// <summary>Показывает локализованную ошибку в UI-потоке.</summary>
     internal void ShowErrorOnUi(string message) =>
-        ShowOnUi(() => _dialogs.ShowError(message, LocalizationManager.T("Update.NewVersionAvailable")));
+        ShowOnUi(() => _dialogs.ShowError(message, LocalizationManager.T(CheckResultTitleKey)));
 
     /// <summary>Закрывает текущее приложение (вызывается после успешного запуска помощника).</summary>
     internal void ShutdownNow()

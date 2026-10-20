@@ -104,4 +104,30 @@ public sealed class ObservableRangeCollectionTests
         Assert.Equal(new[] { "c", "b" }, collection);
         Assert.Equal(2, collection.Count);
     }
+
+    [Fact]
+    public void ReplaceAll_ManyItems_EmitsSingleReset_NotPerItem()
+    {
+        // issue #21: массовая замена содержимого (используется PopulateItems/FlatItems/
+        // GroupNodes при переключении вкладок) должна порождать ОДНО событие Reset,
+        // а не Add/Remove на каждый элемент — иначе TreeView получает тысячи событий.
+        var collection = new ObservableRangeCollection<int> { 1, 2, 3 };
+        var resets = 0;
+        var adds = 0;
+        var removes = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (e.Action == NotifyCollectionChangedAction.Add) adds++;
+            else if (e.Action == NotifyCollectionChangedAction.Remove) removes++;
+        };
+
+        var items = Enumerable.Range(0, 600).ToList();
+        collection.ReplaceAll(items);
+
+        Assert.Equal(600, collection.Count);
+        Assert.Equal(1, resets);
+        Assert.Equal(0, adds);
+        Assert.Equal(0, removes);
+    }
 }

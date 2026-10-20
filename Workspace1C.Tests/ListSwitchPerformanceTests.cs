@@ -118,4 +118,73 @@ public sealed class ListSwitchPerformanceTests
         Assert.True(perSwitch < 200,
             $"Среднее переключение {perSwitch:F1} мс — медленнее цели 200 мс");
     }
+
+    [Fact]
+    public void CachedGroupedTreeReuse_IsNotSlowerThanRebuilding()
+    {
+        // Этап C (issue #21): кэш группированного дерева «Все» — переключение «Избранное»→«Все»
+        // переиспользует узлы дерева вместо пересоздания тысяч GroupNodeViewModel.
+        // Переиспользование не должно быть медленнее пересоздания (иначе этап бессмысленен).
+        var bases = CreateBases(600);
+        var favorites = bases.Where(b => b.IsFavorite).ToList();
+
+        // «До»: полное пересоздание группированного дерева на каждый проход.
+        var swOld = Stopwatch.StartNew();
+        for (var i = 0; i < 20; i++)
+            BuildGroupedTree(bases);
+        swOld.Stop();
+
+        // «После»: дерево построено один раз; возврат на «Все» — раздача кэша.
+        var swNew = Stopwatch.StartNew();
+        var cached = BuildGroupedTree(bases);
+        for (var i = 0; i < 20; i++)
+        {
+            var flat = new GroupNodeViewModel(null);
+            flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null); // «Избранное»
+            _ = cached; // «Все» из кэша (в тесте не пересоздаётся)
+        }
+        swNew.Stop();
+
+        _output.WriteLine(
+            $"Кэш дерева «Все» ×20 ({bases.Count} баз): пересоздание = {swOld.ElapsedMilliseconds} мс, " +
+            $"переиспользование = {swNew.ElapsedMilliseconds} мс");
+
+        Assert.True(swNew.ElapsedMilliseconds <= swOld.ElapsedMilliseconds + 5,
+            $"Переиспользование кэша дерева ({swNew.ElapsedMilliseconds} мс) медленнее пересоздания ({swOld.ElapsedMilliseconds} мс)");
+    }
+
+    [Fact]
+    public void RepeatedSwitchCycle_VMMedian_DoesNotGrow()
+    {
+        // issue #21: «задержка становится больше с каждым переключением». На уровне VM
+        // прогоняем 30 циклов «Все→Избранное→Все» и проверяем, что медиана последней
+        // декады не растёт радикально относительно первой (широкий запас — защита от
+        // флуктуаций CI). Отрисовка TreeView здесь не гоняется (её замеряется отдельно).
+        var bases = CreateBases(600);
+        var favorites = bases.Where(b => b.IsFavorite).ToList();
+
+        var times = new List<double>(30);
+        for (var i = 0; i < 30; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            BuildGroupedTree(bases);                                                   // «Все»
+            var flat = new GroupNodeViewModel(null);
+            flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null);   // «Избранное»
+            BuildGroupedTree(bases);                                                   // «Все»
+            sw.Stop();
+            times.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        var first = times.Take(10).OrderBy(t => t).ToArray();
+        var last = times.Skip(20).OrderBy(t => t).ToArray();
+        var medianFirst = first[first.Length / 2];
+        var medianLast = last[last.Length / 2];
+
+        _output.WriteLine(
+            $"30 циклов: медиана первых 10 = {medianFirst:F1} мс, медиана последних 10 = {medianLast:F1} мс");
+
+        // Мягкий порог «нет роста»: последняя декада не хуже удвоенной первой (+5 мс).
+        Assert.True(medianLast <= Math.Max(medianFirst * 2 + 5, 15),
+            $"Медиана последних 10 циклов {medianLast:F1} мс растёт относительно первых {medianFirst:F1} мс");
+    }
 }

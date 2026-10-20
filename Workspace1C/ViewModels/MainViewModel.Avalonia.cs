@@ -87,6 +87,11 @@ public partial class MainViewModel : ViewModelBase
     private string _listMode = "All"; // All / Favorites / Recent
     private bool _groupByGroup = true;
     private bool _showEmptyGroups;
+    /// <summary>Признак «идёт чистое переключение вкладки списка» (issue #21): true на время
+    /// <see cref="SetListMode"/>. Окно не восстанавливает выделение/фокус — цель из прежнего
+    /// режима в новом, как правило, недостижима, а обязанное за ней восстановление вызывало
+    /// принудительные UpdateLayout и повторные проходы Reveal (рост задержки переключения).</summary>
+    private bool _listModeSwitchInProgress;
 
     // ---- Правая панель ----
     private Infobase? _selectedInfobase;

@@ -864,8 +864,9 @@ public partial class MainViewModel : ViewModelBase
     {
         // Любой вызов пересборки, кроме чистого переключения вкладки (ListViewMode setter
         // идёт через RebuildGroupTreeCore), означает изменение данных/фильтров — кэш
-        // «Избранное»/«Недавние» сбрасываем, чтобы не показывать устаревший список (issue #21).
+        // «Избранное»/«Недавние» И кэш дерева «Все» сбрасываем (issue #21).
         _listFilter.Invalidate();
+        _groupedTreeCacheValid = false;
         RebuildGroupTreeCore();
     }
 
@@ -898,6 +899,26 @@ public partial class MainViewModel : ViewModelBase
             _flatNode.IsExpanded = true;
             _groupNodes = new List<GroupNodeViewModel> { _flatNode };
             ReplaceGroupNodes(_groupNodes);
+            return;
+        }
+
+        // Кэш группированного дерева режима «Все» (issue #21, Этап C): при чистом
+        // переключении вкладок (например, «Избранное» → «Все» с группировкой) узлы дерева
+        // переиспользуются, а не пересоздаются тысячи объектов GroupNodeViewModel и
+        // обёрток PinnedInfobaseItem (источник роста CPU и памяти с каждым переключением).
+        // Кэш инвалидируется в RebuildGroupTree при любом изменении данных/фильтров.
+        if (_groupedTreeCacheValid && _groupedTreeCache is not null)
+        {
+            _groupNodes = _groupedTreeCache;
+            // Состояние развёрнутости может отличаться от момента кэширования
+            // (раскрытие/сворачивание на вкладках) — применяем актуальное.
+            ApplyExpandedState(_groupNodes);
+            var cachedSelectedId = SelectedGroupNode?.Group?.Id;
+            if (!string.IsNullOrEmpty(cachedSelectedId)
+                && FindGroupNodeById(_groupNodes, cachedSelectedId) is { } cachedRemapped)
+                SelectedGroupNode = cachedRemapped;
+            ReplaceGroupNodes(_groupNodes);
+            RefreshTagFilterItems();
             return;
         }
 
@@ -998,6 +1019,10 @@ public partial class MainViewModel : ViewModelBase
         }
 
         _groupNodes = next;
+        // Заполняем кэш дерева «Все» (issue #21, Этап C): валидным он становится только
+        // после успешного построения.
+        _groupedTreeCache = next;
+        _groupedTreeCacheValid = true;
 
         // Expand/collapse до Replace — один проход построения TreeView.
         if (ShouldAutoExpandGroups())

@@ -35,6 +35,10 @@ namespace Workspace1C.Services
         /// <summary>Признак того, что цепочка диалогов обновления уже идёт.</summary>
         private int _updateInProgress;
 
+        /// <summary>Ключ локализации заголовка окна результата проверки обновлений (issue #23):
+        /// «Проверка обновлений», единый для всех исходов (ошибка/актуально/сбой загрузки).</summary>
+        private const string CheckResultTitleKey = "Updates.CheckTitle";
+
         /// <summary>
         /// Возвращает каталог для скачанного бинарника и сценариев обновления, один на запуск
         /// приложения. Сценарий обновления установки в системном каталоге исполняется от имени
@@ -188,7 +192,7 @@ namespace Workspace1C.Services
                 {
                     ShowOnUi(() => _dialogs.ShowError(
                         LocalizationManager.T("Update.CheckFailed"),
-                        LocalizationManager.T("Update.NewVersionAvailable")));
+                        LocalizationManager.T(CheckResultTitleKey)));
                     return;
                 }
 
@@ -196,7 +200,7 @@ namespace Workspace1C.Services
                 {
                     ShowOnUi(() => _dialogs.ShowInfo(
                         LocalizationManager.T("Update.UpToDate"),
-                        LocalizationManager.T("Update.NewVersionAvailable")));
+                        LocalizationManager.T(CheckResultTitleKey)));
                     return;
                 }
 
@@ -213,7 +217,7 @@ namespace Workspace1C.Services
             {
                 ShowOnUi(() => _dialogs.ShowError(
                     LocalizationManager.T("Update.CheckFailed"),
-                    LocalizationManager.T("Update.NewVersionAvailable")));
+                    LocalizationManager.T(CheckResultTitleKey)));
             }
         }
 

@@ -304,8 +304,22 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsListModeRunning));
         // Чистое переключение вкладки: данные не менялись, кэш «Избранное»/«Недавние»
         // не сбрасываем — берём готовый отфильтрованный список (issue #21).
-        ApplyFilterCore();
+        // Флаг сообщает окну, что это НЕ пересборка по изменению данных: восстановление
+        // выделения/фокуса не нужно (цель из прежнего режима, как правило, недостижима).
+        _listModeSwitchInProgress = true;
+        try
+        {
+            ApplyFilterCore();
+        }
+        finally
+        {
+            _listModeSwitchInProgress = false;
+        }
     }
+
+    /// <summary>true, пока выполняется чистое переключение вкладки списка
+    /// («Все»/«Избранное»/«Недавние»/«Запущенные», issue #21).</summary>
+    public bool IsListModeSwitchInProgress => _listModeSwitchInProgress;
 
     /// <summary>Переприменяет фильтр при изменении состава запущенных баз (issue #339).</summary>
     partial void RefreshListAfterRunningFlagsChanged() => ApplyFilter();

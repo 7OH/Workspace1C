@@ -290,10 +290,12 @@ namespace Workspace1C
         {
             // Ширина вьюпорта внешней прокрутки влияет на решение о горизонтальной полосе
             // (анти-регресс #255): при помещающихся колонках минимум контента не должен
-            // превышать вьюпорт. Пересчёт дёшев — при неизменном значении MinWidth ставится
-            // на то же значение и не инвалидирует раскладку (анти-регресс #343).
+            // превышать вьюпорт. Пересчёт на каждый ScrollChanged заменён дебаунсом
+            // (QueueTreeMinWidthRefresh, один раз на проход Background) — при пересборке
+            // дерева/переключении вкладки ScrollChanged сыплет серией событий, и синхронный
+            // пересчёт на каждом усугублял каскад пересчётов колонок (issue #21, Этап B4).
             if (e.ViewportWidthChange != 0)
-                UpdateTreeMinWidth();
+                QueueTreeMinWidthRefresh();
         }
 
         private void OnTreeScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -322,7 +324,9 @@ namespace Workspace1C
                 var top = GetTopVisibleRowData();
                 if (!ReferenceEquals(top, _treeMinWidthAnchorData))
                 {
-                    _treeMinWidthAnchorData = top;
+                    // Установку _treeMinWidthAnchorData больше НЕ делаем здесь:
+                    // это ответственность UpdateTreeMinWidthContent (кэш-хит, issue #21,
+                    // Этап B1) — сброс до вызова отключил бы кэш-хит на повторных вызовах.
                     UpdateTreeMinWidthContent();
                     UpdateTreeMinWidth();
                 }

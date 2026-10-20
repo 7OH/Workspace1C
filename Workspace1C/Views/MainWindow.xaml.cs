@@ -303,7 +303,13 @@ namespace Workspace1C
             _viewModel.TreeModalClosed += RestoreTreeScrollAfterCancel;
             _viewModel.TreeRebuilt += () =>
             {
-                RestoreTreeKeyboardFocus();
+                // Чистое переключение вкладки (issue #21): цель выделения из прежнего режима
+                // в новом, как правило, недостижима, а обязанное за ней восстановление
+                // (RevealAndSelectAfterRebuild -> принудительный UpdateLayout + повторные
+                // проходы до MaxRevealAttempts) давало «паузу» на каждое переключение.
+                // Восстановление оставляем только для пересборок по изменению данных.
+                if (!_viewModel.IsListModeSwitchInProgress)
+                    RestoreTreeKeyboardFocus();
                 // Виртуализация создаёт новые контейнеры строк в проходе разметки ПОСЛЕ события
                 // Loaded, поэтому выравнивание на Loaded-приоритете выполняется до их появления —
                 // компактность снова «разъезжается» (issue #214). QueueHeaderAlign ставит

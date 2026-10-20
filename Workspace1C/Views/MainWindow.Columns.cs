@@ -357,6 +357,9 @@ namespace Workspace1C
             // дотягивать до последней (новой) колонки (issue #309). Замер фактической
             // ширины строк обновляется вместе с суммой — строки уже перестроены под
             // новый порядок колонок.
+            // Изменился состав колонок — кэш замера контента (issue #21, Этап B1) должен
+            // выполнить ПОЛНЫЙ пересчёт, а не вернуться по совпадению верхней строки.
+            InvalidateTreeMinWidthContent();
             UpdateTreeMinWidthContent();
             SyncHeaderWidthWithList();
 
@@ -972,6 +975,16 @@ namespace Workspace1C
         /// </summary>
         private void UpdateTreeMinWidthContent(Grid? knownRowGrid = null)
         {
+            // Кэш-хит (issue #21, Этап B1): верхняя видимая строка не менялась с прошлого
+            // замера — дорогой замер до 12 строк (Measure с бесконечной шириной) на каждую
+            // пересборку дерева/переключение вкладки (стабилизация выравнивания вызывала
+            // его на каждой итерации) не повторяем. Значение инвалидируется сменой верхней
+            // строки (прокрутка), сменой ширин/порядка колонок и компакт-режимом —
+            // см. <see cref="InvalidateTreeMinWidthContent"/> и вход при новом top.
+            var top = MainTree is null ? null : GetTopVisibleRowData();
+            if (_treeMinWidthContent > 0 && ReferenceEquals(top, _treeMinWidthAnchorData))
+                return;
+
             _treeMinWidthContent = 0;
             if (knownRowGrid is not null)
                 MeasureRow(knownRowGrid);
@@ -996,6 +1009,9 @@ namespace Workspace1C
                 measured++;
             }
 
+            // Запоминаем верхнюю строку, по которой выполнен замер (кэш-хит выше).
+            _treeMinWidthAnchorData = top;
+
             void MeasureRow(Grid g)
             {
                 // Замер «как хотела бы строка без ограничений»: ширина контента при
@@ -1005,6 +1021,17 @@ namespace Workspace1C
                 if (g.DesiredSize.Width > _treeMinWidthContent)
                     _treeMinWidthContent = g.DesiredSize.Width;
             }
+        }
+
+        /// <summary>
+        /// Сбрасывает кэш фактической желаемой ширины строк (issue #21, Этап B1):
+        /// применяется при изменении ширин/порядка колонок и применении компакт-режима,
+        /// чтобы следующий <see cref="UpdateTreeMinWidthContent"/> выполнил полный замер.
+        /// </summary>
+        private void InvalidateTreeMinWidthContent()
+        {
+            _treeMinWidthContent = 0;
+            _treeMinWidthAnchorData = null;
         }
 
         /// <summary>
@@ -1169,6 +1196,9 @@ namespace Workspace1C
                 // Новая ширина колонки меняет желаемую ширину строки (звёздная «Название»
                 // при бесконечном замере получает остаток) — пересчитываем фактическую
                 // ширину контента до синхронизации минимума (issue #309).
+                // Ширина колонок изменилась — кэш замера контента (issue #21, Этап B1)
+                // должен выполнить ПОЛНЫЙ пересчёт.
+                InvalidateTreeMinWidthContent();
                 UpdateTreeMinWidthContent();
                 SyncHeaderWidthWithList();
             }

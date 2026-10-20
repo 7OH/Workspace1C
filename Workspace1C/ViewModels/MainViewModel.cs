@@ -72,6 +72,19 @@ public partial class MainViewModel : ViewModelBase
     private int _maxLaunchHistoryPerBase = 30;
     private readonly ObservableCollection<string> _activeTagFilters = new();
     private ListViewMode _listViewMode = ListViewMode.All;
+    /// <summary>Признак «идёт чистое переключение вкладки списка» (issue #21): true на время
+    /// <see cref="RebuildGroupTreeCore"/> из setter <see cref="ListViewMode"/>. Окно не
+    /// восстанавливает выделение/фокус — цель из прежнего режима в новом, как правило,
+    /// недостижима, а обязанное за ней восстановление вызывало принудительные
+    /// UpdateLayout и повторные проходы Reveal (рост задержки переключения).</summary>
+    private bool _listModeSwitchInProgress;
+    /// <summary>Кэш построенного группированного дерева режима «Все» (issue #21, Этап C):
+    /// переиспользуется при чистом переключении вкладок, чтобы не пересоздавать тысячи
+    /// <see cref="GroupNodeViewModel"/> и обёрток на каждое переключение (источник роста
+    /// CPU и памяти). Инвалидируется в <see cref="RebuildGroupTree"/> — любое изменение
+    /// данных/фильтров/сортировки.</summary>
+    private List<GroupNodeViewModel>? _groupedTreeCache;
+    private bool _groupedTreeCacheValid;
     /// <summary>Отбор «Только запущенные» (issue #339).</summary>
     private bool _showRunningOnly;
 
