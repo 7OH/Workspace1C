@@ -1,12 +1,12 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.27-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.28-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.27**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.28**.
 
 ## 📣 Telegram-канал
 
@@ -222,6 +222,12 @@
   подменю каждой службы и группы (у группы — сначала команды действий, затем её службы),
   «Все сервисы» (Windows и Linux); на Windows Ctrl+правый клик по иконке трея открывает
   меню служб.
+- **«Загрузки»: один индикатор при обновлении приложения и без пересечения фоновой и ручной
+  закачки одного файла (1.0.0.28, issue #22, Windows и Linux)** — прогресс self-update
+  публикуется только в единый индикатор загрузок (убраны дублирующие статус-бар в WPF
+  и окно прогресса в автопути Avalonia); повторный запуск обновления (фон + ручная кнопка +
+  задание) не начинает вторую загрузку того же файла — ручной запуск получает предупреждение
+  «обновление уже скачивается», файл до конца докачивается одной операцией.
 - **«Серверы 1С»: кнопка «СЛУЖБЫ» (1.0.0.13, issue #3, Windows и Linux)** — внизу левой
   колонки окна «Серверы 1С» добавлена кнопка «СЛУЖБЫ» (на всю ширину, текст по центру) —
   открывает подменю служб, как в трее по Ctrl+клик.

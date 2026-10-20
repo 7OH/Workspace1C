@@ -162,6 +162,16 @@ public sealed class UpdateService : IAppUpdateService
 
             if (AutoUpdateEnabled)
             {
+                // issue #22 (1.0.0.28): если тот же файл уже качается (фоновая проверка,
+                // задание UpdateApp) — повторный запуск блокируется предупреждением.
+                if (IsUpdateDownloadInProgress(release))
+                {
+                    ShowOnUi(() => _dialogs.ShowInfo(
+                        LocalizationManager.T("Update.AlreadyDownloading"),
+                        LocalizationManager.T(CheckResultTitleKey)));
+                    return;
+                }
+
                 // Автообновление включено — применяем новую версию без вопросов.
                 await DownloadAndInstallAutoAsync(release).ConfigureAwait(false);
                 return;
@@ -255,9 +265,16 @@ public sealed class UpdateService : IAppUpdateService
                 return false;
             }
 
-            // Скачивание выполняется в фоне; прогресс передаётся в строку состояния
-            // главного окна через событие DownloadProgressChanged.
-            var newExe = await DownloadNewExeCoreAsync(release);
+            // Скачивание выполняется в фоне; прогресс передаётся в реестр фоновых загрузок
+            // (единый индикатор главного окна) через ReportToBackgroundManager.
+            var (newExe, joinedExisting) = await DownloadNewExeCoreAsync(release);
+
+            // issue #22 (1.0.0.28): загрузка того же файла уже идёт (фоновая проверка +
+            // ручная кнопка + задание UpdateApp) — мы присоединились к существующей
+            // операции, а не скачали файл заново. Применять обновление повторно не нужно:
+            // первый запуск применит и перезапустит приложение.
+            if (joinedExisting)
+                return true;
 
             if (newExe is null)
             {
@@ -313,7 +330,8 @@ public sealed class UpdateService : IAppUpdateService
     /// только точного размера — ожидаемого из GitHub API либо заявленного сервером.
     /// </para>
     /// </summary>
-    private async Task<string?> DownloadAsync(string url, string versionKey, long expectedSize)
+    private async Task<(string? Path, bool JoinedExisting)> DownloadAsync(
+        string url, string versionKey, long expectedSize)
     {
         var dir = Path.Combine(Path.GetTempPath(), UpdateTempDir);
         Directory.CreateDirectory(dir);
@@ -322,13 +340,16 @@ public sealed class UpdateService : IAppUpdateService
         var dest = Path.Combine(dir, TempFileName(versionKey));
         var etagPath = dest + ".etag";
 
-        // issue #22: регистрируем загрузку в общем реестре фоновых загрузок. Повторный
-        // запуск (фоновая проверка + ручная кнопка + задание UpdateApp) с тем же целевым
-        // файлом получает ту же запись — вторая загрузка не создаёт дубликат и не пишет
-        // в файл параллельно. Прогресс публикуется через ReportProgress (см.
+        // issue #22 (1.0.0.28): StartIfNew сообщает, создана ли НОВАЯ запись. Если загрузка
+        // того же целевого файла уже идёт (фоновая проверка + ручная кнопка + задание
+        // UpdateApp) — вторую реальную загрузку НЕ начинаем (single-writer): файл уже пишется
+        // другой операцией, повторный запуск присоединяется, не создавая ни дубликата записи,
+        // ни второго индикатора. Прогресс публикуется через ReportProgress (см.
         // ReportToBackgroundManager), исход фиксируется в DownloadNewExeCoreAsync.
-        var entry = BackgroundDownloadManager.Default.Start(
+        var (entry, isNew) = BackgroundDownloadManager.Default.StartIfNew(
             $"app-update:{versionKey}", "Workspace1C.exe", dest);
+        if (!isNew)
+            return (null, true);
         _downloadEntryId = entry.Id;
 
         // Быстрый запрос одного байта: узнаём ETag ассета и полный размер до докачки.
@@ -338,7 +359,7 @@ public sealed class UpdateService : IAppUpdateService
         // Сервер отдаёт не тот файл, что заявлен GitHub API (размер ассета не совпал):
         // качать такой гибрид бессмысленно, считаем загрузку неудачной (issue #302).
         if (expectedSize > 0 && totalBytes > 0 && totalBytes != expectedSize)
-            return null;
+            return (null, false);
 
         // Докачка допустима только в тот же ассет: ETag из прошлого сеанса обязан
         // совпадать с текущим. Отсутствие метки (остаток старой версии приложения)
@@ -360,7 +381,7 @@ public sealed class UpdateService : IAppUpdateService
         var parallelResult = await ParallelDownloader.TryDownloadAsync(
             _http, url, dest, ReportDownloadProgressPercent, expectedSize);
         if (parallelResult is not null)
-            return parallelResult;
+            return (parallelResult, false);
 
         const int maxAttempts = 12;
 
@@ -375,7 +396,7 @@ public sealed class UpdateService : IAppUpdateService
             if (accepted > 0 && existing >= accepted)
             {
                 if (existing == accepted)
-                    return dest;
+                    return (dest, false);
                 // Длиннее ожидаемого — повреждён, начинаем заново.
                 TryDelete(dest);
                 existing = 0;
@@ -394,7 +415,7 @@ public sealed class UpdateService : IAppUpdateService
                     // Без эталона вовсе (обе стороны размер не сообщили) — как раньше,
                     // принимаем любой непустой файл.
                     if (accepted > 0 ? size == accepted : size > 0)
-                        return dest;
+                        return (dest, false);
                 }
             }
             catch
@@ -407,7 +428,7 @@ public sealed class UpdateService : IAppUpdateService
         }
 
         TryDelete(dest);
-        return null;
+        return (null, false);
     }
 
     /// <summary>Имя временного файла загрузки, привязанное к версии релиза (issue #302).</summary>
@@ -689,6 +710,23 @@ public sealed class UpdateService : IAppUpdateService
         return string.IsNullOrWhiteSpace(targetExe) ? null : targetExe;
     }
 
+    /// <summary>Целевой путь временного файла self-update для релиза (issue #22, 1.0.0.28);
+    /// null — ключ версии невалиден (файл не участвует в проверке пересечения).</summary>
+    internal string? GetUpdateDownloadTargetPath(ReleaseInfo release)
+    {
+        if (string.IsNullOrWhiteSpace(release?.TagName))
+            return null;
+        return Path.Combine(Path.GetTempPath(), UpdateTempDir, TempFileName(release.TagName));
+    }
+
+    /// <summary>True — загрузка self-update для этого релиза уже идёт (issue #22, 1.0.0.28):
+    /// используется ручной проверкой, чтобы повторный запуск блокировался предупреждением.</summary>
+    internal bool IsUpdateDownloadInProgress(ReleaseInfo release)
+    {
+        var dest = GetUpdateDownloadTargetPath(release);
+        return dest is not null && BackgroundDownloadManager.Default.IsFileBeingDownloaded(dest);
+    }
+
     /// <summary>
     /// Скачивает exe по прямой ссылке релиза и поднимает события прогресса/завершения
     /// для строки состояния главного окна. Возвращает путь к файлу или null при неудаче.
@@ -703,25 +741,30 @@ public sealed class UpdateService : IAppUpdateService
     /// <see cref="UpdateAvailableWindow"/> (перед ApplyRestartNow/ApplyAfterClose).
     /// </para>
     /// </summary>
-    internal async Task<string?> DownloadNewExeCoreAsync(ReleaseInfo release)
+    internal async Task<(string? Path, bool JoinedExisting)> DownloadNewExeCoreAsync(ReleaseInfo release)
     {
         string? result = null;
+        bool joined = false;
         try
         {
-            var downloaded = await DownloadAsync(release.DownloadUrl!, release.TagName, release.AssetSize);
+            var (downloaded, joinedExisting) = await DownloadAsync(
+                release.DownloadUrl!, release.TagName, release.AssetSize);
+            joined = joinedExisting;
             if (downloaded is null)
-                return null;
+                return (null, joined);
 
             // Защита от «не того» файла (issue #358): PE — как есть, ZIP — распаковать exe,
             // иное (HTML и пр.) — удалить и вернуть null (ошибка скачивания).
             var dir = Path.Combine(Path.GetTempPath(), UpdateTempDir);
             result = UpdatePayload.EnsureExecutablePayload(downloaded, dir);
-            return result;
+            return (result, false);
         }
         finally
         {
             // issue #22: фиксируем исход загрузки в реестре фоновых загрузок, чтобы
             // индикатор главного окна не «завис» на активной записи self-update.
+            // При присоединении к уже идущей загрузке запись — не наша (её закрывает
+            // первый запуск) — реестр не трогаем.
             var entryId = _downloadEntryId;
             if (entryId is not null)
             {

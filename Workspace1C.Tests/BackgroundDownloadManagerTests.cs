@@ -451,4 +451,95 @@ public sealed class BackgroundDownloadManagerTests
         manager.Complete(entry.Id);
         Assert.Null(manager.FindByTargetPath(dest));
     }
+
+    [Fact]
+    public void StartIfNew_NewTargetPath_CreatesNewEntry_IsNewTrue()
+    {
+        // issue #22 (1.0.0.28): свободный файл — StartIfNew создаёт новую запись,
+        // вызывающий может начинать реальную загрузку (single-writer).
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "file.zip");
+
+        var (entry, isNew) = manager.StartIfNew("id", "file.zip", dest);
+
+        Assert.True(isNew);
+        Assert.True(entry.IsActive);
+        Assert.Equal(1, manager.ActiveCount);
+    }
+
+    [Fact]
+    public void StartIfNew_SameIdWhileActive_ReturnsExisting_IsNewFalse()
+    {
+        // issue #22 (1.0.0.28): повторный старт с тем же id — существующая запись,
+        // новую загрузку начинать нельзя.
+        var manager = new BackgroundDownloadManager();
+
+        var (first, firstIsNew) = manager.StartIfNew("id", "Первый");
+        var (second, secondIsNew) = manager.StartIfNew("id", "Второй");
+
+        Assert.True(firstIsNew);
+        Assert.False(secondIsNew);
+        Assert.Same(first, second);
+        Assert.Equal("Первый", second.Title); // заголовок первоначальной записи сохранён
+        Assert.Equal(1, manager.ActiveCount);
+    }
+
+    [Fact]
+    public void StartIfNew_SameTargetPath_DifferentId_ReturnsExisting_IsNewFalse()
+    {
+        // issue #22 (1.0.0.28): «фоновая + ручная» закачка одного файла через разные id —
+        // вторая операция не создаётся (дедупликация по целевому пути).
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "Workspace1C", "update", "Workspace1C.1.0.0.28.new.exe");
+
+        var (first, firstIsNew) = manager.StartIfNew("app-update:1.0.0.28", "Workspace1C.exe", dest);
+        var (second, secondIsNew) = manager.StartIfNew("app-update:manual", "Workspace1C.exe", dest);
+
+        Assert.True(firstIsNew);
+        Assert.False(secondIsNew);
+        Assert.Same(first, second);
+        Assert.Equal(1, manager.ActiveCount);
+    }
+
+    [Fact]
+    public void StartIfNew_AfterCompletion_StartsNew_IsNewTrue()
+    {
+        // issue #22 (1.0.0.28): завершённая загрузка заменяется новой — повторное
+        // скачивание того же файла в новый сеанс работает.
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "file.zip");
+
+        var (first, firstIsNew) = manager.StartIfNew("id", "Первый", dest);
+        Assert.True(firstIsNew);
+        manager.Complete("id");
+
+        var (second, secondIsNew) = manager.StartIfNew("id", "Повтор", dest);
+
+        Assert.True(secondIsNew);
+        Assert.True(second.IsActive);
+        Assert.Same(second, Assert.Single(manager.Snapshot())); // завершённая запись заменена
+    }
+
+    [Fact]
+    public void StartIfNew_SelfUpdate_NoDuplicateOperation()
+    {
+        // issue #22 (1.0.0.28): повторный запуск self-update (фоновая проверка + ручная
+        // кнопка + задание UpdateApp) с тем же целевым файлом не создаёт вторую операцию:
+        // один вызов получает IsNew=true (качает), остальные — ту же запись с IsNew=false
+        // (присоединяются) → один индикатор, один пишущий в файл.
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "Workspace1C", "update", "Workspace1C.1.0.0.28.new.exe");
+
+        var (first, firstIsNew) = manager.StartIfNew("app-update:1.0.0.28", "Workspace1C.exe", dest);
+        var (second, secondIsNew) = manager.StartIfNew("app-update:1.0.0.28", "Workspace1C.exe", dest);
+        var (third, thirdIsNew) = manager.StartIfNew("app-update:manual", "Workspace1C.exe", dest);
+
+        Assert.True(firstIsNew);
+        Assert.False(secondIsNew);
+        Assert.False(thirdIsNew);
+        Assert.Same(first, second);
+        Assert.Same(first, third);
+        Assert.Equal(1, manager.ActiveCount);
+        Assert.Equal(1, manager.Snapshot().Count(d => d.IsActive));
+    }
 }

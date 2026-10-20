@@ -3206,20 +3206,6 @@
                         </ContextMenu>
                     </TextBlock.ContextMenu>
                 </TextBlock>
-                <!-- Индикатор прогресса скачивания обновления: скрыт по умолчанию, появляется
-                     при загрузке exe и обновляется из UpdateService (DownloadProgressChanged). -->
-                <StackPanel x:Name="UpdateProgressPanel" Grid.Column="1" Orientation="Horizontal"
-                            Visibility="Collapsed" VerticalAlignment="Center" Margin="16,0,8,0">
-                    <TextBlock x:Name="UpdateProgressText" Text="{loc:Loc Update.DownloadProgress}"
-                               Foreground="{DynamicResource TextOnAccentBrush}" FontSize="12"
-                               VerticalAlignment="Center" Margin="0,0,8,0"
-                               TextTrimming="CharacterEllipsis"/>
-                    <ProgressBar x:Name="UpdateProgressBar" Width="140" Height="6"
-                                 Minimum="0" Maximum="100" Value="0"
-                                 Foreground="{DynamicResource AccentBrush}"
-                                 Background="#22000000"
-                                 VerticalAlignment="Center"/>
-                </StackPanel>
                 <TextBlock Grid.Column="2" Text="{Binding SyncMessage}"
                            Foreground="{DynamicResource TextOnAccentBrush}" FontSize="12"
                            VerticalAlignment="Center" Margin="16,0,8,0"

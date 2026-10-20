@@ -140,14 +140,24 @@ public partial class UpdateAvailableWindow : Window
                 return;
             }
 
+            bool joinedExisting = false;
             try
             {
-                _newExe = await _service.DownloadNewExeCoreAsync(_release);
+                (_newExe, joinedExisting) = await _service.DownloadNewExeCoreAsync(_release);
             }
             catch (Exception ex)
             {
                 LogDiagnostic("Ошибка при скачивании обновления: " + ex);
                 _newExe = null;
+            }
+
+            // issue #22 (1.0.0.28): загрузка того же файла уже идёт (фоновая проверка,
+            // задание UpdateApp) — вторую загрузку не начинали; обновление применит
+            // первый запуск, повторное применение не требуется.
+            if (joinedExisting)
+            {
+                ShowError(LocalizationManager.T("Update.AlreadyDownloading"));
+                return;
             }
 
             if (_newExe is null)

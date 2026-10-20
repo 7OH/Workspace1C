@@ -130,8 +130,22 @@ public sealed class BackgroundDownloadManager
     /// новой (повторное скачивание того же файла). С 1.0.0.26 (issue #22) при активной
     /// загрузке того же целевого файла <paramref name="targetPath"/> (другой id) также
     /// возвращается существующая запись — фоновая и ручная закачки одного файла не
-    /// создают две записи и не пишут в файл параллельно.</summary>
+    /// создают две записи и не пишут в файл параллельно. Поведение — см.
+    /// <see cref="StartIfNew"/>; здесь отбрасывается признак «создана новая запись».</summary>
     public ActiveDownload Start(string id, string title, string? targetPath = null)
+        => StartIfNew(id, title, targetPath).Entry;
+
+    /// <summary>
+    /// Регистрирует старт фоновой загрузки и сообщает, создана ли НОВАЯ запись
+    /// (issue #22, 1.0.0.28). Повторный старт с тем же <paramref name="id"/> при активной
+    /// загрузке возвращает существующую запись с <c>IsNew == false</c>; завершённая запись
+    /// заменяется новой (<c>IsNew == true</c>). При активной загрузке того же целевого
+    /// файла <paramref name="targetPath"/> (другой id) также возвращается существующая
+    /// запись — фоновая и ручная закачки одного файла не создают две записи и не пишут
+    /// в файл параллельно. Вызывающий, получивший <c>IsNew == false</c>, НЕ должен начинать
+    /// реальную загрузку: файл уже пишется другой операцией (single-writer).
+    /// </summary>
+    public (ActiveDownload Entry, bool IsNew) StartIfNew(string id, string title, string? targetPath = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Идентификатор загрузки обязателен", nameof(id));
@@ -139,10 +153,11 @@ public sealed class BackgroundDownloadManager
         var normalizedTarget = NormalizeTargetPath(targetPath);
 
         ActiveDownload entry;
+        bool isNew;
         lock (_lock)
         {
             if (_downloads.TryGetValue(id, out var existing) && existing.IsActive)
-                return existing;
+                return (existing, false);
 
             // issue #22: активная загрузка того же целевого файла (другой id) — возвращаем
             // существующую запись, чтобы повторный запуск не создавал дубликат.
@@ -152,15 +167,16 @@ public sealed class BackgroundDownloadManager
                     && d.TargetPath is not null
                     && string.Equals(d.TargetPath, normalizedTarget, StringComparison.OrdinalIgnoreCase));
                 if (byPath is not null)
-                    return byPath;
+                    return (byPath, false);
             }
 
             entry = new ActiveDownload(id, title ?? string.Empty, normalizedTarget, _utcNow);
             _downloads[id] = entry;
+            isNew = true;
         }
 
         RaiseChanged();
-        return entry;
+        return (entry, isNew);
     }
 
     /// <summary>True — идёт активная загрузка в указанный целевой файл (issue #22).

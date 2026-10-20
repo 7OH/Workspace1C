@@ -206,6 +206,16 @@ namespace Workspace1C.Services
 
                 if (AutoUpdateEnabled)
                 {
+                    // issue #22 (1.0.0.28): если тот же файл уже качается (фоновая проверка,
+                    // задание UpdateApp) — повторный запуск блокируется предупреждением.
+                    if (IsUpdateDownloadInProgress(release))
+                    {
+                        ShowOnUi(() => _dialogs.ShowInfo(
+                            LocalizationManager.T("Update.AlreadyDownloading"),
+                            LocalizationManager.T(CheckResultTitleKey)));
+                        return;
+                    }
+
                     // Автообновление включено — применяем новую версию без вопросов.
                     await DownloadAndInstallAutoAsync(release).ConfigureAwait(false);
                     return;
@@ -315,8 +325,19 @@ namespace Workspace1C.Services
             // Скачиваем новый бинарник, не блокируя поток интерфейса: диалог показан
             // из UI-потока, и синхронное ожидание здесь замораживало окно на всё время
             // загрузки (десятки МБ).
-            var newBinary = await DownloadWithProgressAsync(release)
+            var (newBinary, joinedExisting) = await DownloadWithProgressAsync(release)
                 .ConfigureAwait(true);
+
+            // issue #22 (1.0.0.28): загрузка того же файла уже идёт — вторую не начинали;
+            // обновление применит первый запуск.
+            if (joinedExisting)
+            {
+                ShowOnUi(() => _dialogs.ShowInfo(
+                    LocalizationManager.T("Update.AlreadyDownloading"),
+                    LocalizationManager.T("Update.NewVersionAvailable")));
+                return;
+            }
+
             if (newBinary is null)
             {
                 ShowOnUi(() => _dialogs.ShowError(
@@ -392,8 +413,19 @@ namespace Workspace1C.Services
                 return;
             }
 
-            var newBinary = await DownloadWithProgressAsync(release)
+            var (newBinary, joinedExisting) = await DownloadWithProgressAsync(release)
                 .ConfigureAwait(true);
+
+            // issue #22 (1.0.0.28): загрузка того же файла уже идёт — вторую не начинали;
+            // обновление применит первый запуск.
+            if (joinedExisting)
+            {
+                ShowOnUi(() => _dialogs.ShowInfo(
+                    LocalizationManager.T("Update.AlreadyDownloading"),
+                    LocalizationManager.T("Update.NewVersionAvailable")));
+                return;
+            }
+
             if (newBinary is null)
             {
                 ShowOnUi(() => _dialogs.ShowError(
@@ -543,7 +575,17 @@ namespace Workspace1C.Services
                 return false;
             }
 
-            var newBinary = await DownloadWithProgressAsync(release);
+            // Автопуть (issue #22, 1.0.0.28): окно прогресса не показываем — self-update
+            // виден в едином индикаторе загрузок главного окна (BackgroundDownloadManager).
+            var (newBinary, joinedExisting) = await DownloadNewBinaryAsync(
+                release.DownloadUrl!, release.TagName, release.AssetSize);
+
+            // issue #22 (1.0.0.28): загрузка того же файла уже идёт (фоновая проверка +
+            // ручная кнопка + задание UpdateApp) — мы присоединились к существующей
+            // операции. Применять повторно не нужно: первый запуск применит и перезапустит.
+            if (joinedExisting)
+                return true;
+
             if (newBinary is null)
             {
                 ShowOnUi(() => _dialogs.ShowError(
@@ -634,6 +676,23 @@ namespace Workspace1C.Services
             return string.IsNullOrWhiteSpace(target) ? null : target;
         }
 
+        /// <summary>Целевой путь временного файла self-update для релиза (issue #22, 1.0.0.28);
+        /// null — ключ версии невалиден (файл не участвует в проверке пересечения).</summary>
+        internal string? GetUpdateDownloadTargetPath(ReleaseInfo release)
+        {
+            if (string.IsNullOrWhiteSpace(release?.TagName))
+                return null;
+            return Path.Combine(EnsureUpdateDirectory(), $"Workspace1C.{SanitizeKey(release.TagName)}.new");
+        }
+
+        /// <summary>True — загрузка self-update для этого релиза уже идёт (issue #22, 1.0.0.28):
+        /// используется ручной проверкой, чтобы повторный запуск блокировался предупреждением.</summary>
+        internal bool IsUpdateDownloadInProgress(ReleaseInfo release)
+        {
+            var dest = GetUpdateDownloadTargetPath(release);
+            return dest is not null && BackgroundDownloadManager.Default.IsFileBeingDownloaded(dest);
+        }
+
         /// <summary>
         /// Скачивает новый бинарник, показывая на это время окно хода загрузки. Размер
         /// файла составляет десятки МБ, и без индикатора отрезок между согласием на
@@ -641,7 +700,7 @@ namespace Workspace1C.Services
         /// (issue #225). В Windows-версии тот же этап показан полосой прогресса
         /// в едином диалоге обновления (<c>UpdateAvailableWindow</c>).
         /// </summary>
-        private async Task<string?> DownloadWithProgressAsync(ReleaseInfo release)
+        private async Task<(string? Path, bool JoinedExisting)> DownloadWithProgressAsync(ReleaseInfo release)
         {
             UpdateProgressWindowAvalonia? window = null;
             try
@@ -687,8 +746,10 @@ namespace Workspace1C.Services
 
         /// <summary>
         /// Скачивает новый бинарник по прямой ссылке во временный каталог. Возвращает путь
-        /// к файлу или null при сетевой ошибке / пустом файле. Временный файл удаляется при неудаче.
-        /// О ходе загрузки сообщается окну <paramref name="progress"/>, если оно показано.
+        /// к файлу (или null при сетевой ошибке / пустом файле) и признак «присоединён к уже
+        /// идущей загрузке того же файла» (issue #22, 1.0.0.28). Временный файл удаляется
+        /// при неудаче. О ходе загрузки сообщается окну <paramref name="progress"/>, если оно
+        /// показано, и в реестр фоновых загрузок (единый индикатор главного окна).
         /// Сначала пробуется многопоточная загрузка (issue #284), при любом сбое —
         /// переход к однопоточной загрузке ниже.
         /// <para>
@@ -698,20 +759,23 @@ namespace Workspace1C.Services
         /// ожидаемого из GitHub API либо заявленного сервером Content-Length.
         /// </para>
         /// </summary>
-        private async Task<string?> DownloadNewBinaryAsync(
+        private async Task<(string? Path, bool JoinedExisting)> DownloadNewBinaryAsync(
             string url, string versionKey, long expectedSize,
             UpdateProgressWindowAvalonia? progress = null)
         {
             var dir = EnsureUpdateDirectory();
             var dest = Path.Combine(dir, $"Workspace1C.{SanitizeKey(versionKey)}.new");
 
-            // issue #22: регистрируем загрузку в общем реестре фоновых загрузок. Повторный
-            // запуск (фоновая проверка + ручная кнопка + задание UpdateApp) с тем же целевым
-            // файлом получает ту же запись — вторая загрузка не создаёт дубликат и не пишет
-            // в файл параллельно. Прогресс публикуется через ReportProgress, исход
-            // фиксируется Complete/Fail ниже.
-            var entry = BackgroundDownloadManager.Default.Start(
+            // issue #22 (1.0.0.28): StartIfNew сообщает, создана ли НОВАЯ запись. Если загрузка
+            // того же целевого файла уже идёт (фоновая проверка + ручная кнопка + задание
+            // UpdateApp) — вторую реальную загрузку НЕ начинаем (single-writer): файл уже
+            // пишется другой операцией, повторный запуск присоединяется, не создавая ни
+            // дубликата записи, ни второго индикатора. Прогресс публикуется через ReportProgress,
+            // исход фиксируется Complete/Fail ниже.
+            var (entry, isNew) = BackgroundDownloadManager.Default.StartIfNew(
                 $"app-update:{versionKey}", "Workspace1C.exe", dest);
+            if (!isNew)
+                return (null, true);
 
             try
             {
@@ -729,7 +793,7 @@ namespace Workspace1C.Services
                 if (parallelPath is not null)
                 {
                     BackgroundDownloadManager.Default.Complete(entry.Id);
-                    return parallelPath;
+                    return (parallelPath, false);
                 }
 
                 // ResponseHeadersRead: тело пишется на диск потоком, а не буферизуется
@@ -791,25 +855,25 @@ namespace Workspace1C.Services
                 {
                     TryDelete(dest);
                     BackgroundDownloadManager.Default.Fail(entry.Id, "Update.DownloadFailed");
-                    return null;
+                    return (null, false);
                 }
 
                 BackgroundDownloadManager.Default.Complete(entry.Id);
-                return dest;
+                return (dest, false);
             }
             catch
             {
                 TryDelete(dest);
                 BackgroundDownloadManager.Default.Fail(entry.Id, "Update.DownloadFailed");
-                return null;
+                return (null, false);
             }
         }
 
         /// <summary>
-        /// Публикует прогресс self-update в реестр фоновых загрузок (issue #22). Окно
-        /// <see cref="UpdateProgressWindowAvalonia"/> продолжает показывать свою полосу,
-        /// а менеджер — индикатор фоновых загрузок главного окна: два разных отображения,
-        /// прогресс не дублируется в одном месте.
+        /// Публикует прогресс self-update в реестр фоновых загрузок (issue #22): единый
+        /// индикатор главного окна. Диалоговый путь дополнительно показывает полосу
+        /// <see cref="UpdateProgressWindowAvalonia"/> (модальный диалог — канонический
+        /// индикатор этого пути); автопуть использует только реестр.
         /// </summary>
         private static void ReportToBackgroundManager(string entryId, double percent)
         {

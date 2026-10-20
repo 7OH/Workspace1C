@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Workspace1C.Services;
 using Xunit;
 
@@ -120,5 +121,22 @@ public sealed class DownloadConflictGuardTests
         var decision = guard.Resolve(@"C:\tmp\file.zip", (_, _) => DownloadConflictDecision.Cancel);
 
         Assert.Equal(DownloadConflictDecision.Proceed, decision);
+    }
+
+    [Fact]
+    public void FindActiveDownload_SeesStartIfNewEntry()
+    {
+        // issue #22 (1.0.0.28): запись, созданная через StartIfNew (в т.ч. self-update
+        // с id «app-update:*» и путём временного файла), видна гуарду по целевому пути —
+        // ручная проверка корректно блокирует повторный запуск.
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "Workspace1C", "update", "Workspace1C.1.0.0.28.new.exe");
+        var (entry, isNew) = manager.StartIfNew("app-update:1.0.0.28", "Workspace1C.exe", dest);
+        Assert.True(isNew);
+        var guard = new DownloadConflictGuard(manager);
+
+        var found = guard.FindActiveDownload(dest.ToUpperInvariant());
+
+        Assert.Same(entry, found);
     }
 }

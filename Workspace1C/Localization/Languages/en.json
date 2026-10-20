@@ -186,6 +186,7 @@
     "Update.RestartNowPrompt": "The update has been downloaded. Restart the application now to apply it?",
     "Update.WillApplyOnExit": "The update will be applied after the application closes.",
     "Update.NoDownloadUrl": "No installer file was found for this release.",
+    "Update.AlreadyDownloading": "The update is already being downloaded. When the download finishes, the app will update and restart automatically.",
     "Update.DownloadFailed": "Failed to download the update.",
     "Update.InstallFailed": "Failed to install the update.",
     "Update.ErrorTitle": "Update error",
