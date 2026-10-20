@@ -98,18 +98,64 @@
             </Setter>
         </Style>
 
-        <!-- Заголовки вкладок ужаты (issue #3): меньше отступов и шрифт чуть меньше. -->
+        <!-- Заголовки вкладок ужаты (issue #3): меньше отступов и шрифт чуть меньше.
+             Собственный шаблон (issue #3, комментарий 7OH 20.10): в тёмном режиме вкладки
+             были белыми и надписи не читались — фон/текст/граница берутся из темы. -->
         <Style TargetType="TabItem">
-            <Setter Property="Padding" Value="14,6"/>
             <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0,0,0,3"
+                                Margin="0,0,0,-1"
+                                SnapsToDevicePixels="True"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsSelected" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <!-- Кнопка-иконка управления базами (issue #3): без текста, узкая, для строки из трёх кнопок. -->
+        <!-- Кнопка-иконка управления базами и серверами (issue #3): без текста, узкая.
+             Кнопки шире (комментарий 7OH 20.10): раза в полтора — отступы 9,7 и шрифт 14. -->
         <Style x:Key="IconOnlyButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
-            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Padding" Value="9,7"/>
             <Setter Property="Margin" Value="0,0,4,0"/>
             <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontSize" Value="14"/>
         </Style>
     </Window.Resources>
 
@@ -136,24 +182,36 @@
         <DockPanel Grid.Column="0" Grid.Row="0" Grid.RowSpan="7" Margin="0,0,16,0">
             <TextBlock DockPanel.Dock="Top" Text="{loc:Loc ServerMonitor.Servers.Title}"
                        FontWeight="SemiBold" Margin="0,0,0,8"/>
-            <!-- Кнопки управления серверами над списком (issue #3). -->
+            <!-- Кнопки управления серверами — иконками без надписей (issue #3, комментарий
+                 7OH 20.10): Добавить, Изменить | Вверх, Вниз | Удалить (как у списка баз). -->
             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                <Button x:Name="AddServerButton" Style="{StaticResource ModernButton}"
-                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                <Button x:Name="AddServerButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Servers.Add}"
                         Click="OnAddServer_Click">
-                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Add}" VerticalAlignment="Center"/>
+                    <TextBlock Text="＋" VerticalAlignment="Center"/>
                 </Button>
-                <Button x:Name="EditServerButton" Style="{StaticResource ModernButton}"
-                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5" Margin="0,0,6,0"
+                <Button x:Name="EditServerButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Servers.Edit}"
                         Click="OnEditServer_Click">
-                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Edit}" VerticalAlignment="Center"/>
+                    <TextBlock Text="✎" VerticalAlignment="Center"/>
                 </Button>
-                <!-- Кнопке «Удалить» — красная надпись (issue #3, комментарий 7OH). -->
-                <Button x:Name="DeleteServerButton" Style="{StaticResource ModernButton}"
-                        Background="{DynamicResource ItemHoverBrush}" Padding="10,5"
+                <Border Width="1" Margin="0,4,6,4" Background="{DynamicResource BorderBrushColor}"/>
+                <Button x:Name="MoveUpServerButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Servers.MoveUp}"
+                        IsEnabled="{Binding CanMoveServerUp}" Click="OnMoveServerUp_Click">
+                    <TextBlock Text="↑" VerticalAlignment="Center"/>
+                </Button>
+                <Button x:Name="MoveDownServerButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Servers.MoveDown}"
+                        IsEnabled="{Binding CanMoveServerDown}" Click="OnMoveServerDown_Click">
+                    <TextBlock Text="↓" VerticalAlignment="Center"/>
+                </Button>
+                <Border Width="1" Margin="0,4,6,4" Background="{DynamicResource BorderBrushColor}"/>
+                <!-- Кнопке «Удалить» — красная иконка (issue #3, комментарий 7OH). -->
+                <Button x:Name="DeleteServerButton" Style="{StaticResource IconOnlyButton}"
+                        ToolTip="{loc:Loc ServerMonitor.Servers.Delete}"
                         Click="OnDeleteServer_Click">
-                    <TextBlock Text="{loc:Loc ServerMonitor.Servers.Delete}" VerticalAlignment="Center"
-                               Foreground="#DC2626"/>
+                    <TextBlock Text="🗑" VerticalAlignment="Center" Foreground="#DC2626"/>
                 </Button>
             </StackPanel>
             <!-- Подсказка при пустом списке (issue #3): добавьте сервер и выберите его. -->

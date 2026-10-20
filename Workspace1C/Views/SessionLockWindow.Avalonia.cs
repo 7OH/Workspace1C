@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -30,6 +31,7 @@ public sealed class SessionLockWindow : ModalWindowBase
     private readonly TextBox _durationBox = new();
     private readonly ComboBox _templateBox = new();
     private readonly TextBox _messageTextBox = new();
+    private readonly TextBox _permissionCodeBox = new();
     private readonly Button _unlockButton = new();
     private readonly Button _lockButton = new();
 
@@ -47,9 +49,9 @@ public sealed class SessionLockWindow : ModalWindowBase
 
         Title = string.Format(T("SessionLock.TitleForBase"), infobase.Name);
         Width = 520;
-        Height = 420;
+        Height = 520;
         MinWidth = 500;
-        MinHeight = 400;
+        MinHeight = 460;
         FontSize = 13;
         Content = BuildRoot();
         LoadTemplates();
@@ -60,7 +62,11 @@ public sealed class SessionLockWindow : ModalWindowBase
 
     private Control BuildRoot()
     {
-        var stack = new StackPanel { Margin = new Thickness(16) };
+        // Компоновка (issue #20): поля — в прокручиваемой области, кнопки зафиксированы
+        // снизу и всегда видны (раньше при малом экране нижние кнопки и часть последнего
+        // поля ввода уходили за границу окна).
+        var root = new DockPanel { LastChildFill = true, Margin = new Thickness(16) };
+        var fields = new StackPanel();
 
         var desc = new TextBlock
         {
@@ -69,9 +75,9 @@ public sealed class SessionLockWindow : ModalWindowBase
             Margin = new Thickness(0, 0, 0, 12)
         };
         ThemeBrushes.Bind(desc, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
-        stack.Children.Add(desc);
+        fields.Children.Add(desc);
 
-        stack.Children.Add(FieldLabel(T("SessionLock.StartTime")));
+        fields.Children.Add(FieldLabel(T("SessionLock.StartTime")));
         var startRow = new Grid { ColumnDefinitions = { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto) } };
         _datePicker.SelectedDate = DateTime.Now.AddMinutes(5);
         _startTimeBox.Text = DateTime.Now.AddMinutes(5).ToString("HH:mm");
@@ -80,9 +86,9 @@ public sealed class SessionLockWindow : ModalWindowBase
         _startTimeBox.Width = 110;
         _startTimeBox.Margin = new Thickness(8, 0, 0, 0);
         startRow.Children.Add(_startTimeBox);
-        stack.Children.Add(startRow);
+        fields.Children.Add(startRow);
 
-        stack.Children.Add(FieldLabel(T("SessionLock.Duration")));
+        fields.Children.Add(FieldLabel(T("SessionLock.Duration")));
         var durationRow = new StackPanel { Orientation = Orientation.Horizontal };
         _durationBox.Text = "30";
         durationRow.Children.Add(_durationBox);
@@ -94,17 +100,17 @@ public sealed class SessionLockWindow : ModalWindowBase
         };
         ThemeBrushes.Bind(unitLabel, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
         durationRow.Children.Add(unitLabel);
-        stack.Children.Add(durationRow);
+        fields.Children.Add(durationRow);
 
-        stack.Children.Add(FieldLabel(T("SessionLock.Template")));
+        fields.Children.Add(FieldLabel(T("SessionLock.Template")));
         _templateBox.SelectionChanged += (_, _) => ApplyTemplate(_templateBox.SelectedIndex);
-        stack.Children.Add(_templateBox);
+        fields.Children.Add(_templateBox);
 
-        stack.Children.Add(FieldLabel(T("SessionLock.Message")));
+        fields.Children.Add(FieldLabel(T("SessionLock.Message")));
         _messageTextBox.AcceptsReturn = true;
         _messageTextBox.TextWrapping = TextWrapping.Wrap;
         _messageTextBox.Height = 90;
-        stack.Children.Add(_messageTextBox);
+        fields.Children.Add(_messageTextBox);
 
         var hint = new TextBlock
         {
@@ -113,25 +119,47 @@ public sealed class SessionLockWindow : ModalWindowBase
             Margin = new Thickness(0, 2, 0, 8)
         };
         ThemeBrushes.Bind(hint, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
-        stack.Children.Add(hint);
+        fields.Children.Add(hint);
+
+        // Код разрешения (issue #20, 1cv8.cdn): необязательный.
+        fields.Children.Add(FieldLabel(T("SessionLock.PermissionCode")));
+        fields.Children.Add(_permissionCodeBox);
+        var codeHint = new TextBlock
+        {
+            Text = T("SessionLock.PermissionCodeHint"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 4)
+        };
+        ThemeBrushes.Bind(codeHint, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
+        fields.Children.Add(codeHint);
+
+        var scroller = new ScrollViewer
+        {
+            Content = fields,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        root.Children.Add(scroller);
 
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0)
         };
         _unlockButton.Content = T("SessionLock.Unlock");
         _unlockButton.Click += OnUnlock_Click;
         _lockButton.Content = T("SessionLock.Lock");
         _lockButton.Click += OnLock_Click;
         foreach (var b in new Control[] { _unlockButton, _lockButton })
-            b.Width = 150;
+            b.Width = 180;
         _unlockButton.Margin = new Thickness(0, 0, 8, 0);
         buttons.Children.Add(_unlockButton);
         buttons.Children.Add(_lockButton);
-        stack.Children.Add(buttons);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
 
-        return stack;
+        return root;
     }
 
     private static TextBlock FieldLabel(string text) => new()
@@ -232,7 +260,9 @@ public sealed class SessionLockWindow : ModalWindowBase
         {
             StartTime = BuildStartTime(time),
             Duration = TimeSpan.FromMinutes(minutes),
-            Message = _messageTextBox.Text ?? string.Empty
+            Message = _messageTextBox.Text ?? string.Empty,
+            // Код разрешения (issue #20): необязательный, для файла 1cv8.cdn.
+            PermissionCode = _permissionCodeBox.Text?.Trim() ?? string.Empty
         };
     }
 

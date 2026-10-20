@@ -70,7 +70,13 @@ public partial class MainViewModel
         var infobase = SelectedInfobase;
         if (infobase is null)
             return;
-        var win = new Workspace1C.SessionLockWindow(infobase);
+        // Окно открывается модально относительно главного окна (issue #20): без владельца
+        // диалог не до конца модальный — главное окно остаётся активным и может перекрыть
+        // диалог. Тот же приём, что у AppLockWindow (issue #294).
+        var win = new Workspace1C.SessionLockWindow(infobase)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
         win.ShowDialog();
     }
 

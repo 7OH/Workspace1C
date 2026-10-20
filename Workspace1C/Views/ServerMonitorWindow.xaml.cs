@@ -293,6 +293,12 @@ namespace Workspace1C
             _vm.RemoveServer(server);
         }
 
+        /// <summary>«Вверх»: переместить выбранный сервер на позицию выше (issue #3).</summary>
+        private void OnMoveServerUp_Click(object sender, RoutedEventArgs e) => _vm.MoveServerUp();
+
+        /// <summary>«Вниз»: переместить выбранный сервер на позицию ниже (issue #3).</summary>
+        private void OnMoveServerDown_Click(object sender, RoutedEventArgs e) => _vm.MoveServerDown();
+
         /// <summary>Глубокая копия записи (для правки без мутации исходного экземпляра).</summary>
         private static ManagementServer CloneServer(ManagementServer source) => new()
         {

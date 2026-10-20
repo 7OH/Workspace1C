@@ -27,6 +27,14 @@ public class SessionLockOptions
     /// </summary>
     public string Message { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Секретный код разрешения (issue #20): пятый параметр файла блокировки
+    /// <c>1cv8.cdn</c> файловой ИБ. Позволяет пользователю снять блокировку
+    /// вручную, указав код в диалоге 1С. Необязательный — пустая строка
+    /// означает «код не задан».
+    /// </summary>
+    public string PermissionCode { get; set; } = string.Empty;
+
     /// <summary>Момент окончания блокировки = время начала + длительность.</summary>
     public DateTime EndTime => StartTime + Duration;
 
@@ -58,4 +66,24 @@ public class SessionLockOptions
         var start = StartTime.ToString("dd.MM.yyyy HH:mm:ss");
         return $"{start};{DurationMinutes};{BuildFinalMessage()}";
     }
+
+    /// <summary>
+    /// Строка файла блокировки <c>1cv8.cdn</c> (issue #20) для файловой ИБ:
+    /// <c>{1,ГГГГММДДЧЧММСС,ГГГГММДДЧЧММСС,"причина","код разрешения"}</c>.
+    /// Параметры: 1 — флаг активности; 2–3 — дата начала/окончания в формате
+    /// ГГГГММДДЧЧММСС; 4 — текст причины (с подставленными {ДатаНач}/{ДатаКон});
+    /// 5 — секретный код разрешения. Кавычки внутри значений удваиваются
+    /// (правило строки подключения 1С, как в <see cref="ConnectionSettings"/>).
+    /// </summary>
+    public string BuildCdnString()
+    {
+        var start = StartTime.ToString("yyyyMMddHHmmss");
+        var end = EndTime.ToString("yyyyMMddHHmmss");
+        var message = EscapeCdnValue(BuildFinalMessage());
+        var code = EscapeCdnValue(PermissionCode ?? string.Empty);
+        return $"{{1,{start},{end},\"{message}\",\"{code}\"}}";
+    }
+
+    /// <summary>Экранирует значение для 1cv8.cdn: кавычка внутри значения удваивается.</summary>
+    private static string EscapeCdnValue(string value) => value.Replace("\"", "\"\"");
 }

@@ -95,6 +95,12 @@ namespace Workspace1C.Themes
         /// <summary>Горизонтальная вкладка раздела: акцентное подчёркивание у выбранной.</summary>
         public const string SettingsSubTabItem = "SettingsSubTabItem";
 
+        /// <summary>Полоса горизонтальных вкладок монитора серверов (issue #3): по содержимому, общая линия снизу.</summary>
+        public const string ServerMonitorTabControl = "ServerMonitorTabControl";
+
+        /// <summary>Горизонтальная вкладка монитора серверов: акцентное подчёркивание у выбранной.</summary>
+        public const string ServerMonitorTabItem = "ServerMonitorTabItem";
+
         /// <summary>Поле пароля: то же поле, но с контуром 1.5, скруглением 8 и отступом 10 на 6.</summary>
         public const string ModernPasswordBox = "ModernPasswordBox";
 

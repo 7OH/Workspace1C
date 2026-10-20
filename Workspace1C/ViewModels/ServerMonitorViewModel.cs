@@ -146,7 +146,54 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
     public ManagementServer? SelectedServer
     {
         get => _selectedServer;
-        set => SetProperty(ref _selectedServer, value);
+        set
+        {
+            if (SetProperty(ref _selectedServer, value))
+            {
+                // Доступность «Вверх»/«Вниз» зависит от позиции выбранной строки (issue #3).
+                OnPropertyChanged(nameof(CanMoveServerUp));
+                OnPropertyChanged(nameof(CanMoveServerDown));
+            }
+        }
+    }
+
+    /// <summary>Можно ли переместить выбранный сервер вверх (есть выбор и не первая строка).</summary>
+    public bool CanMoveServerUp => SelectedServer is not null && Servers.IndexOf(SelectedServer) > 0;
+
+    /// <summary>Можно ли переместить выбранный сервер вниз (есть выбор и не последняя строка).</summary>
+    public bool CanMoveServerDown
+    {
+        get
+        {
+            if (SelectedServer is null || Servers.Count == 0)
+                return false;
+            var index = Servers.IndexOf(SelectedServer);
+            return index >= 0 && index < Servers.Count - 1;
+        }
+    }
+
+    /// <summary>Перемещает выбранный сервер на одну позицию вверх и сохраняет справочник (issue #3).</summary>
+    public void MoveServerUp()
+    {
+        if (!CanMoveServerUp || _serverListStore is null)
+            return;
+        var index = Servers.IndexOf(SelectedServer!);
+        Servers.Move(index, index - 1);
+        _serverListStore.Save(Servers.ToList());
+        OnPropertyChanged(nameof(CanMoveServerUp));
+        OnPropertyChanged(nameof(CanMoveServerDown));
+    }
+
+    /// <summary>Перемещает выбранный сервер на одну позицию вниз и сохраняет справочник (issue #3).</summary>
+    public void MoveServerDown()
+    {
+        if (!CanMoveServerDown || _serverListStore is null)
+            return;
+        var index = Servers.IndexOf(SelectedServer!);
+        Servers.Move(index, index + 1);
+        _serverListStore.Save(Servers.ToList());
+        OnPropertyChanged(nameof(CanMoveServerUp));
+        OnPropertyChanged(nameof(CanMoveServerDown));
     }
 
     /// <summary>
@@ -182,11 +229,15 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         if (_serverListStore is null)
         {
             OnPropertyChanged(nameof(HasServers));
+            OnPropertyChanged(nameof(CanMoveServerUp));
+            OnPropertyChanged(nameof(CanMoveServerDown));
             return;
         }
         foreach (var server in _serverListStore.Load())
             Servers.Add(server);
         OnPropertyChanged(nameof(HasServers));
+        OnPropertyChanged(nameof(CanMoveServerUp));
+        OnPropertyChanged(nameof(CanMoveServerDown));
     }
 
     /// <summary>Добавляет сервер в справочник и сохраняет файл.</summary>
@@ -199,6 +250,8 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
         Servers.Add(server);
         _serverListStore.Save(Servers.ToList());
         OnPropertyChanged(nameof(HasServers));
+        OnPropertyChanged(nameof(CanMoveServerUp));
+        OnPropertyChanged(nameof(CanMoveServerDown));
     }
 
     /// <summary>Обновляет запись справочника (правка) и сохраняет файл.</summary>
@@ -222,6 +275,8 @@ public sealed class ServerMonitorViewModel : ViewModelBase, IDisposable
             SelectedServer = null;
         _serverListStore.Save(Servers.ToList());
         OnPropertyChanged(nameof(HasServers));
+        OnPropertyChanged(nameof(CanMoveServerUp));
+        OnPropertyChanged(nameof(CanMoveServerDown));
     }
 
     /// <summary>

@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="{loc:Loc SessionLock.Title}"
         Icon="{StaticResource AppIcon}"
-        Height="420" Width="520"
+        Height="520" Width="520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         FontFamily="Segoe UI"
@@ -24,58 +24,78 @@
         <Style TargetType="Button" BasedOn="{StaticResource ModernButton}"/>
     </Window.Resources>
 
-    <StackPanel Margin="16">
-        <!-- ============ Описание ============ -->
-        <TextBlock x:Name="DescriptionLabel" Text="{loc:Loc SessionLock.Description}"
-                   TextWrapping="Wrap" Margin="0,0,0,12"
-                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+    <!-- Компоновка (issue #20): поля — в прокручиваемой области, кнопки зафиксированы
+         снизу и всегда видны (раньше при малом экране нижние кнопки и часть последнего
+         поля ввода уходили за границу окна). -->
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-        <!-- ============ Время начала ============ -->
-        <TextBlock Text="{loc:Loc SessionLock.StartTime}" Margin="0,0,0,4"/>
-        <Grid Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <DatePicker x:Name="StartDate" Padding="6,4" SelectedDateFormat="Short"/>
-            <TextBox x:Name="StartTimeBox" Grid.Column="1" Width="110" Margin="8,0,0,0" Padding="6,4"/>
-        </Grid>
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <!-- ============ Описание ============ -->
+                <TextBlock x:Name="DescriptionLabel" Text="{loc:Loc SessionLock.Description}"
+                           TextWrapping="Wrap" Margin="0,0,0,12"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
 
-        <!-- ============ Длительность ============ -->
-        <TextBlock Text="{loc:Loc SessionLock.Duration}" Margin="0,0,0,4"/>
-        <Grid Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="DurationBox" Padding="6,4"/>
-            <TextBlock x:Name="DurationUnitLabel" Grid.Column="1" Text="{loc:Loc SessionLock.Minutes}"
-                       VerticalAlignment="Center" Margin="8,0,0,0"
-                       Foreground="{DynamicResource TextSecondaryBrush}"/>
-        </Grid>
+                <!-- ============ Время начала ============ -->
+                <TextBlock Text="{loc:Loc SessionLock.StartTime}" Margin="0,0,0,4"/>
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <DatePicker x:Name="StartDate" Padding="6,4" SelectedDateFormat="Short"/>
+                    <TextBox x:Name="StartTimeBox" Grid.Column="1" Width="110" Margin="8,0,0,0" Padding="6,4"/>
+                </Grid>
 
-        <!-- ============ Шаблон ============ -->
-        <TextBlock Text="{loc:Loc SessionLock.Template}" Margin="0,0,0,4"/>
-        <ComboBox x:Name="TemplateBox" SelectionChanged="TemplateBox_SelectionChanged" Margin="0,0,0,10" Padding="6,4"/>
+                <!-- ============ Длительность ============ -->
+                <TextBlock Text="{loc:Loc SessionLock.Duration}" Margin="0,0,0,4"/>
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="DurationBox" Padding="6,4"/>
+                    <TextBlock x:Name="DurationUnitLabel" Grid.Column="1" Text="{loc:Loc SessionLock.Minutes}"
+                               VerticalAlignment="Center" Margin="8,0,0,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </Grid>
 
-        <!-- ============ Сообщение ============ -->
-        <TextBlock Text="{loc:Loc SessionLock.Message}" Margin="0,0,0,4"/>
-        <TextBox x:Name="MessageTextBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto" Padding="6,4" Margin="0,0,0,4"/>
-        <TextBlock x:Name="PlaceholdersHint" Text="{loc:Loc SessionLock.PlaceholdersHint}"
-                   TextWrapping="Wrap" Margin="0,0,0,8"
-                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <!-- ============ Шаблон ============ -->
+                <TextBlock Text="{loc:Loc SessionLock.Template}" Margin="0,0,0,4"/>
+                <ComboBox x:Name="TemplateBox" SelectionChanged="TemplateBox_SelectionChanged" Margin="0,0,0,10" Padding="6,4"/>
 
-        <!-- ============ Кнопки ============ -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="UnlockButton" Width="150" Margin="0,0,8,0"
+                <!-- ============ Сообщение ============ -->
+                <TextBlock Text="{loc:Loc SessionLock.Message}" Margin="0,0,0,4"/>
+                <TextBox x:Name="MessageTextBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" Padding="6,4" Margin="0,0,0,4"/>
+                <TextBlock x:Name="PlaceholdersHint" Text="{loc:Loc SessionLock.PlaceholdersHint}"
+                           TextWrapping="Wrap" Margin="0,0,0,8"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+
+                <!-- ============ Код разрешения (issue #20, 1cv8.cdn) ============ -->
+                <TextBlock Text="{loc:Loc SessionLock.PermissionCode}" Margin="0,0,0,4"/>
+                <TextBox x:Name="PermissionCodeBox" Padding="6,4" Margin="0,0,0,4"/>
+                <TextBlock Text="{loc:Loc SessionLock.PermissionCodeHint}"
+                           TextWrapping="Wrap" Margin="0,0,0,4"
+                           Foreground="{DynamicResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ============ Кнопки (всегда видны, issue #20) ============ -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="UnlockButton" Width="180" Margin="0,0,8,0"
                     Click="OnUnlock_Click">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="✔" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="UnlockTextBlock" Text="{loc:Loc SessionLock.Unlock}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Button>
-            <Button x:Name="LockButton" Width="150" IsDefault="True"
+            <Button x:Name="LockButton" Width="180" IsDefault="True"
                     Click="OnLock_Click">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="🔒" Margin="0,0,6,0" VerticalAlignment="Center"/>
@@ -83,5 +103,5 @@
                 </StackPanel>
             </Button>
         </StackPanel>
-    </StackPanel>
+    </Grid>
 </Window>

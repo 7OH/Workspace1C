@@ -18,10 +18,12 @@ public class SessionLockService : ISessionLockService
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(10);
 
     private readonly IAppLogger? _logger;
+    private readonly FileBaseSessionLock _fileBaseLock;
 
-    public SessionLockService(IAppLogger? logger = null)
+    public SessionLockService(IAppLogger? logger = null, FileBaseSessionLock? fileBaseLock = null)
     {
         _logger = logger;
+        _fileBaseLock = fileBaseLock ?? new FileBaseSessionLock();
     }
 
     /// <inheritdoc />
@@ -32,6 +34,11 @@ public class SessionLockService : ISessionLockService
 
         if (options is null)
             return SessionLockResult.Fail(LocalizationManager.T("SessionLock.Failed"));
+
+        // Файловая ИБ (issue #20): блокировка через файл 1cv8.cdn в каталоге базы —
+        // без запуска конфигуратора. Клиент-серверная — прежний /LockIB конфигуратора.
+        if (IsFileBase(infobase))
+            return _fileBaseLock.Lock(infobase, options);
 
         var lockString = options.BuildSessionLockString();
 
@@ -48,12 +55,23 @@ public class SessionLockService : ISessionLockService
         if (infobase is null)
             return SessionLockResult.Fail(LocalizationManager.T("SessionLock.NoBase"));
 
+        if (IsFileBase(infobase))
+            return _fileBaseLock.Unlock(infobase);
+
         var started = OneCLauncher.RunDesignerBatch(infobase, OneCLauncher.DesignerBatchOperation.UnlockIB, string.Empty);
         if (!started)
             return SessionLockResult.Fail(LocalizationManager.T("SessionLock.StartFailed"));
 
         return await WaitForCompletionAsync(OneCLauncher.DesignerBatchOperation.UnlockIB, string.Empty);
     }
+
+    /// <summary>
+    /// Файловая ли ИБ: тип подключения <see cref="ConnectionType.File"/> (путь к каталогу
+    /// базы — в <see cref="ConnectionSettings.FilePath"/>). Для таких баз блокировка
+    /// выполняется файлом 1cv8.cdn (issue #20).
+    /// </summary>
+    public static bool IsFileBase(Infobase infobase)
+        => infobase?.Connection?.Type == ConnectionType.File;
 
     /// <summary>
     /// Ожидает завершения операции блокировки через событие

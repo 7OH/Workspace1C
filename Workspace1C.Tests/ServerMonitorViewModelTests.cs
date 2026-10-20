@@ -1336,6 +1336,101 @@ public sealed class ServerMonitorViewModelTests
         Assert.NotEmpty(vm.StatusText);
     }
 
+    // ===================== Перемещение серверов (issue #3) =====================
+
+    [Fact]
+    public void MoveServerUp_SwapsWithPreviousAndSaves()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var a = new ManagementServer { Id = "a", Description = "А", Address = "srv-a" };
+        var b = new ManagementServer { Id = "b", Description = "Б", Address = "srv-b" };
+        vm.AddServer(a);
+        vm.AddServer(b);
+        vm.SelectedServer = b;
+
+        vm.MoveServerUp();
+
+        Assert.Equal("b", vm.Servers[0].Id);
+        Assert.Equal("a", vm.Servers[1].Id);
+        // Сохранённый порядок в хранилище совпадает с новым.
+        var saved = store.Load();
+        Assert.Equal("b", saved[0].Id);
+        Assert.Equal("a", saved[1].Id);
+    }
+
+    [Fact]
+    public void MoveServerDown_SwapsWithNextAndSaves()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var a = new ManagementServer { Id = "a", Description = "А", Address = "srv-a" };
+        var b = new ManagementServer { Id = "b", Description = "Б", Address = "srv-b" };
+        vm.AddServer(a);
+        vm.AddServer(b);
+        vm.SelectedServer = a;
+
+        vm.MoveServerDown();
+
+        Assert.Equal("b", vm.Servers[0].Id);
+        Assert.Equal("a", vm.Servers[1].Id);
+        var saved = store.Load();
+        Assert.Equal("b", saved[0].Id);
+        Assert.Equal("a", saved[1].Id);
+    }
+
+    [Fact]
+    public void MoveServerUp_FirstItem_DoesNothing()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var a = new ManagementServer { Id = "a", Description = "А", Address = "srv-a" };
+        var b = new ManagementServer { Id = "b", Description = "Б", Address = "srv-b" };
+        vm.AddServer(a);
+        vm.AddServer(b);
+        vm.SelectedServer = a;
+
+        Assert.False(vm.CanMoveServerUp);
+        vm.MoveServerUp();
+
+        Assert.Equal("a", vm.Servers[0].Id);
+        Assert.Equal("b", vm.Servers[1].Id);
+    }
+
+    [Fact]
+    public void MoveServerDown_LastItem_DoesNothing()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        var a = new ManagementServer { Id = "a", Description = "А", Address = "srv-a" };
+        var b = new ManagementServer { Id = "b", Description = "Б", Address = "srv-b" };
+        vm.AddServer(a);
+        vm.AddServer(b);
+        vm.SelectedServer = b;
+
+        Assert.False(vm.CanMoveServerDown);
+        vm.MoveServerDown();
+
+        Assert.Equal("a", vm.Servers[0].Id);
+        Assert.Equal("b", vm.Servers[1].Id);
+    }
+
+    [Fact]
+    public void CanMove_WithoutSelection_IsFalse()
+    {
+        using var tmp = TempDir();
+        var store = new ServerListStore(directoryOverride: tmp.Path);
+        var vm = new ServerMonitorViewModel(new FakeRacClient(), new RecordingDialogs(), serverListStore: store);
+        vm.AddServer(new ManagementServer { Id = "a", Description = "А", Address = "srv-a" });
+
+        Assert.False(vm.CanMoveServerUp);
+        Assert.False(vm.CanMoveServerDown);
+    }
+
     // ===================== Fakes =====================
 
     /// <summary>Fake-клиент rac для тестов: два кластера, по одной строке данных.</summary>

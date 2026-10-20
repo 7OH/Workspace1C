@@ -160,20 +160,37 @@ namespace Workspace1C
                     _ = _vm.ConnectToServerAsync(server);
             };
 
-            var addServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Add"), "＋", OnAddServer);
-            var editServerButton = BuildActionButton(LocalizationManager.T("ServerMonitor.Servers.Edit"), "✎", OnEditServer);
-            // Кнопке «Удалить» — красная надпись (issue #3, комментарий 7OH).
-            var deleteServerButton = BuildActionButton(
-                LocalizationManager.T("ServerMonitor.Servers.Delete"), "🗑", OnDeleteServer,
+            // Кнопки управления серверами — иконками без надписей (issue #3, комментарий
+            // 7OH 20.10): Добавить, Изменить | Вверх, Вниз | Удалить (как у списка баз).
+            var addServerButton = BuildIconButton(
+                "＋", LocalizationManager.T("ServerMonitor.Servers.Add"), OnAddServer);
+            var editServerButton = BuildIconButton(
+                "✎", LocalizationManager.T("ServerMonitor.Servers.Edit"), OnEditServer);
+            var moveUpServerButton = BuildIconButton(
+                "↑", LocalizationManager.T("ServerMonitor.Servers.MoveUp"), _vm.MoveServerUp);
+            var moveDownServerButton = BuildIconButton(
+                "↓", LocalizationManager.T("ServerMonitor.Servers.MoveDown"), _vm.MoveServerDown);
+            // Кнопке «Удалить» — красная иконка (issue #3, комментарий 7OH).
+            var deleteServerButton = BuildIconButton(
+                "🗑", LocalizationManager.T("ServerMonitor.Servers.Delete"), OnDeleteServer,
                 red: true);
+
+            // Доступность «Вверх»/«Вниз» зависит от позиции выбранной строки (issue #3).
+            moveUpServerButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveServerUp"));
+            moveDownServerButton.Bind(Button.IsEnabledProperty, new Binding("CanMoveServerDown"));
 
             // Кнопки управления серверами НАД списком (issue #3): между заголовком и списком.
             var serverButtons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                Spacing = 4,
                 Margin = new Thickness(0, 0, 0, 6),
-                Children = { addServerButton, editServerButton, deleteServerButton }
+                Children =
+                {
+                    addServerButton, editServerButton, BuildToolbarSeparator(),
+                    moveUpServerButton, moveDownServerButton, BuildToolbarSeparator(),
+                    deleteServerButton
+                }
             };
 
             var serversPanel = new DockPanel { LastChildFill = true };
@@ -307,6 +324,9 @@ namespace Workspace1C
             // строк («Сеансы (12)»). Сеансы/соединения/блокировки биндятся на
             // ОТФИЛЬТРОВАННЫЕ коллекции — выбор базы фильтрует их на клиенте. ----
             var tabs = new TabControl { Margin = new Thickness(0) };
+            // Тема вкладок (issue #3, комментарий 7OH 20.10): в тёмном режиме вкладки
+            // были белыми и надписи не читались — применяем тему с фоном/текстом из темы.
+            tabs.Styled(ControlThemes.ServerMonitorTabControl);
             var sessionsTab = CreateTab(_vm.SessionsTabText,
                 BuildTabWithAction(
                     BuildSortableTable(_vm.FilteredSessions, SessionColumns, BuildSessionRow, "SelectedSession"),
@@ -392,13 +412,13 @@ namespace Workspace1C
             Content = root;
         }
 
-        private TabItem CreateTab(string header, Control content) => new()
+        private TabItem CreateTab(string header, Control content) => new TabItem
         {
             Header = header,
             Padding = new Thickness(14, 6),
             FontSize = 12.5,
             Content = content
-        };
+        }.Styled(ControlThemes.ServerMonitorTabItem);
 
         /// <summary>Регистрирует заголовок вкладки для обновления при смене количества строк.</summary>
         private void RegisterTabHeader(TabItem tab, string property)
@@ -788,9 +808,10 @@ namespace Workspace1C
                     Text = icon,
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground = red ? redBrush : null,
-                    FontSize = 13
+                    // Кнопки-иконки шире (issue #3, комментарий 7OH 20.10): раза в полтора.
+                    FontSize = 14
                 },
-                Padding = new Thickness(6, 5)
+                Padding = new Thickness(9, 7)
             };
             ToolTip.SetTip(button, tooltip);
             button.Styled(ControlThemes.ModernButton);

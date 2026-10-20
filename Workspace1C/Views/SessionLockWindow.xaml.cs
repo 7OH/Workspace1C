@@ -36,8 +36,22 @@ namespace Workspace1C
             Title = string.Format(LocalizationManager.T("SessionLock.TitleForBase"), infobase.Name);
             DescriptionLabel.Text = string.Format(LocalizationManager.T("SessionLock.DescriptionForBase"), infobase.Name);
 
+            // ESC закрывает диалог без действий (issue #20): раньше окно не закрывалось
+            // по ESC. PreviewKeyDown перехватывает клавишу даже при фокусе в TextBox.
+            PreviewKeyDown += OnWindowPreviewKeyDown;
+
             LoadTemplates();
             ResetToDefaults();
+        }
+
+        /// <summary>Закрывает диалог по ESC без установки/снятия блокировки (issue #20).</summary>
+        private void OnWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                DialogResult = false;
+                e.Handled = true;
+            }
         }
 
         private static string T(string key) => LocalizationManager.T(key);
@@ -161,7 +175,9 @@ namespace Workspace1C
             {
                 StartTime = date.Date + time,
                 Duration = TimeSpan.FromMinutes(minutes),
-                Message = MessageTextBox.Text ?? string.Empty
+                Message = MessageTextBox.Text ?? string.Empty,
+                // Код разрешения (issue #20): необязательный, для файла 1cv8.cdn.
+                PermissionCode = PermissionCodeBox.Text?.Trim() ?? string.Empty
             };
         }
     }

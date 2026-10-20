@@ -661,6 +661,79 @@
             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         </Style>
     </ControlTheme>
+
+    <!-- ===================== Горизонтальные вкладки монитора серверов =====================
+         Стили ServerMonitorTabControl и ServerMonitorTabItem (issue #3, комментарий 7OH
+         20.10: «в тёмном режиме вкладки белые и не видно надписей»). Полоса вкладок
+         по содержимому (не равная ширина), у выбранной акцентное подчёркивание 3,
+         фон/текст из темы — вкладки подчиняются тёмной теме. -->
+    <ControlTheme x:Key="ServerMonitorTabControl" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Template">
+            <ControlTemplate TargetType="TabControl">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0"
+                            BorderBrush="{DynamicResource BorderColorBrush}"
+                            BorderThickness="0,0,0,1"
+                            Margin="0,0,0,10">
+                        <ItemsPresenter Name="PART_ItemsPresenter"/>
+                    </Border>
+                    <ContentPresenter Grid.Row="1"
+                                      Name="PART_SelectedContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      Content="{TemplateBinding SelectedContent}"
+                                      ContentTemplate="{TemplateBinding SelectedContentTemplate}"/>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="ServerMonitorTabItem" TargetType="TabItem">
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Padding" Value="14,6"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="Template">
+            <ControlTemplate TargetType="TabItem">
+                <Border Name="PART_Surface"
+                        Background="Transparent"
+                        BorderBrush="Transparent"
+                        BorderThickness="0,0,0,3"
+                        Margin="0,0,0,-1"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Header}"
+                                      ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover:not(:selected) /template/ Border#PART_Surface">
+            <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
+        </Style>
+        <Style Selector="^:pointerover:not(:selected)">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="^:selected /template/ Border#PART_Surface">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+        </Style>
+        <Style Selector="^:selected">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        </Style>
+    </ControlTheme>
     <!-- ===================== Вертикальные вкладки окна настроек =====================
          Стили SettingsTabControl и SettingsTabItem (SettingsWindow.xaml:119 и :146)
          повторяют вкладки окна подключения и отличаются одной шириной. -->
