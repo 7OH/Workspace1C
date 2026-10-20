@@ -797,7 +797,8 @@ namespace Workspace1C
         }
 
         /// <summary>Узкая кнопка-иконка (для строки управления базами, issue #3): только
-        /// значок, подсказка; красная — для «Удалить».</summary>
+        /// значок, подсказка; красная — для «Удалить». MinWidth (комментарий 7OH 20.10):
+        /// «Вверх»/«Вниз» (глифы ↑/↓ уже соседних) получают ту же ширину, что и остальные.</summary>
         private static Button BuildIconButton(string icon, string tooltip, System.Action onClick, bool red = false)
         {
             var redBrush = new SolidColorBrush(Color.Parse("#EF4444"));
@@ -811,7 +812,8 @@ namespace Workspace1C
                     // Кнопки-иконки шире (issue #3, комментарий 7OH 20.10): раза в полтора.
                     FontSize = 14
                 },
-                Padding = new Thickness(9, 7)
+                Padding = new Thickness(9, 7),
+                MinWidth = 40
             };
             ToolTip.SetTip(button, tooltip);
             button.Styled(ControlThemes.ModernButton);

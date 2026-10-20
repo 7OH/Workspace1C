@@ -120,7 +120,8 @@ public sealed class ServerListStore : IServerListStore
                 Id = string.IsNullOrWhiteSpace(server.Id) ? Guid.NewGuid().ToString("N") : server.Id,
                 Description = description,
                 Address = address.Length == 0 ? "localhost" : address,
-                Port = server.Port is >= 1 and <= 65535 ? server.Port : 1540,
+                // Фолбэк невалидного порта — дефолт справочника (1545, RAS; issue #3).
+                Port = server.Port is >= 1 and <= 65535 ? server.Port : ManagementServer.DefaultPort,
                 User = server.User ?? string.Empty,
                 Password = server.Password ?? string.Empty,
             });

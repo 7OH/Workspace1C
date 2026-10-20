@@ -18,8 +18,12 @@ public class ManagementServer
     /// <summary>Адрес сервера 1С (host или IP; допускается «host:port» — порт из адреса приоритетнее).</summary>
     public string Address { get; set; } = "localhost";
 
-    /// <summary>Порт агента сервера 1С (ragent), по умолчанию 1540; для RAS — 1545.</summary>
-    public int Port { get; set; } = 1540;
+    /// <summary>Порт по умолчанию для новой записи справочника (issue #3, комментарий 7OH 20.10):
+    /// 1545 — порт сервера администрирования RAS (порт агента ragent — 1540).</summary>
+    public const int DefaultPort = 1545;
+
+    /// <summary>Порт сервера 1С; по умолчанию 1545 (RAS); для ragent — 1540.</summary>
+    public int Port { get; set; } = DefaultPort;
 
     /// <summary>Логин администратора кластера (пустая строка — без аутентификации).</summary>
     public string User { get; set; } = "";

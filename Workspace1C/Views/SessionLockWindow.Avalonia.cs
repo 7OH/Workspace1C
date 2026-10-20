@@ -26,12 +26,15 @@ public sealed class SessionLockWindow : ModalWindowBase
     private readonly ISessionLockService _service;
     private readonly IDialogService _dialog;
     private readonly List<string> _templates = new();
-    private readonly DatePicker _datePicker = new();
-    private readonly TextBox _startTimeBox = new();
-    private readonly TextBox _durationBox = new();
-    private readonly ComboBox _templateBox = new();
+    // Единая высота однострочных полей (issue #20, комментарий 7OH 20.10): верхние 2 поля
+    // (время начала, длительность) были выше остальных — DatePicker по умолчанию выше
+    // TextBox/ComboBox. Явная высота 36 выравнивает все поля (как ModernTextBox в WPF).
+    private readonly DatePicker _datePicker = new() { Height = 36 };
+    private readonly TextBox _startTimeBox = new() { Height = 36 };
+    private readonly TextBox _durationBox = new() { Height = 36 };
+    private readonly ComboBox _templateBox = new() { Height = 36 };
     private readonly TextBox _messageTextBox = new();
-    private readonly TextBox _permissionCodeBox = new();
+    private readonly TextBox _permissionCodeBox = new() { Height = 36 };
     private readonly Button _unlockButton = new();
     private readonly Button _lockButton = new();
 
@@ -49,9 +52,11 @@ public sealed class SessionLockWindow : ModalWindowBase
 
         Title = string.Format(T("SessionLock.TitleForBase"), infobase.Name);
         Width = 520;
-        Height = 520;
+        // Высота окна увеличена (issue #20, комментарий 7OH 20.10): «Код разрешения»
+        // с описанием должен помещаться без прокрутки.
+        Height = 600;
         MinWidth = 500;
-        MinHeight = 460;
+        MinHeight = 560;
         FontSize = 13;
         Content = BuildRoot();
         LoadTemplates();

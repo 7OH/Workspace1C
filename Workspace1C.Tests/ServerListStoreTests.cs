@@ -123,7 +123,15 @@ public sealed class ServerListStoreTests
         });
 
         var server = Assert.Single(store.Load());
-        Assert.Equal(1540, server.Port);
+        Assert.Equal(ManagementServer.DefaultPort, server.Port);
+    }
+
+    [Fact]
+    public void NewServer_DefaultPort_Is1545()
+    {
+        // Порт по умолчанию для нового сервера — 1545 (RAS, issue #3, комментарий 7OH 20.10).
+        Assert.Equal(1545, ManagementServer.DefaultPort);
+        Assert.Equal(ManagementServer.DefaultPort, new ManagementServer().Port);
     }
 
     [Fact]

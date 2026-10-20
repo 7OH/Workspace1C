@@ -150,9 +150,12 @@
         </Style>
 
         <!-- Кнопка-иконка управления базами и серверами (issue #3): без текста, узкая.
-             Кнопки шире (комментарий 7OH 20.10): раза в полтора — отступы 9,7 и шрифт 14. -->
+             Кнопки шире (комментарий 7OH 20.10): раза в полтора — отступы 9,7 и шрифт 14.
+             MinWidth (комментарий 7OH 20.10): «Вверх»/«Вниз» (глифы ↑/↓ уже соседних)
+             получают ту же ширину, что и остальные кнопки-иконки. -->
         <Style x:Key="IconOnlyButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
             <Setter Property="Padding" Value="9,7"/>
+            <Setter Property="MinWidth" Value="40"/>
             <Setter Property="Margin" Value="0,0,4,0"/>
             <Setter Property="Background" Value="{DynamicResource ItemHoverBrush}"/>
             <Setter Property="FontSize" Value="14"/>

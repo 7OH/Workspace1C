@@ -1949,7 +1949,7 @@
     "ServerMonitor.Title": "1C servers",
     "ServerMonitor.Address": "Address:",
     "ServerMonitor.Port": "Port:",
-    "ServerMonitor.PortTooltip": "The port of the server agent (ragent), 1540 by default — rac connects to it. The cluster port itself (usually 1541) does not need to be specified: it is resolved automatically and shown in the cluster list. For the RAS administration server use 1545. A non-standard port can also be entered directly in the address as host:port (e.g. localhost:27545) — the port from the address takes priority over the Port field.",
+    "ServerMonitor.PortTooltip": "1C server port. For a new server the default is 1545 (RAS administration server). The agent port (ragent) is 1540, the cluster port is usually 1541 (resolved automatically). A non-standard port can also be entered directly in the address as host:port (e.g. localhost:27545) — the port from the address takes priority over the Port field.",
     "ServerMonitor.User": "User:",
     "ServerMonitor.Password": "Password:",
     "ServerMonitor.Connect": "Connect",

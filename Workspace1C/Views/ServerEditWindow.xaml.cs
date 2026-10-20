@@ -40,7 +40,8 @@ public partial class ServerEditWindow : Window
 
         DescriptionBox.Text = model?.Description ?? string.Empty;
         AddressBox.Text = string.IsNullOrWhiteSpace(model?.Address) ? "localhost" : model!.Address;
-        PortBox.Text = (model is { Port: > 0 } ? model.Port : IRacClient.DefaultPort).ToString();
+        // Порт по умолчанию для нового сервера — 1545 (RAS, issue #3, комментарий 7OH 20.10).
+        PortBox.Text = (model is { Port: > 0 } ? model.Port : ManagementServer.DefaultPort).ToString();
         UserBox.Text = model?.User ?? string.Empty;
         if (model is not null)
             PasswordBox.Password = model.Password ?? string.Empty;
