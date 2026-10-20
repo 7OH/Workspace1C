@@ -116,7 +116,10 @@ namespace Workspace1C
                 chooseVersionsToDelete: ChooseOldVersionsToDelete,
                 // issue #334 п.1 (0.3.12.2): загрузки из этого окна видны в индикаторе
                 // главного окна и отменяются из него.
-                backgroundDownloads: Services.BackgroundDownloadManager.Default);
+                backgroundDownloads: Services.BackgroundDownloadManager.Default,
+                // issue #22 (1.0.0.26, Этап C): диалог «файл уже скачивается» при пересечении
+                // с фоновой загрузкой того же файла.
+                askConflict: (title, message) => DownloadConflictWindow.Ask(this, message));
 
             BuildRows();
             foreach (var row in _viewModel.Rows)

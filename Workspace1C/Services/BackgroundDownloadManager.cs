@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 
@@ -38,6 +39,10 @@ public sealed class BackgroundDownloadManager
         /// <summary>Стабильный идентификатор (например, «platform:8.3.27.2214:file.zip»).</summary>
         public string Id { get; }
 
+        /// <summary>Нормализованный полный путь целевого файла (issue #22); null — путь
+        /// неизвестен (загрузка не участвует в проверке пересечения по файлу).</summary>
+        public string? TargetPath { get; }
+
         /// <summary>Человекочитаемый заголовок для индикатора (имя файла/цепочки);
         /// может уточняться через <see cref="BackgroundDownloadManager.UpdateTitle"/>.</summary>
         public string Title { get; internal set; }
@@ -65,10 +70,11 @@ public sealed class BackgroundDownloadManager
         /// <summary>True — загрузка ещё выполняется.</summary>
         public bool IsActive => State == BackgroundDownloadState.Active;
 
-        internal ActiveDownload(string id, string title, Func<DateTime> utcNow)
+        internal ActiveDownload(string id, string title, string? targetPath, Func<DateTime> utcNow)
         {
             Id = id;
             Title = title;
+            TargetPath = targetPath;
             State = BackgroundDownloadState.Active;
             Progress = 0;
             Eta = new DownloadEtaTracker(utcNow);
@@ -121,23 +127,77 @@ public sealed class BackgroundDownloadManager
     /// <summary>Регистрирует старт фоновой загрузки. Повторный старт с тем же
     /// <paramref name="id"/> при активной загрузке возвращает существующую запись
     /// (повторный вызов из окна не создаёт дубликат); завершённая запись заменяется
-    /// новой (повторное скачивание того же файла).</summary>
-    public ActiveDownload Start(string id, string title)
+    /// новой (повторное скачивание того же файла). С 1.0.0.26 (issue #22) при активной
+    /// загрузке того же целевого файла <paramref name="targetPath"/> (другой id) также
+    /// возвращается существующая запись — фоновая и ручная закачки одного файла не
+    /// создают две записи и не пишут в файл параллельно.</summary>
+    public ActiveDownload Start(string id, string title, string? targetPath = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Идентификатор загрузки обязателен", nameof(id));
+
+        var normalizedTarget = NormalizeTargetPath(targetPath);
 
         ActiveDownload entry;
         lock (_lock)
         {
             if (_downloads.TryGetValue(id, out var existing) && existing.IsActive)
                 return existing;
-            entry = new ActiveDownload(id, title ?? string.Empty, _utcNow);
+
+            // issue #22: активная загрузка того же целевого файла (другой id) — возвращаем
+            // существующую запись, чтобы повторный запуск не создавал дубликат.
+            if (normalizedTarget is not null)
+            {
+                var byPath = _downloads.Values.FirstOrDefault(d => d.IsActive
+                    && d.TargetPath is not null
+                    && string.Equals(d.TargetPath, normalizedTarget, StringComparison.OrdinalIgnoreCase));
+                if (byPath is not null)
+                    return byPath;
+            }
+
+            entry = new ActiveDownload(id, title ?? string.Empty, normalizedTarget, _utcNow);
             _downloads[id] = entry;
         }
 
         RaiseChanged();
         return entry;
+    }
+
+    /// <summary>True — идёт активная загрузка в указанный целевой файл (issue #22).
+    /// Пустой/невалидный путь — false (в проверке не участвует).</summary>
+    public bool IsFileBeingDownloaded(string targetPath)
+        => FindByTargetPath(targetPath) is not null;
+
+    /// <summary>Находит активную загрузку по целевому файлу (issue #22). Сравнение путей
+    /// без учёта регистра после нормализации через <see cref="Path.GetFullPath"/>;
+    /// пустой/невалидный путь — null.</summary>
+    public ActiveDownload? FindByTargetPath(string targetPath)
+    {
+        var normalized = NormalizeTargetPath(targetPath);
+        if (normalized is null)
+            return null;
+
+        lock (_lock)
+            return _downloads.Values.FirstOrDefault(d => d.IsActive
+                && d.TargetPath is not null
+                && string.Equals(d.TargetPath, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Нормализует целевой путь для сравнения (issue #22): полный путь через
+    /// <see cref="Path.GetFullPath"/>. Пустой/пробельный/невалидный путь — null
+    /// (загрузка не участвует в проверке пересечения по файлу).</summary>
+    private static string? NormalizeTargetPath(string? targetPath)
+    {
+        if (string.IsNullOrWhiteSpace(targetPath))
+            return null;
+        try
+        {
+            return Path.GetFullPath(targetPath);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Обновляет прогресс активной загрузки (0..1, клампится). Неактивные

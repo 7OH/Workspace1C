@@ -1211,13 +1211,21 @@ public class OneCUpdatesService : IOneCUpdatesService
     private const int MaxDistributionResolutionDepth = 5;
 
     /// <summary>Суффикс временного файла загрузки (issue #352, комментарий 7OH от
-    /// 2026-10-09): файл качается как <c><имя>.download</c> и лишь по успешном
-    /// завершении переименовывается в финальное имя. Прерванная загрузка не оставляет
-    /// «недокачанного» файла под финальным именем, а остаток <c>.download</c> при
-    /// следующем запуске скачанным не считается. Суффикс <c>.part</c> не используется —
-    /// он занят частичными файлами сегментов многопоточной загрузки
-    /// (<see cref="ParallelDownloader"/>: <c><имя>.<i>.part</c>).</summary>
-    internal const string PartialSuffix = ".download";
+    /// 2026-10-09): файл качается как <c><имя>.{ProcessId}.partial</c> и лишь по успешном
+    /// завершении атомарно переименовывается в финальное имя. Прерванная загрузка не
+    /// оставляет «недокачанного» файла под финальным именем, а остаток при следующем
+    /// запуске скачанным не считается. Суффикс <c>.part</c> не используется — он занят
+    /// частичными файлами сегментов многопоточной загрузки
+    /// (<see cref="ParallelDownloader"/>: <c><имя>.<i>.part</c>). С 1.0.0.26 (issue #22,
+    /// Этап D) имя временного файла уникально на процесс — два процесса не пишут в один
+    /// <c>.partial</c>.</summary>
+    internal const string PartialSuffix = ".partial";
+
+    /// <summary>Путь временного файла загрузки, уникальный на процесс (issue #22, Этап D):
+    /// <c><targetPath>.{ProcessId}.partial</c> — два процесса не пишут в один файл;
+    /// докачка в рамках одного процесса сохраняется (путь стабилен).</summary>
+    internal static string BuildPartialPath(string targetPath)
+        => $"{targetPath}.{Environment.ProcessId}{PartialSuffix}";
 
     /// <inheritdoc />
     public async Task<string?> DownloadUpdateAsync(
@@ -1312,14 +1320,14 @@ public class OneCUpdatesService : IOneCUpdatesService
         }
         catch (OperationCanceledException)
         {
-            TryDelete(targetPath + PartialSuffix);
+            TryDelete(BuildPartialPath(targetPath));
             TryDelete(targetPath);
             return null;
         }
         catch (Exception ex)
         {
             _logger.Warn($"[Updates] Ошибка загрузки обновления: {ex.GetType().Name}: {ex.Message}");
-            TryDelete(targetPath + PartialSuffix);
+            TryDelete(BuildPartialPath(targetPath));
             TryDelete(targetPath);
             return null;
         }
@@ -1359,7 +1367,7 @@ public class OneCUpdatesService : IOneCUpdatesService
         HttpResponseMessage response, string targetPath, IProgress<double>? progress, CancellationToken ct)
     {
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-        var partPath = targetPath + PartialSuffix;
+        var partPath = BuildPartialPath(targetPath);
 
         try
         {

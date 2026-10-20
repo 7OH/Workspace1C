@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Windows.Input;
 using Avalonia.Threading;
+using Workspace1C.Collections;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -29,6 +30,20 @@ public partial class MainViewModel : ViewModelBase
     private readonly IIbasesSyncService _sync;
     private readonly IDeletedGroupPathsStore _deletedGroupPaths;
     private readonly IPlatformVersionService _platformService;
+
+    /// <summary>
+    /// Кэш отфильтрованных списков «Избранное»/«Недавние» (issue #21): пересчитывается
+    /// только при изменении данных (инвалидация в <see cref="ApplyFilter"/>),
+    /// при переключении вкладок без изменения данных возвращается готовый кэш.
+    /// </summary>
+    private readonly InfobaseListFilter _listFilter;
+
+    /// <summary>
+    /// Постоянный плоский узел для режимов фильтра (issue #21, Этап C): переиспользуется
+    /// при пересборке дерева вместо создания нового <see cref="GroupNodeViewModel"/> на
+    /// каждый вызов — контейнер корневого узла в дереве не пересоздаётся.
+    /// </summary>
+    private GroupNodeViewModel? _flatNode;
 
     private List<Infobase> _allInfobases = new();
     private List<Group> _groups = new();
@@ -388,9 +403,18 @@ public partial class MainViewModel : ViewModelBase
         _deletedGroupPaths = deletedGroupPaths ?? new DeletedGroupPathsStore();
         _platformService = platformService;
 
-        GroupNodes = new ObservableCollection<GroupNodeViewModel>();
+        // Кэш списков «Избранное»/«Недавние» (issue #21). Провайдеры ленивые: вызываются
+        // только при первом обращении к режиму, поэтому ссылки на this безопасны.
+        _listFilter = new InfobaseListFilter(
+            favoritesProvider: () => ApplyCurrentSort(
+                InfobaseListFilter.FilterFavorites(_allInfobases.Where(MatchesSearchTagFilter))).ToList(),
+            recentProvider: () => InfobaseListFilter.FilterRecent(_allInfobases.Where(MatchesSearchTagFilter)).ToList());
+
+        // ObservableRangeCollection: массовое обновление одним Reset без сброса
+        // ItemsSource (issue #21).
+        GroupNodes = new ObservableRangeCollection<GroupNodeViewModel>();
         AllGroupNodes = new ObservableCollection<GroupNodeViewModel>();
-        FlatItems = new ObservableCollection<object>();
+        FlatItems = new ObservableRangeCollection<object>();
         TagFilterItems = new ObservableCollection<TagFilterItem>();
 
         // Блок «Текущая сессия» действует на очередной запуск Предприятия.
@@ -427,13 +451,13 @@ public partial class MainViewModel : ViewModelBase
     // ======================= Коллекции =======================
 
     /// <summary>Корневые узлы дерева групп для отображения.</summary>
-    public ObservableCollection<GroupNodeViewModel> GroupNodes { get; }
+    public ObservableRangeCollection<GroupNodeViewModel> GroupNodes { get; }
 
     /// <summary>Полный список корневых узлов (до фильтрации по виду/поиску).</summary>
     public ObservableCollection<GroupNodeViewModel> AllGroupNodes { get; }
 
     /// <summary>Плоский список элементов (для режима «Избранное»/«Недавние»/поиска).</summary>
-    public ObservableCollection<object> FlatItems { get; }
+    public ObservableRangeCollection<object> FlatItems { get; }
 
     /// <summary>Чипы тегов на панели быстрого отбора.</summary>
     public ObservableCollection<TagFilterItem> TagFilterItems { get; }
@@ -989,6 +1013,19 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Применяет фильтр по виду списка и поиску.</summary>
     private void ApplyFilter()
     {
+        // Любой вызов, кроме чистого переключения вкладки (SetListMode идёт через
+        // ApplyFilterCore), означает изменение данных/фильтров — кэш «Избранное»/
+        // «Недавние» сбрасываем, чтобы не показывать устаревший список (issue #21).
+        _listFilter.Invalidate();
+        ApplyFilterCore();
+    }
+
+    /// <summary>
+    /// Применяет фильтр БЕЗ сброса кэша списков «Избранное»/«Недавние»: используется
+    /// при чистом переключении вкладок, когда данные не менялись (issue #21).
+    /// </summary>
+    private void ApplyFilterCore()
+    {
         // События подняты здесь, а не в RebuildTree: список меняет состав
         // и мимо полной пересборки, через поиск, вкладки, отбор по тегам,
         // переключатель тегов и группировки. Все эти пути идут сюда.
@@ -1002,53 +1039,30 @@ public partial class MainViewModel : ViewModelBase
         // одним узлом туда же, иначе список остался бы пустым.
         if (filterActive || !_groupByGroup)
         {
-            // В режиме «Недавние» порядок задаёт дата запуска, в остальных —
-            // выбранное поле сортировки.
-            // Приватные базы заблокированного профиля скрыты и в плоском списке,
-            // и при отключённой группировке (0.3.9.85).
-            var matched = filterActive ? _allInfobases.Where(MatchesFilter) : _allInfobases;
-            var visible = (_listMode == "Recent"
-                ? matched.OrderByDescending(i => i.LastLaunchDate ?? DateTime.MinValue)
-                         .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                : ApplyCurrentSort(matched))
-                .Where(IsVisibleForPrivateFilter)
-                .ToList();
+            // Для «Избранное»/«Недавние» берётся готовый кэш (не пересчитывается
+            // при переключении вкладок без изменения данных, issue #21); для
+            // остальных режимов — фильтрация+сортировка на лету.
+            var visible = GetVisibleForCurrentMode();
 
-            FlatItems.Clear();
-            foreach (var ib in visible)
-                FlatItems.Add(ib);
+            // Массовое обновление одним событием Reset вместо тысяч CollectionChanged (issue #21).
+            FlatItems.ReplaceAll(visible);
 
-            var flatNode = new GroupNodeViewModel(
-                null,
+            // Постоянный плоский узел (issue #21, Этап C): переиспользуем один узел и
+            // обновляем только его содержимое (маркер/имя + Items одним Reset) — контейнер
+            // корневого узла в дереве не пересоздаётся при каждом переключении вкладки.
+            _flatNode ??= new GroupNodeViewModel(null);
+            _flatNode.ResetFlatContent(
+                visible,
                 displayName: filterActive ? LocalizationManager.T("Main.FlatFound") : null,
                 marker: filterActive ? null : GroupNodeViewModel.AllBasesMarker);
+            _flatNode.SetExpandedSilent(true);
 
-            flatNode.SetNotificationsSuppressed(true);
-            try
-            {
-                foreach (var ib in visible)
-                    flatNode.Infobases.Add(ib);
-            }
-            finally
-            {
-                flatNode.SetNotificationsSuppressed(false);
-            }
-
-            flatNode.PopulateItems();
-            flatNode.SetExpandedSilent(true);
-
-            GroupNodes.Clear();
-            GroupNodes.Add(flatNode);
+            GroupNodes.ReplaceAll(new[] { _flatNode });
         }
         else
         {
-            FlatItems.Clear();
-            GroupNodes.Clear();
-            foreach (var root in AllGroupNodes)
-            {
-                if (_showEmptyGroups || root.ContainsInfobases)
-                    GroupNodes.Add(root);
-            }
+            FlatItems.ReplaceAll(Array.Empty<object>());
+            GroupNodes.ReplaceAll(AllGroupNodes.Where(root => _showEmptyGroups || root.ContainsInfobases));
         }
 
         // Выбранный узел мог исчезнуть из дерева: поиск и отключение группировки
@@ -1060,10 +1074,29 @@ public partial class MainViewModel : ViewModelBase
         TreeRebuilt?.Invoke();
     }
 
+    /// <summary>
+    /// Возвращает видимые базы для текущего режима списка. Для «Избранное»/«Недавние»
+    /// берётся готовый кэш (issue #21); для остальных режимов — фильтрация+сортировка
+    /// на лету (тот же набор, что в <see cref="MatchesFilter"/>).
+    /// </summary>
+    private IReadOnlyList<Infobase> GetVisibleForCurrentMode()
+    {
+        switch (_listMode)
+        {
+            case "Favorites":
+                return _listFilter.GetFavorites();
+            case "Recent":
+                return _listFilter.GetRecent();
+            default:
+                var matched = IsFilterModeActive() ? _allInfobases.Where(MatchesFilter) : _allInfobases;
+                return ApplyCurrentSort(matched).Where(IsVisibleForPrivateFilter).ToList();
+        }
+    }
+
     private bool MatchesFilter(Infobase ib)
     {
         // Приватная база заблокированного профиля не проходит ни один фильтр (0.3.9.85).
-        if (!IsVisibleForPrivateFilter(ib))
+        if (!MatchesSearchTagFilter(ib))
             return false;
         if (_listMode == "Favorites" && !ib.IsFavorite)
             return false;
@@ -1071,6 +1104,18 @@ public partial class MainViewModel : ViewModelBase
             return false;
         // Отбор «Только запущенные» (issue #339): флаги обновляет монитор процессов 1С.
         if (_listMode == "Running" && !ib.IsRunning)
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Фильтр по приватности, поиску и тегам (БЕЗ режима списка): общая основа для
+    /// <see cref="MatchesFilter"/> и провайдеров кэша «Избранное»/«Недавние» (issue #21).
+    /// </summary>
+    private bool MatchesSearchTagFilter(Infobase ib)
+    {
+        // Приватная база заблокированного профиля не проходит ни один фильтр (0.3.9.85).
+        if (!IsVisibleForPrivateFilter(ib))
             return false;
 
         if (!string.IsNullOrWhiteSpace(SearchText))

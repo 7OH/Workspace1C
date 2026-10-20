@@ -418,6 +418,9 @@ public partial class MainViewModel : ViewModelBase
             return;
 
         infobase.IsFavorite = !infobase.IsFavorite;
+        // Кэш «Избранное»/«Недавние» (issue #21): сбрасываем всегда — ниже ApplyFilter
+        // идёт только при активном фильтре, а без него кэш остался бы устаревшим.
+        _listFilter.Invalidate();
 
         // Снятая звезда освобождает слот явно: пересчёт сам этого не сделает,
         // он выбрасывает только ключи баз, которых больше нет в списке.
@@ -609,6 +612,8 @@ public partial class MainViewModel : ViewModelBase
     private void FinishBookmarkChange()
     {
         SyncFavoriteHotkeys();
+        // Закладки меняют IsFavorite — кэш «Избранное» сбрасываем (issue #21).
+        _listFilter.Invalidate();
         if (IsFilterModeActive())
             ApplyFilter();
         SaveSilently();

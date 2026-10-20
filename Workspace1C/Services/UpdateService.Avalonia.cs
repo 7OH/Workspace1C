@@ -701,6 +701,14 @@ namespace Workspace1C.Services
             var dir = EnsureUpdateDirectory();
             var dest = Path.Combine(dir, $"Workspace1C.{SanitizeKey(versionKey)}.new");
 
+            // issue #22: регистрируем загрузку в общем реестре фоновых загрузок. Повторный
+            // запуск (фоновая проверка + ручная кнопка + задание UpdateApp) с тем же целевым
+            // файлом получает ту же запись — вторая загрузка не создаёт дубликат и не пишет
+            // в файл параллельно. Прогресс публикуется через ReportProgress, исход
+            // фиксируется Complete/Fail ниже.
+            var entry = BackgroundDownloadManager.Default.Start(
+                $"app-update:{versionKey}", "Workspace1C.exe", dest);
+
             try
             {
                 // Многопоточная загрузка по HTTP Range (N сегментов): файл делится на части,
@@ -709,9 +717,16 @@ namespace Workspace1C.Services
                 // на процент. При сбое (сервер без Range, неизвестный размер, ошибка сегмента) —
                 // fallback на однопоточный путь ниже.
                 var parallelPath = await ParallelDownloader.TryDownloadAsync(
-                    _http, url, dest, p => progress?.SetProgress(p)).ConfigureAwait(false);
+                    _http, url, dest, p =>
+                    {
+                        progress?.SetProgress(p);
+                        ReportToBackgroundManager(entry.Id, p);
+                    }).ConfigureAwait(false);
                 if (parallelPath is not null)
+                {
+                    BackgroundDownloadManager.Default.Complete(entry.Id);
                     return parallelPath;
+                }
 
                 // ResponseHeadersRead: тело пишется на диск потоком, а не буферизуется
                 // целиком в памяти (бинарник весит десятки МБ). При этом HttpClient.Timeout
@@ -735,6 +750,7 @@ namespace Workspace1C.Services
                     long readTotal = 0;
                     var lastPercent = -1;
                     progress?.SetProgress(totalBytes > 0 ? 0 : -1);
+                    ReportToBackgroundManager(entry.Id, totalBytes > 0 ? 0 : -1);
 
                     int read;
                     while ((read = await source.ReadAsync(buffer, cancellation.Token).ConfigureAwait(false)) > 0)
@@ -743,7 +759,7 @@ namespace Workspace1C.Services
                             .ConfigureAwait(false);
                         readTotal += read;
 
-                        if (progress is null || totalBytes <= 0)
+                        if (totalBytes <= 0)
                             continue;
 
                         // Отчёт только на смене целого процента: иначе на каждый блок
@@ -753,7 +769,8 @@ namespace Workspace1C.Services
                             continue;
 
                         lastPercent = percent;
-                        progress.SetProgress(percent);
+                        progress?.SetProgress(percent);
+                        ReportToBackgroundManager(entry.Id, percent);
                     }
 
                     await target.FlushAsync(cancellation.Token).ConfigureAwait(false);
@@ -769,15 +786,36 @@ namespace Workspace1C.Services
                 if (size <= 0 || (accepted > 0 && size != accepted))
                 {
                     TryDelete(dest);
+                    BackgroundDownloadManager.Default.Fail(entry.Id, "Update.DownloadFailed");
                     return null;
                 }
 
+                BackgroundDownloadManager.Default.Complete(entry.Id);
                 return dest;
             }
             catch
             {
                 TryDelete(dest);
+                BackgroundDownloadManager.Default.Fail(entry.Id, "Update.DownloadFailed");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Публикует прогресс self-update в реестр фоновых загрузок (issue #22). Окно
+        /// <see cref="UpdateProgressWindowAvalonia"/> продолжает показывать свою полосу,
+        /// а менеджер — индикатор фоновых загрузок главного окна: два разных отображения,
+        /// прогресс не дублируется в одном месте.
+        /// </summary>
+        private static void ReportToBackgroundManager(string entryId, double percent)
+        {
+            try
+            {
+                BackgroundDownloadManager.Default.ReportProgress(entryId, percent >= 0 ? percent / 100.0 : 0);
+            }
+            catch
+            {
+                // Реестр не должен ронять загрузку.
             }
         }
 

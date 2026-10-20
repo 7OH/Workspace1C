@@ -30,6 +30,10 @@ namespace Workspace1C
         public SessionLockWindow(Infobase infobase)
         {
             InitializeComponent();
+            // Адаптивная высота (issue #20): на малых разрешениях окно не должно уходить
+            // за нижнюю границу экрана (WindowStartupLocation="CenterOwner").
+            var work = SystemParameters.WorkArea;
+            Height = Math.Min(680, work.Height - 80);
             _infobase = infobase;
             _service = AppServices.GetRequiredService<ISessionLockService>();
 

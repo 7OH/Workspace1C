@@ -314,8 +314,8 @@ public sealed class OneCUpdatesDistributionResolutionTests
             Assert.EndsWith(".cf", saved, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
             Assert.Single(handler.Requests);
-            // Временный файл загрузки (.download) после успеха переименован, не оставлен.
-            Assert.False(File.Exists(saved + OneCUpdatesService.PartialSuffix));
+            // Временный файл загрузки (.partial) после успеха переименован, не оставлен.
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(saved)));
         }
         finally
         {
@@ -366,7 +366,7 @@ public sealed class OneCUpdatesDistributionResolutionTests
 
             Assert.Null(saved);
             Assert.False(File.Exists(targetPath));
-            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(targetPath)));
             Assert.Single(handler.Requests);
         }
         finally
@@ -388,7 +388,7 @@ public sealed class OneCUpdatesDistributionResolutionTests
         var partialChecks = new List<bool>();
         var handler = new RoutingHandler(_ => ProbingBinary(
             DistributionBytes, "application/zip",
-            () => partialChecks.Add(File.Exists(targetPath + OneCUpdatesService.PartialSuffix))));
+            () => partialChecks.Add(File.Exists(OneCUpdatesService.BuildPartialPath(targetPath)))));
         var service = CreateService(handler);
 
         try
@@ -401,8 +401,8 @@ public sealed class OneCUpdatesDistributionResolutionTests
             Assert.NotEmpty(partialChecks);
             Assert.All(partialChecks, Assert.True);
             Assert.Equal(DistributionBytes, await File.ReadAllBytesAsync(saved!));
-            // После успеха .download не остался: чистое финальное имя дистрибутива.
-            Assert.False(File.Exists(saved + OneCUpdatesService.PartialSuffix));
+            // После успеха .partial не остался: чистое финальное имя дистрибутива.
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(saved)));
         }
         finally
         {
@@ -427,7 +427,7 @@ public sealed class OneCUpdatesDistributionResolutionTests
 
             Assert.Null(saved);
             Assert.False(File.Exists(targetPath));
-            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(targetPath)));
         }
         finally
         {
@@ -732,7 +732,7 @@ public sealed class OneCUpdatesDistributionResolutionTests
 
             Assert.Null(saved);
             Assert.False(File.Exists(targetPath));
-            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(targetPath)));
         }
         finally
         {
@@ -760,7 +760,7 @@ public sealed class OneCUpdatesDistributionResolutionTests
 
             Assert.Null(saved);
             Assert.False(File.Exists(targetPath));
-            Assert.False(File.Exists(targetPath + OneCUpdatesService.PartialSuffix));
+            Assert.False(File.Exists(OneCUpdatesService.BuildPartialPath(targetPath)));
         }
         finally
         {

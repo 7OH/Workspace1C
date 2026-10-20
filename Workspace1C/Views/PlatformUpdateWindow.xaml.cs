@@ -92,7 +92,10 @@ public partial class PlatformUpdateWindow : Window
             chooseVersionsToDelete: ShowOldVersionsPicker,
             // issue #334 п.1 (0.3.12.2): загрузки из этого окна видны в индикаторе
             // главного окна и отменяются из него.
-            backgroundDownloads: BackgroundDownloadManager.Default);
+            backgroundDownloads: BackgroundDownloadManager.Default,
+            // issue #22 (1.0.0.26, Этап C): диалог «файл уже скачивается» при пересечении
+            // с фоновой загрузкой того же файла.
+            askConflict: (title, message) => DownloadConflictWindow.Ask(this, message));
 
         DataContext = _viewModel;
         RowsGrid.ItemsSource = _viewModel.Rows;

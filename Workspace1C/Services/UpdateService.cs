@@ -34,6 +34,12 @@ public sealed class UpdateService : IAppUpdateService
     private readonly PendingUpdateStore _pendingUpdate;
     private readonly HttpClient _http;
 
+    /// <summary>Id записи self-update в <see cref="BackgroundDownloadManager"/> (issue #22):
+    /// фоновая и ручная проверки (и задание UpdateApp) регистрируются в общем реестре
+    /// загрузок, чтобы не писать в один временный файл параллельно. Устанавливается
+    /// в <see cref="DownloadAsync"/> перед скачиванием, сбрасывается после завершения.</summary>
+    private string? _downloadEntryId;
+
     /// <summary>
     /// Флаг «автоматически обновлять приложение без подтверждения». Если включён —
     /// при обнаружении новой версии файл скачивается и обновление применяется
@@ -311,6 +317,15 @@ public sealed class UpdateService : IAppUpdateService
 
         var dest = Path.Combine(dir, TempFileName(versionKey));
         var etagPath = dest + ".etag";
+
+        // issue #22: регистрируем загрузку в общем реестре фоновых загрузок. Повторный
+        // запуск (фоновая проверка + ручная кнопка + задание UpdateApp) с тем же целевым
+        // файлом получает ту же запись — вторая загрузка не создаёт дубликат и не пишет
+        // в файл параллельно. Прогресс публикуется через ReportProgress (см.
+        // ReportToBackgroundManager), исход фиксируется в DownloadNewExeCoreAsync.
+        var entry = BackgroundDownloadManager.Default.Start(
+            $"app-update:{versionKey}", "Workspace1C.exe", dest);
+        _downloadEntryId = entry.Id;
 
         // Быстрый запрос одного байта: узнаём ETag ассета и полный размер до докачки.
         var probe = await ProbeAssetAsync(url).ConfigureAwait(false);
@@ -598,14 +613,14 @@ public sealed class UpdateService : IAppUpdateService
     /// </summary>
     private void ReportDownloadProgress(long totalBytes, long readBytes)
     {
-        if (DownloadProgressChanged is null)
-            return;
-
         var progress = totalBytes > 0
             ? Math.Min(100, readBytes * 100.0 / totalBytes)
             : -1;
 
-        DownloadProgressChanged(progress);
+        if (DownloadProgressChanged is not null)
+            DownloadProgressChanged(progress);
+
+        ReportToBackgroundManager(progress);
     }
 
     /// <summary>
@@ -622,6 +637,30 @@ public sealed class UpdateService : IAppUpdateService
         catch
         {
             // Подписчик не должен ронять загрузку.
+        }
+
+        ReportToBackgroundManager(percent);
+    }
+
+    /// <summary>
+    /// Публикует прогресс self-update в реестр фоновых загрузок (issue #22). Запись
+    /// регистрируется в <see cref="DownloadAsync"/>; событие <see cref="DownloadProgressChanged"/>
+    /// продолжает обслуживать полосу диалога <see cref="UpdateAvailableWindow"/> и строку
+    /// состояния главного окна, а менеджер — индикатор фоновых загрузок: два разных
+    /// отображения, прогресс не дублируется в одном месте.
+    /// </summary>
+    private void ReportToBackgroundManager(double percent)
+    {
+        var id = _downloadEntryId;
+        if (id is null)
+            return;
+        try
+        {
+            BackgroundDownloadManager.Default.ReportProgress(id, percent >= 0 ? percent / 100.0 : 0);
+        }
+        catch
+        {
+            // Реестр не должен ронять загрузку.
         }
     }
 
@@ -662,6 +701,7 @@ public sealed class UpdateService : IAppUpdateService
     /// </summary>
     internal async Task<string?> DownloadNewExeCoreAsync(ReleaseInfo release)
     {
+        string? result = null;
         try
         {
             var downloaded = await DownloadAsync(release.DownloadUrl!, release.TagName, release.AssetSize);
@@ -671,10 +711,23 @@ public sealed class UpdateService : IAppUpdateService
             // Защита от «не того» файла (issue #358): PE — как есть, ZIP — распаковать exe,
             // иное (HTML и пр.) — удалить и вернуть null (ошибка скачивания).
             var dir = Path.Combine(Path.GetTempPath(), UpdateTempDir);
-            return UpdatePayload.EnsureExecutablePayload(downloaded, dir);
+            result = UpdatePayload.EnsureExecutablePayload(downloaded, dir);
+            return result;
         }
         finally
         {
+            // issue #22: фиксируем исход загрузки в реестре фоновых загрузок, чтобы
+            // индикатор главного окна не «завис» на активной записи self-update.
+            var entryId = _downloadEntryId;
+            if (entryId is not null)
+            {
+                if (result is null)
+                    BackgroundDownloadManager.Default.Fail(entryId, "Update.DownloadFailed");
+                else
+                    BackgroundDownloadManager.Default.Complete(entryId);
+                _downloadEntryId = null;
+            }
+
             // Сообщаем подписчикам (главному окну), что попытка скачивания завершена,
             // чтобы скрыть индикатор прогресса в любом случае (успех или неудача).
             RaiseDownloadFinished();

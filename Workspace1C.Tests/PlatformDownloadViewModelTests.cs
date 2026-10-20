@@ -882,6 +882,44 @@ public sealed class PlatformDownloadViewModelTests
     }
 
     [Fact]
+    public async Task DownloadAsync_FileAlreadyDownloading_DoesNotStartSecond()
+    {
+        // issue #22 (1.0.0.26, Этап C): при активной фоновой загрузке того же файла
+        // VM не стартует вторую загрузку — делегат скачивания не вызывается, фоновая
+        // запись остаётся активной (без UI-делегата поведение — «Подождать»).
+        var manager = new BackgroundDownloadManager();
+        var fileX64 = File("8.3.27.2214_x64.zip", "x64", PlatformDistributionKind.WindowsSetupZip);
+        var service = new FakeCatalogService
+        {
+            AvailableResult = new PlatformCatalogResult
+            {
+                Status = PortalFetchStatus.Ok,
+                Releases = new[] { Release("8.3.27.2214", fileX64) },
+            },
+        };
+        var directory = Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
+        var targetPath = Path.Combine(directory,
+            OneCUpdatesService.BuildTargetFileName("8.3.27.2214", fileX64.FileName));
+        manager.Start("bg", "Фоновая загрузка", targetPath);
+        var downloadCalls = 0;
+        var vm = CreateVm(service,
+            download: (url, target, progress, ct) =>
+            {
+                downloadCalls++;
+                return Task.FromResult<string?>(target);
+            },
+            directory: directory,
+            backgroundDownloads: manager);
+
+        await vm.LoadCatalogAsync();
+        await vm.DownloadAsync();
+
+        Assert.Equal(0, downloadCalls); // вторая загрузка не стартовала
+        Assert.False(vm.HasDownloaded);
+        Assert.Equal(1, manager.ActiveCount); // фоновая запись осталась активной
+    }
+
+    [Fact]
     public async Task DownloadAsync_LivesAfterWindowClose_AndReportsProgress()
     {
         // Симуляция закрытия окна: окно уничтожено сразу после старта скачивания,

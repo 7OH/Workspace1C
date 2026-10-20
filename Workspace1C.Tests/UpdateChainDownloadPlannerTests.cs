@@ -65,9 +65,9 @@ public sealed class UpdateChainDownloadPlannerTests : IDisposable
     [Fact]
     public void IsDownloaded_TempDownloadFile_NotCounted()
     {
-        // Временный файл загрузки (.download), даже непустой, скачанным не считается:
+        // Временный файл загрузки (.partial), даже непустой, скачанным не считается:
         // докачка пойдёт под финальное имя заново (issue #352).
-        var tempPath = PathOf("UT11_11.5.25.80.zip") + OneCUpdatesService.PartialSuffix;
+        var tempPath = OneCUpdatesService.BuildPartialPath(PathOf("UT11_11.5.25.80.zip"));
         File.WriteAllText(tempPath, "частично скачанные данные");
 
         Assert.False(UpdateChainDownloadPlanner.IsDownloaded(tempPath));
@@ -86,7 +86,7 @@ public sealed class UpdateChainDownloadPlannerTests : IDisposable
         File.WriteAllText(PathOf("v2.zip"), "ok");
         File.WriteAllText(PathOf("v3.zip"), string.Empty);                    // пустой — качать
         // v4.zip отсутствует — качать
-        File.WriteAllText(PathOf("v5.zip") + OneCUpdatesService.PartialSuffix, "partial"); // качать
+        File.WriteAllText(OneCUpdatesService.BuildPartialPath(PathOf("v5.zip")), "partial"); // качать
         File.WriteAllText(PathOf("v6.zip"), "ok");
 
         var pending = UpdateChainDownloadPlanner.SelectPendingSteps(new[]

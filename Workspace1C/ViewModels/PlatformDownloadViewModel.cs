@@ -53,6 +53,11 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
     private readonly bool _isWindows;
     private readonly Services.BackgroundDownloadManager? _backgroundDownloads;
 
+    /// <summary>Диалог «файл уже скачивается» (issue #22, Этап C): заголовок и сообщение →
+    /// выбранное действие. null — диалог не показывается (тесты/окружение без UI):
+    /// при конфликте вторая загрузка просто не начинается.</summary>
+    private readonly Func<string, string, Services.DownloadConflictDecision>? _askConflict;
+
     /// <summary>
     /// Маршаллер изменения UI-состояния в поток Dispatcher (issues #330/#334): обновление
     /// коллекций (<see cref="Releases"/>) и связанных свойств выполняется ТОЛЬКО в UI-потоке,
@@ -375,11 +380,13 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
         Action<string, string, NotificationKind, NotificationEvent>? notify = null,
         Services.IAppLogger? appLogger = null,
         Action<Action>? dispatchToUi = null,
-        Services.BackgroundDownloadManager? backgroundDownloads = null)
+        Services.BackgroundDownloadManager? backgroundDownloads = null,
+        Func<string, string, Services.DownloadConflictDecision>? askConflict = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
         _backgroundDownloads = backgroundDownloads;
+        _askConflict = askConflict;
         _resolveAccount = resolveAccount ?? (() => null);
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
         _openFolder = openFolder ?? (_ => false);
@@ -728,6 +735,36 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             _appLogger?.Warn("Скачивание платформы: учётная запись ИТС не задана — авторизация портала не будет выполнена");
         }
 
+        var targetDir = string.IsNullOrWhiteSpace(TargetDirectory)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            : TargetDirectory.Trim();
+        var targetPath = Path.Combine(targetDir,
+            OneCUpdatesService.BuildTargetFileName(version, picked.FileName));
+
+        // issue #22 (1.0.0.26, Этап C): перед ручным запуском проверяем, не качается ли
+        // уже этот файл в фоне; при конфликте — диалог (если задан) или отказ от второй
+        // загрузки. «Отменить фоновую загрузку и начать заново» отменяет фоновую запись.
+        if (_backgroundDownloads is not null)
+        {
+            var guard = new Services.DownloadConflictGuard(_backgroundDownloads);
+            var active = guard.FindActiveDownload(targetPath);
+            if (active is not null)
+            {
+                var decision = guard.Resolve(targetPath, _askConflict ?? DefaultConflictDecision);
+                if (decision == Services.DownloadConflictDecision.CancelBackgroundAndRestart)
+                {
+                    _backgroundDownloads.Cancel(active.Id);
+                }
+                else
+                {
+                    AppendLog(string.Format(
+                        LocalizationManager.T(Services.DownloadConflictGuard.FileAlreadyDownloadingKey),
+                        active.Title));
+                    return;
+                }
+            }
+        }
+
         // Регистрация в менеджере фоновых загрузок (issue #334 п.1): закрытие окна
         // не прерывает загрузку, прогресс и отмена идут через менеджер, главное окно
         // показывает индикатор активных загрузок.
@@ -741,13 +778,7 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
 
         try
         {
-            var targetDir = string.IsNullOrWhiteSpace(TargetDirectory)
-                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-                : TargetDirectory.Trim();
             Directory.CreateDirectory(targetDir);
-
-            var targetPath = Path.Combine(targetDir,
-                OneCUpdatesService.BuildTargetFileName(version, picked.FileName));
 
             AppendLog(string.Format(LocalizationManager.T("PlatformDownload.Progress.Download"),
                 picked.FileName, targetDir));
@@ -820,6 +851,11 @@ public sealed class PlatformDownloadViewModel : ViewModelBase
             EtaText = string.Empty;
         }
     }
+
+    /// <summary>Поведение при конфликте без UI-делегата (тесты/окружение без диалога,
+    /// issue #22): вторую загрузку не начинаем — «Подождать».</summary>
+    private static Services.DownloadConflictDecision DefaultConflictDecision(string title, string message)
+        => Services.DownloadConflictDecision.Wait;
 
     /// <summary>Обновляет оценку оставшегося времени (issue #360) по отчёту прогресса.</summary>
     private void UpdateEta(double progress)

@@ -95,6 +95,9 @@ public partial class MainViewModel
                 _favoriteHotkeyIds.Add(FavoriteKey(ib));
         }
         SyncFavoriteHotkeys();
+        // Кэш «Избранное» (issue #21): сбрасываем всегда — ниже пересборка идёт
+        // только при активном фильтре, а без него кэш остался бы устаревшим.
+        _listFilter.Invalidate();
 
         // Состав списка меняется только при активном временном фильтре.
         if (ShowFavoritesOnly

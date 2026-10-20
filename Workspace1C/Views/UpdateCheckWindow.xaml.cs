@@ -587,6 +587,24 @@ public partial class UpdateCheckWindow : Window
     {
         var fileName = Path.GetFileName(targetPath);
 
+        // issue #22 (1.0.0.26, Этап C): перед ручным запуском проверяем, не качается ли
+        // уже этот файл в фоне; при конфликте — диалог с вариантами. «Отменить фоновую
+        // загрузку и начать заново» отменяет фоновую запись и продолжает ручную загрузку;
+        // «Подождать»/«Отмена» — вторую загрузку не начинаем.
+        var guard = new Services.DownloadConflictGuard(Services.BackgroundDownloadManager.Default);
+        var decision = guard.Resolve(targetPath, AskDownloadConflict);
+        if (decision == Services.DownloadConflictDecision.CancelBackgroundAndRestart)
+        {
+            var active = guard.FindActiveDownload(targetPath);
+            if (active is not null)
+                Services.BackgroundDownloadManager.Default.Cancel(active.Id);
+        }
+        else if (decision != Services.DownloadConflictDecision.Proceed)
+        {
+            _logger.Info($"Скачивание «{fileName}» не начато: файл уже скачивается в фоне.");
+            return;
+        }
+
         // issue #352 (0.3.12.3): запись в менеджере заводится ДО скачивания,
         // реальный токен отмены вместо CancellationToken.None.
         var downloadId = $"update:{row.Name}:{fileName}";
@@ -967,12 +985,32 @@ public partial class UpdateCheckWindow : Window
         // issue #360: единый оценщик на всю попытку — ETA агрегированного прогресса цепочки.
         var chainEta = new Services.DownloadEtaTracker();
 
+        // issue #22 (1.0.0.26, Этап C): перед скачиванием каждого файла цепочки проверяем,
+        // не качается ли он уже в фоне (одиночная загрузка того же файла, платформа и т.п.).
+        var chainGuard = new Services.DownloadConflictGuard(Services.BackgroundDownloadManager.Default);
+
         for (var n = 0; n < total; n++)
         {
             var i = pending[n];
             var step = variant.Steps[i];
             var url = OneCUpdatesService.ToAbsoluteVersionFilesUrl(step.VersionFilesUrl, _row.Url);
             var targetPath = targetPaths[i];
+
+            // issue #22: при конфликте «Отменить фоновую загрузку и начать заново» отменяем
+            // фоновую запись и продолжаем ручную загрузку; «Подождать»/«Отмена» — ручная
+            // загрузка цепочки прерывается (файл качается в фоне, пересечение недопустимо).
+            var chainDecision = chainGuard.Resolve(targetPath, AskDownloadConflict);
+            if (chainDecision == Services.DownloadConflictDecision.CancelBackgroundAndRestart)
+            {
+                var active = chainGuard.FindActiveDownload(targetPath);
+                if (active is not null)
+                    Services.BackgroundDownloadManager.Default.Cancel(active.Id);
+            }
+            else if (chainDecision != Services.DownloadConflictDecision.Proceed)
+            {
+                _logger.Info($"Загрузка цепочки «{_row.Name}» прервана: файл «{Path.GetFileName(targetPath)}» уже скачивается в фоне.");
+                return (total - ok, total);
+            }
 
             // issue #352: в индикаторе главного окна показываем имя скачиваемого файла.
             UpdateChainTitle(chainId, targetPath);
@@ -1160,5 +1198,10 @@ public partial class UpdateCheckWindow : Window
     {
         Close();
     }
+
+    /// <summary>Диалог «файл уже скачивается» (issue #22, Этап C): три варианта —
+    /// «Отменить фоновую загрузку и начать заново» / «Подождать» / «Отмена».</summary>
+    private Services.DownloadConflictDecision AskDownloadConflict(string title, string message)
+        => DownloadConflictWindow.Ask(this, message);
 }
 #endif

@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using Workspace1C.Collections;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -92,10 +93,11 @@ public partial class MainViewModel : ViewModelBase
         // Пока дерево ещё на месте, даём окну запомнить позицию прокрутки до пересборки.
         TreeRebuilding?.Invoke();
 
-        // Новая коллекция вместо Clear/Add: один сброс ItemsSource у TreeView,
-        // без промежуточных CollectionChanged на каждый корневой узел.
-        GroupNodes = new ObservableCollection<GroupNodeViewModel>(next);
-        OnPropertyChanged(nameof(GroupNodes));
+        // Массовое обновление существующей коллекции одним событием Reset (issue #21):
+        // TreeView НЕ сбрасывает ItemsSource и переиспользует контейнеры строк
+        // (виртуализация Recycling), вместо пересоздания всех контейнеров на каждый
+        // корневой узел. OnPropertyChanged(GroupNodes) не нужен — коллекция та же.
+        GroupNodes.ReplaceAll(next);
         TreeRebuilt?.Invoke();
     }
 

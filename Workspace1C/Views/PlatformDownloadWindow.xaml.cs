@@ -77,7 +77,10 @@ public partial class PlatformDownloadWindow : Window
             dispatchToUi: action => Dispatcher.InvokeAsync(action),
             // issue #334 п.1: скачивание регистрируется в менеджере фоновых загрузок —
             // продолжается после закрытия окна и видно в индикаторе главного окна.
-            backgroundDownloads: Services.BackgroundDownloadManager.Default);
+            backgroundDownloads: Services.BackgroundDownloadManager.Default,
+            // issue #22 (1.0.0.26, Этап C): диалог «файл уже скачивается» при пересечении
+            // с фоновой загрузкой того же файла.
+            askConflict: (title, message) => DownloadConflictWindow.Ask(this, message));
 
         DataContext = _viewModel;
 

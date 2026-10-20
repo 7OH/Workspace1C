@@ -160,7 +160,9 @@ public partial class MainViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsListModeFavorites));
                 OnPropertyChanged(nameof(IsListModeRecent));
                 OnPropertyChanged(nameof(IsListModeRunning));
-                RebuildGroupTree();
+                // Чистое переключение вкладки: данные не менялись, кэш «Избранное»/«Недавние»
+                // не сбрасываем — берём готовый отфильтрованный список (issue #21).
+                RebuildGroupTreeCore();
             }
         }
     }

@@ -1509,6 +1509,36 @@ public sealed class PlatformUpdateViewModelTests
     }
 
     [Fact]
+    public async Task DownloadOnlyAsync_FileAlreadyDownloading_DoesNotStartSecond()
+    {
+        // issue #22 (1.0.0.26, Этап C): при активной фоновой загрузке того же файла
+        // VM не стартует вторую загрузку — делегат скачивания не вызывается, фоновая
+        // запись остаётся активной (без UI-делегата поведение — «Подождать»).
+        var file = DistroFile(200 * MiB);
+        var service = OkService(Release("8.3.27.2214", file));
+        var manager = new BackgroundDownloadManager();
+        var targetPath = Path.Combine(Path.GetTempPath(), "cm_conflict_test.zip");
+        manager.Start("bg", "Фоновая загрузка", targetPath);
+        var downloadCalls = 0;
+        var vm = CreateVm(
+            service,
+            download: (url, target, progress, ct) =>
+            {
+                downloadCalls++;
+                return Task.FromResult<string?>(target);
+            },
+            saveDialog: _ => targetPath,
+            backgroundDownloads: manager);
+
+        await vm.CheckUpdatesAsync();
+        vm.SelectedRow = vm.Rows.Single(r => r.Version == "8.3.27.2214");
+        await vm.DownloadOnlyAsync();
+
+        Assert.Equal(0, downloadCalls); // вторая загрузка не стартовала
+        Assert.Equal(1, manager.ActiveCount); // фоновая запись осталась активной
+    }
+
+    [Fact]
     public async Task DownloadOnlyAsync_CancelledThroughManager_FailsWithCancelledKey()
     {
         var file = DistroFile(200 * MiB);

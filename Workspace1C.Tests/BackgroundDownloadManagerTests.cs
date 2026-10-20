@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -376,5 +377,78 @@ public sealed class BackgroundDownloadManagerTests
 
         Assert.Equal("Заголовок", entry.Title);
         Assert.Equal(1, changed); // только старт
+    }
+
+    [Fact]
+    public void Start_SameTargetPathWhileActive_ReturnsSameEntry()
+    {
+        // issue #22: разные id, один целевой файл — вторая загрузка присоединяется
+        // к существующей записи, а не создаёт дубликат (фоновая + ручная закачка).
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "Workspace1C", "update", "Workspace1C.1.0.0.26.new.exe");
+
+        var first = manager.Start("app-update:1.0.0.26", "Workspace1C.exe", dest);
+        var second = manager.Start("app-update:manual", "Workspace1C.exe", dest);
+
+        Assert.Same(first, second);
+        Assert.Equal(1, manager.ActiveCount);
+        Assert.Equal(Path.GetFullPath(dest), first.TargetPath);
+    }
+
+    [Fact]
+    public void Start_DifferentTargetPath_StartsSeparateEntry()
+    {
+        // issue #22: разные целевые файлы — две независимые загрузки.
+        var manager = new BackgroundDownloadManager();
+        var destA = Path.Combine(Path.GetTempPath(), "a.zip");
+        var destB = Path.Combine(Path.GetTempPath(), "b.zip");
+
+        var first = manager.Start("id-a", "A", destA);
+        var second = manager.Start("id-b", "B", destB);
+
+        Assert.NotSame(first, second);
+        Assert.Equal(2, manager.ActiveCount);
+    }
+
+    [Fact]
+    public void IsFileBeingDownloaded_ReturnsTrueForActiveTarget()
+    {
+        // issue #22: активная загрузка целевого файла обнаруживается по пути.
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "file.zip");
+        manager.Start("id", "file.zip", dest);
+
+        Assert.True(manager.IsFileBeingDownloaded(dest));
+        // Регистр не важен — сравнение без учёта регистра.
+        Assert.True(manager.IsFileBeingDownloaded(dest.ToUpperInvariant()));
+    }
+
+    [Fact]
+    public void IsFileBeingDownloaded_ReturnsFalseAfterComplete()
+    {
+        // issue #22: после завершения загрузки файл снова свободен.
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "file.zip");
+        manager.Start("id", "file.zip", dest);
+        manager.Complete("id");
+
+        Assert.False(manager.IsFileBeingDownloaded(dest));
+    }
+
+    [Fact]
+    public void FindByTargetPath_IgnoresCaseAndNormalizesPath()
+    {
+        // issue #22: поиск активной записи по целевому файлу — без учёта регистра
+        // и с нормализацией пути (Path.GetFullPath).
+        var manager = new BackgroundDownloadManager();
+        var dest = Path.Combine(Path.GetTempPath(), "update", "Workspace1C.1.0.0.26.new.exe");
+        var entry = manager.Start("app-update:1.0.0.26", "Workspace1C.exe", dest);
+
+        var found = manager.FindByTargetPath(dest.ToUpperInvariant());
+        Assert.Same(entry, found);
+
+        // Неактивная запись не находится.
+        manager.Complete(entry.Id);
+        Assert.Null(manager.FindByTargetPath(dest));
     }
 }

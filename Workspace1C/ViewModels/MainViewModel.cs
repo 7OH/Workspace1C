@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using Workspace1C.Collections;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -250,6 +251,20 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private List<GroupNodeViewModel> _groupNodes = new();
 
+    /// <summary>
+    /// Постоянный плоский узел для режимов фильтра (issue #21, Этап C): переиспользуется
+    /// при пересборке дерева вместо создания нового <see cref="GroupNodeViewModel"/> на
+    /// каждый вызов — контейнер корневого узла в TreeView не пересоздаётся.
+    /// </summary>
+    private GroupNodeViewModel? _flatNode;
+
+    /// <summary>
+    /// Кэш отфильтрованных списков «Избранное»/«Недавние» (issue #21): пересчитывается
+    /// только при изменении данных (инвалидация в <see cref="RebuildGroupTree"/>),
+    /// при переключении вкладок без изменения данных возвращается готовый кэш.
+    /// </summary>
+    private readonly InfobaseListFilter _listFilter;
+
     public MainViewModel(
         IInfobaseRepository? repository = null,
         IDialogService? dialogs = null,
@@ -264,6 +279,12 @@ public partial class MainViewModel : ViewModelBase
         _launcher = launcher ?? new OneCLauncherService();
         _ibasesSync = ibasesSync ?? new IbasesSyncService();
         _deletedGroupPaths = deletedGroupPaths ?? new DeletedGroupPathsStore();
+        // Кэш списков «Избранное»/«Недавние» (issue #21). Провайдеры ленивые: вызываются
+        // только при первом обращении к режиму, поэтому ссылки на this безопасны.
+        _listFilter = new InfobaseListFilter(
+            favoritesProvider: () => ApplyCurrentSort(
+                InfobaseListFilter.FilterFavorites(EnumerateSearchTagFilteredInfobases())).ToList(),
+            recentProvider: () => InfobaseListFilter.FilterRecent(EnumerateSearchTagFilteredInfobases()).ToList());
         _logger.Info("MainViewModel инициализирован");
 
         // При изменении реестра учётных записей (создание/переименование/удаление в окне
@@ -540,8 +561,9 @@ public partial class MainViewModel : ViewModelBase
         InfobasesView.Filter = FilterInfobase;
         ApplySortDescriptions();
 
-        // Дерево групп (отображается в виде «группа в группе»).
-        GroupNodes = new ObservableCollection<GroupNodeViewModel>();
+        // Дерево групп (отображается в виде «группа в группе»). ObservableRangeCollection
+        // позволяет обновлять содержимое одним Reset без сброса ItemsSource (issue #21).
+        GroupNodes = new ObservableRangeCollection<GroupNodeViewModel>();
 
         // Смена языка интерфейса: локализованные свойства VM и служебные узлы дерева
         // обновляются на лету без перезапуска. XAML-привязки {loc:Loc} обновляются сами
@@ -800,7 +822,7 @@ public partial class MainViewModel : ViewModelBase
     public event EventHandler? StartupInitializationCompleted;
 
     /// <summary>Узлы дерева групп информационных баз для отображения «группа в группе».</summary>
-    public ObservableCollection<GroupNodeViewModel> GroupNodes { get; private set; }
+    public ObservableRangeCollection<GroupNodeViewModel> GroupNodes { get; private set; }
 
     /// <summary>Выбранная информационная база.</summary>
     public Infobase? SelectedInfobase

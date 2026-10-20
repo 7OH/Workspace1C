@@ -302,7 +302,9 @@ public partial class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsListModeFavorites));
         OnPropertyChanged(nameof(IsListModeRecent));
         OnPropertyChanged(nameof(IsListModeRunning));
-        ApplyFilter();
+        // Чистое переключение вкладки: данные не менялись, кэш «Избранное»/«Недавние»
+        // не сбрасываем — берём готовый отфильтрованный список (issue #21).
+        ApplyFilterCore();
     }
 
     /// <summary>Переприменяет фильтр при изменении состава запущенных баз (issue #339).</summary>

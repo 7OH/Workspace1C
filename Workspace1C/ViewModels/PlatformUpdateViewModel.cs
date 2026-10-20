@@ -48,6 +48,11 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
     /// отменяются из него. Null — прежнее поведение (тесты).</summary>
     private readonly Services.BackgroundDownloadManager? _backgroundDownloads;
 
+    /// <summary>Диалог «файл уже скачивается» (issue #22, Этап C): заголовок и сообщение →
+    /// выбранное действие. null — диалог не показывается (тесты/окружение без UI):
+    /// при конфликте вторая загрузка просто не начинается.</summary>
+    private readonly Func<string, string, Services.DownloadConflictDecision>? _askConflict;
+
     // Удаление старых версий (этап 0.3.9.215) — всё через делегаты, чтобы класс
     // оставался чистым и тестируемым на обеих платформах.
     private readonly Func<IReadOnlyList<PlatformVersionInfo>> _loadInstalledVersionInfos;
@@ -213,12 +218,14 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
         Action<Action>? dispatchToUi = null,
         Func<IReadOnlyList<PlatformDistributionOption>, PlatformDistributionOption?>? chooseDistribution = null,
         Func<IReadOnlyList<OldVersionCleanupEntry>, IReadOnlyList<PlatformVersionInfo>?>? chooseVersionsToDelete = null,
-        Services.BackgroundDownloadManager? backgroundDownloads = null)
+        Services.BackgroundDownloadManager? backgroundDownloads = null,
+        Func<string, string, Services.DownloadConflictDecision>? askConflict = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _dispatchToUi = dispatchToUi;
         _chooseDistribution = chooseDistribution;
         _backgroundDownloads = backgroundDownloads;
+        _askConflict = askConflict;
         _infobaseRepository = infobaseRepository ?? throw new ArgumentNullException(nameof(infobaseRepository));
         _loadInstalledVersions = loadInstalledVersions ?? throw new ArgumentNullException(nameof(loadInstalledVersions));
         _downloadDistribution = downloadDistribution ?? throw new ArgumentNullException(nameof(downloadDistribution));
@@ -416,6 +423,30 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             var targetDir = Path.Combine(Path.GetTempPath(), "cm_platformdl_" + Guid.NewGuid().ToString("N"));
             var zipPath = Path.Combine(targetDir, OneCUpdatesService.BuildTargetFileName(row.Version, picked.FileName));
 
+            // issue #22 (1.0.0.26, Этап C): перед ручным запуском проверяем, не качается ли
+            // уже этот файл в фоне; при конфликте — диалог (если задан) или отказ от второй
+            // загрузки. «Отменить фоновую загрузку и начать заново» отменяет фоновую запись.
+            if (_backgroundDownloads is not null)
+            {
+                var guard = new Services.DownloadConflictGuard(_backgroundDownloads);
+                var active = guard.FindActiveDownload(zipPath);
+                if (active is not null)
+                {
+                    var decision = guard.Resolve(zipPath, _askConflict ?? DefaultConflictDecision);
+                    if (decision == Services.DownloadConflictDecision.CancelBackgroundAndRestart)
+                    {
+                        _backgroundDownloads.Cancel(active.Id);
+                    }
+                    else
+                    {
+                        AppendLog(string.Format(
+                            LocalizationManager.T(Services.DownloadConflictGuard.FileAlreadyDownloadingKey),
+                            active.Title));
+                        return;
+                    }
+                }
+            }
+
             AppendLog(string.Format(LocalizationManager.T("PlatformUpdate.Progress.Download"), picked.FileName));
             // issue #334: полная диагностика шага — прямая ссылка и путь сохранения,
             // в журнал окна И файловый журнал («в логах пусто» недопустимо).
@@ -598,6 +629,30 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             {
                 AppendLog(LocalizationManager.T("PlatformUpdate.Error.Cancelled"));
                 return;
+            }
+
+            // issue #22 (1.0.0.26, Этап C): перед ручным запуском проверяем, не качается ли
+            // уже этот файл в фоне; при конфликте — диалог (если задан) или отказ от второй
+            // загрузки. «Отменить фоновую загрузку и начать заново» отменяет фоновую запись.
+            if (_backgroundDownloads is not null)
+            {
+                var guard = new Services.DownloadConflictGuard(_backgroundDownloads);
+                var active = guard.FindActiveDownload(targetPath);
+                if (active is not null)
+                {
+                    var decision = guard.Resolve(targetPath, _askConflict ?? DefaultConflictDecision);
+                    if (decision == Services.DownloadConflictDecision.CancelBackgroundAndRestart)
+                    {
+                        _backgroundDownloads.Cancel(active.Id);
+                    }
+                    else
+                    {
+                        AppendLog(string.Format(
+                            LocalizationManager.T(Services.DownloadConflictGuard.FileAlreadyDownloadingKey),
+                            active.Title));
+                        return;
+                    }
+                }
             }
 
             row.IsDownloading = true;
@@ -1214,6 +1269,11 @@ public sealed class PlatformUpdateViewModel : ViewModelBase
             NotificationKind.Error,
             NotificationEvent.Update);
     }
+
+    /// <summary>Поведение при конфликте без UI-делегата (тесты/окружение без диалога,
+    /// issue #22): вторую загрузку не начинаем — «Подождать».</summary>
+    private static Services.DownloadConflictDecision DefaultConflictDecision(string title, string message)
+        => Services.DownloadConflictDecision.Wait;
 
     /// <summary>Обновляет оценку оставшегося времени скачивания (issue #360) по отчёту прогресса.</summary>
     private void UpdateEta(double progress)

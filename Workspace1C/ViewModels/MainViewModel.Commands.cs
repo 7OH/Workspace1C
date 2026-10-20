@@ -632,6 +632,9 @@ public partial class MainViewModel : ViewModelBase
     private void ApplyFavoriteToggle(Infobase infobase)
     {
         infobase.IsFavorite = !infobase.IsFavorite;
+        // Кэш «Избранное»/«Недавние» (issue #21): сбрасываем всегда — ниже пересборка
+        // идёт только при активном фильтре, а без него кэш остался бы устаревшим.
+        _listFilter.Invalidate();
 
         var key = FavoriteKey(infobase);
         if (infobase.IsFavorite)
@@ -704,6 +707,8 @@ public partial class MainViewModel : ViewModelBase
             {
                 RunPostLaunchScript(ib);
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 ib.AddLaunchHistory(isConfigurator ? "Configurator" : "Enterprise", BuildLaunchDetails("tray", ib));
                 InfobasesView.Refresh();
                 Save();
@@ -751,6 +756,8 @@ public partial class MainViewModel : ViewModelBase
             {
                 RunPostLaunchScript(ib);
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 ScheduleSave();
                 _logger.Info($"Запущена избранная база «{ib.Name}» по Alt+{number}");
                 NotifyAfterLaunch();
@@ -912,6 +919,8 @@ public partial class MainViewModel : ViewModelBase
             {
                 RunPostLaunchScript(ib);
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 ScheduleSave();
                 _logger.Info(configurator
                     ? $"Запущен Конфигуратор избранной базы «{ib.Name}» по Ctrl+Alt+{number}"
@@ -953,6 +962,8 @@ public partial class MainViewModel : ViewModelBase
                 {
                     RunPostLaunchScript(ib);
                     ib.LastLaunchDate = DateTime.Now;
+                    // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                    _listFilter.Invalidate();
                     ScheduleSave();
                     _logger.Info($"Запущена избранная база «{ib.Name}» по Alt+E");
                 }
@@ -1573,6 +1584,8 @@ public string HotkeyEnterprise
             {
                 RunPostLaunchScript(ib);
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 ib.AddLaunchHistory(useConfigurator ? "Configurator" : "Enterprise", BuildLaunchDetails("palette", ib));
                 ScheduleSave();
                 _logger.Info($"[palette] Запущена «{ib.Name}» ({(useConfigurator ? "Конфигуратор" : "Предприятие")})");

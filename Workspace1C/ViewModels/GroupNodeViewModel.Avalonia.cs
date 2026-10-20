@@ -1,6 +1,7 @@
 #if LINUX
 using System.Collections.ObjectModel;
 using Avalonia.Media;
+using Workspace1C.Collections;
 using Workspace1C.Converters;
 using Workspace1C.Localization;
 using Workspace1C.Models;
@@ -24,9 +25,11 @@ public class GroupNodeViewModel : ViewModelBase
     private readonly string _iconColor;
     private readonly string _icon;
     // Внутренний маркер специального узла (null для обычных групп).
-    private readonly string? _marker;
+    // Не readonly: постоянный плоский узел обновляет маркер при смене режима (issue #21, Этап C).
+    private string? _marker;
     // Отображаемое имя (для обычных узлов) или ключ локализации (для специальных узлов с маркером).
-    private readonly string _displayName;
+    // Не readonly: постоянный плоский узел обновляет имя при смене режима (issue #21, Этап C).
+    private string _displayName;
 
     /// <summary>Внутренний маркер специального узла «Закреплённые».</summary>
     public const string PinnedMarker = "Pinned";
@@ -65,7 +68,9 @@ public class GroupNodeViewModel : ViewModelBase
         }
         Children = new ObservableCollection<GroupNodeViewModel>();
         Infobases = new ObservableCollection<Infobase>();
-        Items = new ObservableCollection<object>();
+        // ObservableRangeCollection: массовое заполнение одним Reset вместо тысяч
+        // CollectionChanged на каждую базу (issue #21).
+        Items = new ObservableRangeCollection<object>();
         _color = ResolveColor(group, defaultColor, marker);
         _iconColor = group is not null
             ? (!string.IsNullOrWhiteSpace(group.IconColor) ? group.IconColor : "#FFFFFF")
@@ -224,7 +229,7 @@ public class GroupNodeViewModel : ViewModelBase
     public ObservableCollection<Infobase> Infobases { get; }
 
     /// <summary>Единая коллекция для отображения в дереве.</summary>
-    public ObservableCollection<object> Items { get; }
+    public ObservableRangeCollection<object> Items { get; }
 
     /// <summary>Признак наличия подгрупп.</summary>
     public bool HasChildren => Children.Count > 0;
@@ -321,11 +326,11 @@ public class GroupNodeViewModel : ViewModelBase
         _suppressNotifications = true;
         try
         {
-            Items.Clear();
+            var items = new List<object>(Children.Count + Infobases.Count);
             foreach (var child in Children)
             {
                 if (includeEmptyGroups || child.ContainsInfobases)
-                    Items.Add(child);
+                    items.Add(child);
             }
             foreach (var infobase in Infobases)
             {
@@ -333,8 +338,10 @@ public class GroupNodeViewModel : ViewModelBase
                 // (issue #301): экземпляр уже лежит в своей группе, и дубль данных в дереве
                 // заставлял штатное выделение Avalonia подсвечивать первую копию
                 // (узел «Закреплённые» стоит первым) вместо строки под курсором.
-                Items.Add(Marker == PinnedMarker ? new PinnedInfobaseItem(infobase) : infobase);
+                items.Add(Marker == PinnedMarker ? new PinnedInfobaseItem(infobase) : infobase);
             }
+            // Массовая замена одним событием Reset вместо тысяч CollectionChanged (issue #21).
+            Items.ReplaceAll(items);
             _containsInfobasesCache = Infobases.Count > 0 || Children.Any(c => c.ContainsInfobases);
         }
         finally
@@ -346,6 +353,43 @@ public class GroupNodeViewModel : ViewModelBase
         OnPropertyChanged(nameof(GroupCountSuffix));
         OnPropertyChanged(nameof(HasInfobases));
         OnPropertyChanged(nameof(ContainsInfobases));
+    }
+
+    /// <summary>
+    /// Переиспользует узел для плоского режима (issue #21, Этап C): обновляет маркер и
+    /// отображаемое имя (например, «Найдено» при поиске vs «Все базы» при отключённой
+    /// группировке) и массово заменяет базы одним событием Reset. Объект узла не
+    /// пересоздаётся — контейнер корневого узла в дереве не пересоздаётся.
+    /// </summary>
+    /// <param name="infobases">Базы для плоского списка.</param>
+    /// <param name="displayName">Отображаемое имя (для режима фильтра, marker == null).</param>
+    /// <param name="marker">Внутренний маркер специального узла (например, <see cref="AllBasesMarker"/>).</param>
+    public void ResetFlatContent(
+        IReadOnlyList<Infobase> infobases,
+        string? displayName = null,
+        string? marker = null)
+    {
+        // Обновляем маркер и имя: для специальных узлов DisplayName вычисляется на лету
+        // из ключа локализации, для фильтра — из переданного текста.
+        _marker = marker;
+        _displayName = marker is not null ? MarkerToKey(marker) : (displayName ?? string.Empty);
+        OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(Marker));
+        OnPropertyChanged(nameof(Icon));
+        OnPropertyChanged(nameof(NodeKey));
+
+        _suppressNotifications = true;
+        try
+        {
+            Infobases.Clear();
+            foreach (var infobase in infobases)
+                Infobases.Add(infobase);
+        }
+        finally
+        {
+            _suppressNotifications = false;
+        }
+        PopulateItems();
     }
 
     /// <summary>Рекурсивно сортирует подгруппы текущего узла по имени.</summary>

@@ -9,7 +9,7 @@
         mc:Ignorable="d"
         Title="{loc:Loc SessionLock.Title}"
         Icon="{StaticResource AppIcon}"
-        Height="600" Width="520"
+        Height="680" Width="520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         FontFamily="Segoe UI"
@@ -40,7 +40,7 @@
             <StackPanel>
                 <!-- ============ Описание ============ -->
                 <TextBlock x:Name="DescriptionLabel" Text="{loc:Loc SessionLock.Description}"
-                           TextWrapping="Wrap" Margin="0,0,0,12"
+                           TextWrapping="Wrap" Margin="0,0,0,8"
                            Foreground="{DynamicResource TextSecondaryBrush}"/>
 
                 <!-- ============ Время начала ============ -->
@@ -75,7 +75,7 @@
 
                 <!-- ============ Сообщение ============ -->
                 <TextBlock Text="{loc:Loc SessionLock.Message}" Margin="0,0,0,4"/>
-                <TextBox x:Name="MessageTextBox" Height="90" AcceptsReturn="True" TextWrapping="Wrap"
+                <TextBox x:Name="MessageTextBox" Height="80" AcceptsReturn="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto" Padding="6,4" Margin="0,0,0,4"/>
                 <TextBlock x:Name="PlaceholdersHint" Text="{loc:Loc SessionLock.PlaceholdersHint}"
                            TextWrapping="Wrap" Margin="0,0,0,8"

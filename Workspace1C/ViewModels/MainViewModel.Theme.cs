@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using Workspace1C.Collections;
 using Workspace1C.Localization;
 using Workspace1C.Models;
 using Workspace1C.Services;
@@ -734,12 +735,8 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private IEnumerable<Infobase> EnumerateFilteredInfobases()
     {
-        var search = SearchText?.Trim() ?? string.Empty;
-        var hasSearch = search.Length > 0;
-        var hasTags = _activeTagFilterSet.Count > 0;
         var mode = _listViewMode;
-
-        IEnumerable<Infobase> source = Infobases.Where(IsVisibleForPrivateFilter);
+        IEnumerable<Infobase> source = EnumerateSearchTagFilteredInfobases();
         if (mode == ListViewMode.Favorites)
             source = source.Where(i => i.IsFavorite);
         else if (mode == ListViewMode.Recent)
@@ -749,8 +746,21 @@ public partial class MainViewModel : ViewModelBase
             // Отбор «Только запущенные» (issue #339): флаги обновляет монитор
             // процессов 1С (MainViewModel.Running).
             source = source.Where(i => i.IsRunning);
+        return source;
+    }
 
-        foreach (var infobase in source)
+    /// <summary>
+    /// Перебирает базы с учётом приватности, поиска и тегов (БЕЗ режима списка):
+    /// общая основа для <see cref="EnumerateFilteredInfobases"/> и провайдеров кэша
+    /// «Избранное»/«Недавние» (issue #21).
+    /// </summary>
+    private IEnumerable<Infobase> EnumerateSearchTagFilteredInfobases()
+    {
+        var search = SearchText?.Trim() ?? string.Empty;
+        var hasSearch = search.Length > 0;
+        var hasTags = _activeTagFilterSet.Count > 0;
+
+        foreach (var infobase in Infobases.Where(IsVisibleForPrivateFilter))
         {
             // Несколько тегов: база подходит, если содержит все выбранные (AND),
             // сравнение без учёта регистра (синхронизировано с Avalonia).
@@ -773,6 +783,25 @@ public partial class MainViewModel : ViewModelBase
             }
 
             yield return infobase;
+        }
+    }
+
+    /// <summary>
+    /// Возвращает видимые базы для текущего режима списка. Для «Избранное»/«Недавние»
+    /// берётся готовый кэш (не пересчитывается при переключении вкладок без изменения
+    /// данных, issue #21); для остальных режимов — фильтрация+сортировка на лету.
+    /// </summary>
+    private IReadOnlyList<Infobase> GetVisibleForCurrentMode()
+    {
+        switch (_listViewMode)
+        {
+            case ListViewMode.Favorites:
+                return _listFilter.GetFavorites();
+            case ListViewMode.Recent:
+                return _listFilter.GetRecent();
+            default:
+                // «Все» и «Только запущенные»: режимный фильтр внутри EnumerateFilteredInfobases.
+                return ApplyCurrentSort(EnumerateFilteredInfobases()).ToList();
         }
     }
 
@@ -833,13 +862,22 @@ public partial class MainViewModel : ViewModelBase
 
     public void RebuildGroupTree()
     {
+        // Любой вызов пересборки, кроме чистого переключения вкладки (ListViewMode setter
+        // идёт через RebuildGroupTreeCore), означает изменение данных/фильтров — кэш
+        // «Избранное»/«Недавние» сбрасываем, чтобы не показывать устаревший список (issue #21).
+        _listFilter.Invalidate();
+        RebuildGroupTreeCore();
+    }
+
+    /// <summary>
+    /// Пересобирает дерево БЕЗ сброса кэша списков «Избранное»/«Недавние»: используется
+    /// при чистом переключении вкладок, когда данные не менялись (issue #21).
+    /// </summary>
+    private void RebuildGroupTreeCore()
+    {
         // Один проход по базам без CollectionView.Refresh (он дорогой на больших списках).
         // Учитываем выбранное поле сортировки (_sortField / _sortAscending).
-        var filtered = EnumerateFilteredInfobases();
-        // В режиме «Недавние» порядок уже по LastLaunchDate; иначе — выбранная сортировка.
-        var visible = (_listViewMode == ListViewMode.Recent
-            ? filtered
-            : ApplyCurrentSort(filtered)).ToList();
+        var visible = GetVisibleForCurrentMode();
 
         // Когда группировка отключена или активен временный фильтр
         // (Избранное / Недавние / отбор по тегу / поиск) — показываем плоский список
@@ -848,17 +886,17 @@ public partial class MainViewModel : ViewModelBase
         // группировка по группам теряет смысл.
         if (!_groupByGroup || IsFilterModeActive())
         {
-            var flatNode = new GroupNodeViewModel(
-                null,
-                displayName: IsFilterModeActive() ? LocalizationManager.T("Main.FlatFound") : null,
-                marker: IsFilterModeActive() ? null : GroupNodeViewModel.AllBasesMarker);
-            flatNode.SetNotificationsSuppressed(true);
-            foreach (var infobase in visible)
-                flatNode.Infobases.Add(infobase);
-            flatNode.PopulateItems();
-            flatNode.SetNotificationsSuppressed(false);
-            flatNode.IsExpanded = true;
-            _groupNodes = new List<GroupNodeViewModel> { flatNode };
+            var filterActive = IsFilterModeActive();
+            // Постоянный плоский узел (issue #21, Этап C): переиспользуем один узел и
+            // обновляем только его содержимое (маркер/имя + Items одним Reset) — контейнер
+            // корневого узла в TreeView не пересоздаётся при каждом переключении вкладки.
+            _flatNode ??= new GroupNodeViewModel(null);
+            _flatNode.ResetFlatContent(
+                visible,
+                displayName: filterActive ? LocalizationManager.T("Main.FlatFound") : null,
+                marker: filterActive ? null : GroupNodeViewModel.AllBasesMarker);
+            _flatNode.IsExpanded = true;
+            _groupNodes = new List<GroupNodeViewModel> { _flatNode };
             ReplaceGroupNodes(_groupNodes);
             return;
         }

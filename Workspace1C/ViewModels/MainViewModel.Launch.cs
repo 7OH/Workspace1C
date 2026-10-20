@@ -116,6 +116,8 @@ public partial class MainViewModel : ViewModelBase
             if (ok)
             {
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 Save();
             }
             else
@@ -163,6 +165,8 @@ public partial class MainViewModel : ViewModelBase
             if (ok)
             {
                 ib.LastLaunchDate = DateTime.Now;
+                // Дата запуска влияет на «Недавние» — кэш сбрасываем (issue #21).
+                _listFilter.Invalidate();
                 Save();
             }
             else
@@ -438,6 +442,9 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Сохранение списка баз после точечного изменения (версия платформы и т.п.).</summary>
     public void PersistInfobasesAfterInlineEdit()
     {
+        // Точечные правки (очистка истории запусков и т.п.) меняют LastLaunchDate —
+        // кэш «Избранное»/«Недавние» сбрасываем (issue #21).
+        _listFilter.Invalidate();
         try
         {
             Save();

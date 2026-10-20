@@ -54,10 +54,15 @@ public sealed class SessionLockWindow : ModalWindowBase
         Width = 520;
         // Высота окна увеличена (issue #20, комментарий 7OH 20.10): «Код разрешения»
         // с описанием должен помещаться без прокрутки.
-        Height = 600;
+        Height = 680;
         MinWidth = 500;
-        MinHeight = 560;
+        MinHeight = 640;
         FontSize = 13;
+        // Адаптивная высота (issue #20): на малых разрешениях окно не должно уходить
+        // за нижнюю границу экрана. WorkingArea — в физических пикселях, Height — в DIP,
+        // поэтому делим на Scaling. Screens доступен до Content = BuildRoot().
+        if (Screens.ScreenFromWindow(this) is { } screen && screen.Scaling > 0)
+            Height = Math.Min(680, screen.WorkingArea.Height / screen.Scaling - 80);
         Content = BuildRoot();
         LoadTemplates();
         ResetToDefaults();
@@ -77,7 +82,7 @@ public sealed class SessionLockWindow : ModalWindowBase
         {
             Text = string.Format(T("SessionLock.DescriptionForBase"), _infobase.Name),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 8)
         };
         ThemeBrushes.Bind(desc, TextBlock.ForegroundProperty, "TextSecondaryColorBrush");
         fields.Children.Add(desc);
@@ -114,7 +119,7 @@ public sealed class SessionLockWindow : ModalWindowBase
         fields.Children.Add(FieldLabel(T("SessionLock.Message")));
         _messageTextBox.AcceptsReturn = true;
         _messageTextBox.TextWrapping = TextWrapping.Wrap;
-        _messageTextBox.Height = 90;
+        _messageTextBox.Height = 80;
         fields.Children.Add(_messageTextBox);
 
         var hint = new TextBlock

@@ -326,4 +326,60 @@ public sealed class GroupNodeViewModelTests
         root.PopulateItems(includeEmptyGroups: true);
         Assert.Contains(child, root.Items);
     }
+
+    // ===================== Постоянный плоский узел (issue #21, Этап C) =====================
+
+    [Fact]
+    public void ResetFlatContent_ReusesSameNodeAndReplacesItems()
+    {
+        // Контракт Этапа C: один постоянный узел переиспользуется, содержимое Items
+        // заменяется массово (одним Reset), объект узла не пересоздаётся.
+        var node = new GroupNodeViewModel(null);
+        var first = new[] { CreateBase("База 1"), CreateBase("База 2") };
+        var second = new[] { CreateBase("База 3") };
+
+        node.ResetFlatContent(first, displayName: "Найдено", marker: null);
+        Assert.Equal(2, node.Items.Count);
+        Assert.Same(first[0], node.Items[0]);
+        Assert.Same(first[1], node.Items[1]);
+
+        // Повторный вызов на том же объекте — содержимое заменяется, объект тот же.
+        node.ResetFlatContent(second, displayName: "Найдено", marker: null);
+        Assert.Single(node.Items);
+        Assert.Same(second[0], node.Items[0]);
+    }
+
+    [Fact]
+    public void ResetFlatContent_SwitchesMarkerAndDisplayName()
+    {
+        // Смена режима: «Найдено» (поиск/фильтр, marker == null) vs «Все базы»
+        // (отключённая группировка, AllBasesMarker). Свойства перечитываются.
+        var node = new GroupNodeViewModel(null);
+        var bases = new[] { CreateBase() };
+
+        node.ResetFlatContent(bases, displayName: "Найдено", marker: null);
+        Assert.Null(node.Marker);
+        Assert.Equal("Найдено", node.DisplayName);
+
+        node.ResetFlatContent(bases, displayName: null, marker: GroupNodeViewModel.AllBasesMarker);
+        Assert.Equal(GroupNodeViewModel.AllBasesMarker, node.Marker);
+        // В тестовой среде LocalizationManager не инициализирован и T возвращает ключ.
+        Assert.Equal(LocalizationManager.T("Main.FlatAllBases"), node.DisplayName);
+    }
+
+    [Fact]
+    public void ResetFlatContent_RaisesDisplayNameAndMarkerNotifications()
+    {
+        // UI должен перечитать заголовок/иконку/ключ узла при смене режима.
+        var node = new GroupNodeViewModel(null);
+        var events = new List<string?>();
+        node.PropertyChanged += (_, e) => events.Add(e.PropertyName);
+
+        node.ResetFlatContent(new[] { CreateBase() }, displayName: "Найдено", marker: null);
+
+        Assert.Contains(nameof(GroupNodeViewModel.DisplayName), events);
+        Assert.Contains(nameof(GroupNodeViewModel.Marker), events);
+        Assert.Contains(nameof(GroupNodeViewModel.Icon), events);
+        Assert.Contains(nameof(GroupNodeViewModel.NodeKey), events);
+    }
 }
