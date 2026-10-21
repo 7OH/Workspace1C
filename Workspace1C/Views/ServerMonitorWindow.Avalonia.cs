@@ -55,7 +55,7 @@ namespace Workspace1C
         /// Открытие «Импорта из кластера 1С» (issue #27): делегат MainViewModel —
         /// окно монитора к репозиторию напрямую не обращается.
         /// </summary>
-        private readonly Action<ManagementServer?>? _openClusterImport;
+        private readonly Action<ManagementServer?, Guid?>? _openClusterImport;
 
         /// <summary>Заголовки вкладок с количеством строк (обновляются по PropertyChanged).</summary>
         private readonly List<(TabItem Tab, string Property)> _dynamicTabHeaders = new();
@@ -69,7 +69,7 @@ namespace Workspace1C
         /// Открытие окна импорта с сервером, текущим на момент нажатия «Импорт»
         /// (issue #27); null — кнопка «Импорт» под списком баз не показывает импорт.
         /// </param>
-        public ServerMonitorWindow(Action<ManagementServer?>? openClusterImport = null)
+        public ServerMonitorWindow(Action<ManagementServer?, Guid?>? openClusterImport = null)
         {
             _openClusterImport = openClusterImport;
             Title = LocalizationManager.T("ServerMonitor.Title");
@@ -1119,7 +1119,7 @@ namespace Workspace1C
                 return;
             }
 
-            _openClusterImport?.Invoke(server);
+            _openClusterImport?.Invoke(server, _vm.SelectedClusterId);
         }
 
         /// <summary>Вертикальный разделитель групп кнопок панели баз (issue #3).</summary>

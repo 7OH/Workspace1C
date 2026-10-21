@@ -1,6 +1,7 @@
 ﻿#if WINDOWS
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
@@ -230,6 +231,22 @@ namespace Workspace1C
             if (CompactModeButton is null || _viewModel is null)
                 return;
             _viewModel.ApplyCompactMode(CompactModeButton.IsChecked == true);
+        }
+
+        /// <summary>
+        /// Счёт событий коллекций дерева (FlatItems/GroupNodes) для диагностики переключения
+        /// вкладок (issue #21, CM_TREESWITCH): ReplaceItemWise порождает поштучные Add/Remove,
+        /// полная замена — Reset. По collAdd/collRemove видно масштаб «шквала» событий
+        /// при переходе «Все»(600)↔«Недавние»(10), а по collReset — уход в полный Reset.
+        /// </summary>
+        private void OnTreeCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Add: _treeCollAddCount++; break;
+                case NotifyCollectionChangedAction.Remove: _treeCollRemoveCount++; break;
+                case NotifyCollectionChangedAction.Reset: _treeCollResetCount++; break;
+            }
         }
 
         /// <summary>

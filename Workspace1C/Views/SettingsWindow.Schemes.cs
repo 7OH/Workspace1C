@@ -33,16 +33,20 @@ namespace Workspace1C
         {
             ColorItemsControl.ItemsSource = _colorItems;
             RefreshSchemeComboBox();
+            // Начальный режим палитры — по текущему варианту темы, ДО построения строк
+            // редактора (issue #26): RefreshColorItems читает GetEditableColors с флагом
+            // EditingDarkPalette, и раньше строки строились по светлой палитре по умолчанию
+            // (дефолтные #FDBF00/#E0A800) даже при активной тёмной теме с сохранёнными
+            // правками — при повторном входе прямоугольники и диалог выбора цвета показывали
+            // жёлтый вместо сохранённого акцента.
+            var dark = Themes.ThemeManager.CurrentTheme == Themes.ThemeManager.DarkThemeName;
+            _settings.SetPaletteMode(dark);
+            UpdatePaletteButton();
             RefreshColorItems();
             // Режим «предпросмотр → Применить/Отмена» (issue #378): запоминаем тему
             // до входа в галерею, чтобы «Отмена» вернула её без сохранения.
             _viewModel.BeginThemePreview();
             InitializeFullThemes();
-
-            // Начальный режим палитры — по текущему варианту темы.
-            var dark = Themes.ThemeManager.CurrentTheme == Themes.ThemeManager.DarkThemeName;
-            _settings.SetPaletteMode(dark);
-            UpdatePaletteButton();
             RefreshSchemePreview();
         }
 

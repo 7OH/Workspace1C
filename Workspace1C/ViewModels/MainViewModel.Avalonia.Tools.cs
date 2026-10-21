@@ -1647,7 +1647,7 @@ public partial class MainViewModel : ViewModelBase
         // Кнопка «Импорт» под списком баз (issue #27) открывает «Импорт из кластера 1С»
         // с сервером, текущим на момент нажатия, и автоподключением.
         var window = new Workspace1C.ServerMonitorWindow(
-            server => ExecuteImportClusterInfobases(server, autoConnect: true));
+            (server, clusterId) => ExecuteImportClusterInfobases(server, clusterId, autoConnect: true));
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_serverMonitorWindow, window))
@@ -1788,14 +1788,16 @@ public partial class MainViewModel : ViewModelBase
     /// и сразу подключается. Логика применения результата — в общем
     /// <see cref="ApplyClusterImportResult"/> (единая для WPF и Avalonia).
     /// </summary>
-    private void ExecuteImportClusterInfobases(ManagementServer? initialServer = null, bool autoConnect = false)
+    private void ExecuteImportClusterInfobases(
+        ManagementServer? initialServer = null, Guid? initialClusterId = null, bool autoConnect = false)
     {
         var window = new Workspace1C.ClusterImportWindow(
             AppServices.GetRequiredService<IRacClient>(),
             AppServices.GetRequiredService<IInfobaseRepository>(),
             _allInfobases.ToList(),
             initialServer,
-            autoConnect);
+            autoConnect,
+            initialClusterId);
         if (!window.ShowDialogSync(OwnerWindow()))
             return;
 

@@ -2343,6 +2343,7 @@
     "ClusterImport.Status.Cancelled": "Operation cancelled.",
     "ClusterImport.Status.LoadedFormat": "Infobases loaded: {0}",
     "ClusterImport.Status.LoadFailed": "Could not load the list of infobases.",
+    "ClusterImport.Status.SelectCluster": "Select a cluster from the list: there is more than one.",
 
     "ConnectionReplace.Summary.Format": "Matches: {0} · bases to change: {1} · no matches: {2} · no connection: {3}",
     "ConnectionReplace.Result.AppliedFormat": "Replacement applied: bases changed: {0}.",

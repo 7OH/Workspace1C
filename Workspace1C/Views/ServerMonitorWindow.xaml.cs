@@ -31,7 +31,7 @@ namespace Workspace1C
         /// Открытие «Импорта из кластера 1С» (issue #27): делегат MainViewModel —
         /// окно монитора к репозиторию напрямую не обращается.
         /// </summary>
-        private readonly Action<ManagementServer?>? _openClusterImport;
+        private readonly Action<ManagementServer?, Guid?>? _openClusterImport;
 
         /// <summary>Фоновое обновление кэша статусов служб (5 с; issue #3, часть 2).</summary>
         private System.Threading.Timer? _servicesStatusTimer;
@@ -39,10 +39,11 @@ namespace Workspace1C
         private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
 
         /// <param name="openClusterImport">
-        /// Открытие окна импорта с сервером, текущим на момент нажатия «Импорт»
-        /// (issue #27); null — кнопка «Импорт» под списком баз скрыта/не активна.
+        /// Открытие окна импорта с сервером и выбранным кластером, текущими на момент
+        /// нажатия «Импорт» (issue #27; кластер — issue #25); null — кнопка «Импорт»
+        /// под списком баз скрыта/не активна.
         /// </param>
-        public ServerMonitorWindow(Action<ManagementServer?>? openClusterImport = null)
+        public ServerMonitorWindow(Action<ManagementServer?, Guid?>? openClusterImport = null)
         {
             InitializeComponent();
             _openClusterImport = openClusterImport;
@@ -288,7 +289,7 @@ namespace Workspace1C
                 return;
             }
 
-            _openClusterImport?.Invoke(server);
+            _openClusterImport?.Invoke(server, _vm.SelectedClusterId);
         }
 
         // ===================== Справочник «Сервера управления» (issue #3) =====================

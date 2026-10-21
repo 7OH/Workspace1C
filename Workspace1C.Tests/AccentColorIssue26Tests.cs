@@ -8,6 +8,8 @@ namespace Workspace1C.Tests;
 /// (1) сохранённые правки акцентов встроенных тем возвращаются при повторном чтении
 /// (а не дефолтные #FDBF00/#E0A800), (2) контрастный цвет HEX-текста выбирается по
 /// luminance фона палитры и в тёмной палитре ≥ 4.5:1, (3) чистая логика без UI.
+/// С 1.0.0.33 — регрессия «повторный вход в настройки показывает сохранённые правки
+/// обеих палитр» (Normalize/Clone не затирают правки).
 /// </summary>
 public sealed class AccentColorIssue26Tests
 {
@@ -219,4 +221,54 @@ public sealed class AccentColorIssue26Tests
         Assert.Null(ViewModels.SettingsViewModel.TryGetActiveEditsFor(active, name!));
     }
 #endif
+
+    // ===================== Регрессия 1.0.0.33: повторный вход показывает сохранённые правки =====================
+
+    [Fact]
+    public void Normalize_DoesNotOverwriteEditsOfEitherPalette()
+    {
+        // Сценарий из жалобы ArtyoZ (после 1.0.0.31): правится палитра активной схемы.
+        // Normalize() (вызывается при загрузке и сохранении) заполняет только
+        // отсутствующие ключи (FillMissing) и не должен затирать правки ни тёмной,
+        // ни светлой палитры — иначе при повторном входе редактор снова показал бы
+        // дефолтные жёлтые #FDBF00/#E0A800 (светлая) / #FFB300 (тёмная).
+        var edited = ColorScheme.CreateDark();
+        edited.DarkColors["AccentColor"] = "#FF4500";
+        edited.DarkColors["AccentHoverColor"] = "#E03400";
+        edited.LightColors["AccentColor"] = "#2563EB";
+        edited.LightColors["AccentHoverColor"] = "#1D4ED8";
+        edited.AccentColor = "#FF4500";
+
+        var restored = ColorScheme.FromJson(edited.ToJson());
+        restored!.Normalize();
+
+        Assert.Equal("#FF4500", restored.PaletteValue(true, "AccentColor"));
+        Assert.Equal("#E03400", restored.PaletteValue(true, "AccentHoverColor"));
+        Assert.Equal("#2563EB", restored.PaletteValue(false, "AccentColor"));
+        Assert.Equal("#1D4ED8", restored.PaletteValue(false, "AccentHoverColor"));
+        Assert.NotEqual("#FFB300", restored.PaletteValue(true, "AccentColor"));
+        Assert.NotEqual("#FDBF00", restored.PaletteValue(false, "AccentColor"));
+    }
+
+    [Fact]
+    public void ActiveSchemeClone_KeepsBothPaletteEdits_OnSecondEntry()
+    {
+        // «Повторный вход» в настройки: окно создаёт рабочую копию активной схемы
+        // (SettingsViewModel: CurrentColorScheme = ActiveColorScheme.Clone()). Правки
+        // обеих палитр должны остаться в копии, иначе строки редактора построятся
+        // по дефолтам (регрессия #26 после 1.0.0.31).
+        var active = ColorScheme.CreateDark();
+        active.DarkColors["AccentColor"] = "#7C3AED";
+        active.DarkColors["AccentHoverColor"] = "#6D28D9";
+        active.LightColors["AccentColor"] = "#0EA5E9";
+        active.Normalize();
+
+        var secondEntry = active.Clone();
+
+        Assert.Equal("#7C3AED", secondEntry.PaletteValue(true, "AccentColor"));
+        Assert.Equal("#6D28D9", secondEntry.PaletteValue(true, "AccentHoverColor"));
+        Assert.Equal("#0EA5E9", secondEntry.PaletteValue(false, "AccentColor"));
+        Assert.NotEqual("#FFB300", secondEntry.PaletteValue(true, "AccentColor"));
+        Assert.NotEqual("#FDBF00", secondEntry.PaletteValue(false, "AccentColor"));
+    }
 }

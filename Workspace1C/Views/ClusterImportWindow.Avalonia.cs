@@ -61,12 +61,18 @@ namespace Workspace1C
         /// Null — обычное открытие из меню «Утилиты» (без автоподключения).
         /// </param>
         /// <param name="autoConnect">Выполнить «Подключиться» сразу после показа.</param>
+        /// <param name="initialClusterId">
+        /// Кластер, выбранный в окне «Серверы 1С» (issue #25): при автоподключении
+        /// выбирается он (если присутствует среди кластеров сервера). Null — автовыбор
+        /// единственного кластера, при нескольких — подсказка «выберите кластер».
+        /// </param>
         public ClusterImportWindow(
             IRacClient rac,
             IInfobaseRepository repository,
             IReadOnlyList<Infobase> existingInfobases,
             ManagementServer? initialServer = null,
-            bool autoConnect = false)
+            bool autoConnect = false,
+            Guid? initialClusterId = null)
         {
             AvaloniaXamlLoader.Load(this);
 
@@ -175,7 +181,7 @@ namespace Workspace1C
             // Открытие из окна «Серверы 1С» (issue #27): выбранный сервер + автоподключение.
             _connectButton.IsEnabled = _vm.HasAvailableServers;
             if (initialServer is not null)
-                _ = _vm.InitializeFromServer(initialServer, autoConnect);
+                _ = _vm.InitializeFromServer(initialServer, autoConnect, initialClusterId);
         }
 
         /// <summary>
@@ -220,7 +226,7 @@ namespace Workspace1C
                     _loadBasesButton.IsEnabled = !busy;
                     _selectAllButton.IsEnabled = !busy;
                     _selectNoneButton.IsEnabled = !busy;
-                    _importButton.IsEnabled = !busy;
+                    _importButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
                     _progressBar.IsVisible = busy;
                     break;
                 case nameof(ClusterImportViewModel.SelectedServer):
@@ -232,6 +238,7 @@ namespace Workspace1C
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
+                    _importButton.IsEnabled = !_vm.IsBusy && _vm.ReadyToImportCount > 0;
                     break;
             }
         }

@@ -479,6 +479,66 @@ public sealed class ClusterImportViewModelTests
         Assert.Equal("srv-prod", vm.ServerAddress);
     }
 
+    // ============= Issue #25: приоритет автовыбора кластера и опциональный «cluster info» =============
+
+    [Fact]
+    public async Task InitializeFromServer_WithRequestedClusterId_SelectsThatCluster_Issue25()
+    {
+        // Из окна «Серверы 1С» передаётся выбранный кластер: при нескольких кластерах
+        // выбирается именно он (не первый, не единственный), и загружаются ЕГО базы.
+        var client = new FakeRacClient(); // три кластера
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        await vm.InitializeFromServer(server, autoConnect: true, clusterId: FakeRacClient.SecondClusterId);
+
+        Assert.Equal(3, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.SecondClusterId, vm.SelectedClusterId);
+        Assert.Equal(2, vm.Rows.Count); // базы «Второго кластера»
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task InitializeFromServer_SeveralClustersNoRequested_NoBusy_SelectClusterHint_Issue25()
+    {
+        // Несколько кластеров и без переданного: автовыбор не выполняется, но прогресс
+        // завершён, ошибок нет, и пользователю подсказывается выбор кластера (регрессия
+        // «крутящегося прогресса» из жалобы после 1.0.0.31 при открытии из «Серверы 1С»).
+        var client = new FakeRacClient();
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        await vm.InitializeFromServer(server, autoConnect: true);
+
+        Assert.Equal(3, vm.Clusters.Count);
+        Assert.Null(vm.SelectedClusterId);
+        Assert.False(vm.IsBusy);
+        Assert.Empty(vm.ErrorMessage);
+        // Статус не пуст (подсказка о выборе кластера либо сам ключ локализации в тестовом
+        // окружении без инициализации словарей) — главное: прогресс завершён и ошибок нет.
+        Assert.NotEmpty(vm.StatusText);
+        Assert.Empty(vm.Rows);
+    }
+
+    [Fact]
+    public async Task LoadBases_ClusterInfoFails_StillLoadsBases_NoError_Issue25()
+    {
+        // «cluster info» нужен только для подписи хоста в строке подключения: его сбой
+        // (все три формата отклонены rac 8.5.x) не должен блокировать загрузку баз и
+        // оставлять ошибку в окне (жалоба «ошибка на месте после подключения»).
+        var client = new FakeRacClient(throwOnClusterInfo: true, singleCluster: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+
+        await vm.ConnectAsync(); // единственный кластер → автовыбор → LoadBasesAsync
+
+        Assert.Equal(1, client.ClusterInfoCalls);
+        Assert.Equal(1, client.InfobaseCalls);
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+    }
+
     /// <summary>Запись справочника «Серверы 1С» для тестов issue #27.</summary>
     private static ManagementServer BuildServer(string id) => new()
     {
@@ -507,19 +567,22 @@ public sealed class ClusterImportViewModelTests
         private readonly bool _throwCancel;
         private readonly bool _rejectEqualsClusterFormat;
         private readonly bool _singleCluster;
+        private readonly bool _throwOnClusterInfo;
         private readonly TimeSpan _clusterDelay;
         private readonly TimeSpan _loadDelay;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnLoad = false, bool throwCancel = false,
             TimeSpan? clusterDelay = null, TimeSpan? loadDelay = null,
-            bool rejectEqualsClusterFormat = false, bool singleCluster = false)
+            bool rejectEqualsClusterFormat = false, bool singleCluster = false,
+            bool throwOnClusterInfo = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnLoad = throwOnLoad;
             _throwCancel = throwCancel;
             _rejectEqualsClusterFormat = rejectEqualsClusterFormat;
             _singleCluster = singleCluster;
+            _throwOnClusterInfo = throwOnClusterInfo;
             _clusterDelay = clusterDelay ?? TimeSpan.Zero;
             _loadDelay = loadDelay ?? TimeSpan.Zero;
         }
@@ -576,6 +639,8 @@ public sealed class ClusterImportViewModelTests
             RacConnectionParams parameters, System.Guid clusterId, CancellationToken cancellationToken = default)
         {
             ClusterInfoCalls++;
+            if (_throwOnClusterInfo)
+                throw new RacClientException("cluster info: rac отклонил все известные форматы (имитация 8.5.x)");
             var host = clusterId == FirstClusterId ? "srv1" : clusterId == SecondClusterId ? "srv2" : "srv3";
             return Task.FromResult<RacClusterInfo?>(new RacClusterInfo
             {

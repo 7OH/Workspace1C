@@ -1,6 +1,7 @@
 ﻿#if WINDOWS
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -47,6 +48,15 @@ namespace Workspace1C
         private long _lastHeaderAlignStabilizeTotal;
         private long _switchVmStartTicks;
         private long _lastSwitchVmMs;
+        // Счётчики событий коллекций дерева (FlatItems/GroupNodes) за смену вкладки
+        // (issue #21, 1.0.0.33): «шквал» поштучных Remove/Insert при переходе
+        // «Все»↔«Недавние» виден в CM_TREESWITCH как collAdd/collRemove.
+        private long _treeCollAddCount;
+        private long _lastTreeCollAddCount;
+        private long _treeCollRemoveCount;
+        private long _lastTreeCollRemoveCount;
+        private long _treeCollResetCount;
+        private long _lastTreeCollResetCount;
 
         /// <summary>
         /// Текущее состояние активности окна, по которому окрашивается шапка
@@ -329,8 +339,14 @@ namespace Workspace1C
                 {
                     var sizeChanged = _treeSizeChangedCount - _lastTreeSizeChangedCount;
                     var stabilize = _headerAlignStabilizeTotal - _lastHeaderAlignStabilizeTotal;
+                    var collAdd = _treeCollAddCount - _lastTreeCollAddCount;
+                    var collRemove = _treeCollRemoveCount - _lastTreeCollRemoveCount;
+                    var collReset = _treeCollResetCount - _lastTreeCollResetCount;
                     _lastTreeSizeChangedCount = _treeSizeChangedCount;
                     _lastHeaderAlignStabilizeTotal = _headerAlignStabilizeTotal;
+                    _lastTreeCollAddCount = _treeCollAddCount;
+                    _lastTreeCollRemoveCount = _treeCollRemoveCount;
+                    _lastTreeCollResetCount = _treeCollResetCount;
                     if (_switchVmStartTicks != 0)
                     {
                         _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
@@ -340,9 +356,18 @@ namespace Workspace1C
                     // Замер кучи после смены вкладки (issue #21): рост с каждым переключением
                     // указывает на утечку в UI-слое (контейнеры/подписки), а не в фильтрации.
                     var heapBytes = System.GC.GetTotalMemory(false);
+                    // Эксперимент «отложенное освобождение vs утечка» (issue #21, 1.0.0.33):
+                    // принудительный GC поколения 2 и повторный замер. Если память вернулась —
+                    // рост был следствием отложенного освобождения старых контейнеров дерева
+                    // (Recycling-пул ItemContainerGenerator), а не реальной утечки подписок.
+                    System.GC.Collect(2, GCCollectionMode.Optimized, blocking: true);
+                    var heapAfterGc = System.GC.GetTotalMemory(true);
                     AppServices.GetRequiredService<IAppLogger>().Info(
                         $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}, " +
-                        $"heapMb={heapBytes / (1024 * 1024)}");
+                        $"heapMb={heapBytes / (1024 * 1024)}, heapAfterGcMb={heapAfterGc / (1024 * 1024)}, " +
+                        $"collAdd={collAdd}, collRemove={collRemove}, collReset={collReset}, " +
+                        $"gc0={System.GC.CollectionCount(0)}, gc1={System.GC.CollectionCount(1)}, " +
+                        $"gc2={System.GC.CollectionCount(2)}");
                 }
 
                 // Виртуализация создаёт новые контейнеры строк в проходе разметки ПОСЛЕ события
@@ -369,6 +394,14 @@ namespace Workspace1C
             // разъезжаются относительно заголовков. Пересчёт откладывается до Loaded-приоритета,
             // чтобы он выполнился уже после того, как ApplyCompact завершит изменения раскладки.
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            // Диагностика переключения вкладок (issue #21, Этап E): подсчёт событий
+            // Add/Remove/Reset коллекций дерева за смену вкладки — контроль «шквала»
+            // поштучных событий ReplaceItemWise в CM_TREESWITCH.
+            // В WPF-версии MainViewModel единственной коллекцией дерева является
+            // GroupNodes (плоские режимы реализованы через одиночный плоский узел),
+            // поэтому подписка только на неё.
+            _viewModel.GroupNodes.CollectionChanged += OnTreeCollectionChanged;
 
             // После завершения фоновой инициализации (дерево уже построено) восстанавливаем
             // последнее выделение и пересчитываем раскладку — раньше дерево ещё пустое.

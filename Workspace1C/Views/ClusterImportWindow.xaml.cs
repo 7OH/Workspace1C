@@ -37,12 +37,18 @@ namespace Workspace1C
         /// Null — обычное открытие из меню «Утилиты» (без автоподключения).
         /// </param>
         /// <param name="autoConnect">Выполнить «Подключиться» сразу после показа.</param>
+        /// <param name="initialClusterId">
+        /// Кластер, выбранный в окне «Серверы 1С» (issue #25): при автоподключении
+        /// выбирается он (если присутствует среди кластеров сервера). Null — автовыбор
+        /// единственного кластера, при нескольких — подсказка «выберите кластер».
+        /// </param>
         public ClusterImportWindow(
             IRacClient rac,
             IInfobaseRepository repository,
             IReadOnlyList<Infobase> existingInfobases,
             ManagementServer? initialServer = null,
-            bool autoConnect = false)
+            bool autoConnect = false,
+            Guid? initialClusterId = null)
         {
             InitializeComponent();
             _repository = repository;
@@ -66,7 +72,7 @@ namespace Workspace1C
 
             // Открытие из окна «Серверы 1С»: выбранный сервер + автоподключение.
             if (initialServer is not null)
-                _ = _vm.InitializeFromServer(initialServer, autoConnect);
+                _ = _vm.InitializeFromServer(initialServer, autoConnect, initialClusterId);
             else
                 ConnectButton.IsEnabled = _vm.HasAvailableServers;
         }
@@ -135,12 +141,13 @@ namespace Workspace1C
                     LoadBasesButton.IsEnabled = !busy;
                     SelectAllButton.IsEnabled = !busy;
                     SelectNoneButton.IsEnabled = !busy;
-                    ImportButton.IsEnabled = !busy;
+                    ImportButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
                     ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
                     break;
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
+                    ImportButton.IsEnabled = !_vm.IsBusy && _vm.ReadyToImportCount > 0;
                     break;
             }
         }

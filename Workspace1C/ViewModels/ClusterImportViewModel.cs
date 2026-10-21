@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Windows.Input;
 using Workspace1C.Localization;
@@ -41,6 +42,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
     private bool _importCompleted;
     private IReadOnlyList<ManagementServer> _availableServers = Array.Empty<ManagementServer>();
     private ManagementServer? _selectedServer;
+    /// <summary>Кластер, переданный окном «Серверы 1С» для автовыбора (issue #25); null — не задан.</summary>
+    private Guid? _requestedClusterId;
 
     private ICommand? _connectCommand;
     private ICommand? _loadBasesCommand;
@@ -278,9 +281,14 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// </summary>
     /// <param name="server">Запись справочника; может отличаться по ссылке от списка <see cref="AvailableServers"/>.</param>
     /// <param name="autoConnect">Сразу выполнить «Подключиться» (без ручного нажатия).</param>
-    public Task InitializeFromServer(ManagementServer server, bool autoConnect)
+    public Task InitializeFromServer(ManagementServer server, bool autoConnect, Guid? clusterId = null)
     {
         ArgumentNullException.ThrowIfNull(server);
+
+        // Кластер, переданный из окна «Серверы 1С» (issue #25): при автоподключении
+        // выбирается он (если присутствует в списке кластеров), иначе — единственный,
+        // иначе выбор остаётся пользователю с подсказкой.
+        _requestedClusterId = clusterId;
 
         var matched = AvailableServers.FirstOrDefault(
             s => string.Equals(s.Id, server.Id, StringComparison.OrdinalIgnoreCase)) ?? server;
@@ -342,10 +350,25 @@ public sealed class ClusterImportViewModel : ViewModelBase
         }
 
         // Автовыбор кластера — уже вне флага занятости: сеттер запустит загрузку баз.
-        // Выбираем ТОЛЬКО единственный кластер (issue #25): при нескольких пользователь
-        // выбирает сам, чтобы не запускать спонтанную загрузку баз не того кластера.
-        if (SelectedClusterId is null && Clusters.Count == 1)
-            SelectedClusterId = Clusters[0].Id;
+        // Приоритет (issue #25): (1) кластер, переданный из окна «Серверы 1С»;
+        // (2) единственный кластер; (3) при нескольких и без переданного — выбор за
+        // пользователем, прогресс завершён, ошибок нет (подсказка в статусе).
+        if (SelectedClusterId is null)
+        {
+            if (_requestedClusterId is Guid requested
+                && Clusters.Any(c => c.Id == requested))
+            {
+                SelectedClusterId = requested;
+            }
+            else if (Clusters.Count == 1)
+            {
+                SelectedClusterId = Clusters[0].Id;
+            }
+            else if (Clusters.Count > 1)
+            {
+                StatusText = LocalizationManager.T("ClusterImport.Status.SelectCluster");
+            }
+        }
     }
 
     /// <summary>«Загрузить»: перечитать базы выбранного кластера (без подключения — no-op).</summary>
@@ -380,7 +403,19 @@ public sealed class ClusterImportViewModel : ViewModelBase
 
             if (!_clusterInfoCache.TryGetValue(clusterId, out var info))
             {
-                info = await _rac.GetClusterInfoAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+                // «cluster info» нужен только для подписи хоста в строке подключения —
+                // его сбой не должен блокировать загрузку баз и оставлять ошибку в окне
+                // (issue #25): исключение пишем в журнал и продолжаем с info = null.
+                try
+                {
+                    info = await _rac.GetClusterInfoAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger?.Error($"RAC: cluster info для кластера {clusterId} завершился ошибкой " +
+                                   "(пропущен, загрузка баз продолжается, issue #25)", ex);
+                    info = null;
+                }
                 _clusterInfoCache[clusterId] = info;
             }
 

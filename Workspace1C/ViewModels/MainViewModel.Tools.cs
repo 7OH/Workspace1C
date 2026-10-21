@@ -2738,7 +2738,8 @@ public partial class MainViewModel : ViewModelBase
         // Немодальное рабочее окно — самостоятельное, со своей кнопкой в панели задач;
         // открывается по центру главного окна. Кнопка «Импорт» под списком баз (issue #27)
         // открывает «Импорт из кластера 1С» с сервером, текущим на момент нажатия.
-        var window = new ServerMonitorWindow(server => ExecuteImportClusterInfobases(server, autoConnect: true));
+        var window = new ServerMonitorWindow(
+            (server, clusterId) => ExecuteImportClusterInfobases(server, clusterId, autoConnect: true));
         var main = System.Windows.Application.Current.MainWindow;
         if (main is { IsLoaded: true } && main.WindowState != System.Windows.WindowState.Minimized)
         {
@@ -2832,17 +2833,20 @@ public partial class MainViewModel : ViewModelBase
     /// Открывает окно «Импорт из кластера 1С». Команда меню вызывает без параметров
     /// (как раньше); из окна «Серверы 1С» передаётся <paramref name="initialServer"/>
     /// и <paramref name="autoConnect"/> = true (issue #27) — окно подставляет сервер
-    /// и сразу подключается. Логика применения результата — в общем
-    /// <see cref="ApplyClusterImportResult"/> (единая для WPF и Avalonia).
+    /// и сразу подключается, а также выбранный кластер монитора
+    /// <paramref name="initialClusterId"/> (issue #25). Логика применения результата —
+    /// в общем <see cref="ApplyClusterImportResult"/> (единая для WPF и Avalonia).
     /// </summary>
-    private void ExecuteImportClusterInfobases(ManagementServer? initialServer = null, bool autoConnect = false)
+    private void ExecuteImportClusterInfobases(
+        ManagementServer? initialServer = null, Guid? initialClusterId = null, bool autoConnect = false)
     {
         var window = new ClusterImportWindow(
             AppServices.GetRequiredService<IRacClient>(),
             _repository,
             Infobases.ToList(),
             initialServer,
-            autoConnect)
+            autoConnect,
+            initialClusterId)
         {
             Owner = System.Windows.Application.Current.MainWindow
         };
