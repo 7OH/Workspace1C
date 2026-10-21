@@ -1333,6 +1333,10 @@
                         <TextBlock Text="{loc:Loc Settings.Hotkeys.Description}"
                                    Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
                                    TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <!-- Комбинации цифр с модификаторами заняты закладками (issue #32). -->
+                        <TextBlock Text="{loc:Loc Settings.Hotkeys.ReservedDigitsHint}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <StackPanel Margin="0,0,0,12">
                             <!-- Строки хоткеев: каждая строка — самодостаточный Grid
                                  (подпись 170px + поле на остатке ширины). Количество

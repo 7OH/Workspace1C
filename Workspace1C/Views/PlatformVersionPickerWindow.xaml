@@ -244,6 +244,25 @@
                                             <DataTrigger Binding="{Binding IsCurrent}" Value="True">
                                                 <Setter Property="FontWeight" Value="Bold"/>
                                             </DataTrigger>
+                                            <!-- Тонкий клиент (issue #33): подсветка оранжевым —
+                                                 видно, что полные возможности недоступны. -->
+                                            <DataTrigger Binding="{Binding IsThinClient}" Value="True">
+                                                <Setter Property="Foreground" Value="#F59E0B"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <!-- Суффикс «(тонкий клиент)» — только у листьев-тонких клиентов. -->
+                            <TextBlock Text="{loc:Loc PlatformVersionPicker.ThinClientSuffix}" FontSize="12"
+                                       VerticalAlignment="Center" Margin="4,0,0,0"
+                                       Foreground="#F59E0B" Visibility="Collapsed">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsThinClient}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </TextBlock.Style>

@@ -105,4 +105,53 @@ public sealed class BookmarksMenuHotkeyTests
         // обработчиками закрытия меню: значение должно быть стабильным.
         Assert.Equal("BookmarksMenu", BatchSelectionHelper.BookmarksMenuTag);
     }
+
+    // ---- Зарезервированные комбинации цифр с модификаторами (issue #32) ----
+
+    [Fact]
+    public void FindReservedHotkeyConflicts_DetectsDigitCombinations()
+    {
+        // Alt/Ctrl/Ctrl+Shift/Ctrl+Alt + цифра заняты закладками баз: назначение
+        // такой комбинации на другое действие должно быть обнаружено.
+        var conflicts = BookmarkSlotHelper.FindReservedHotkeyConflicts(new (string Name, string Key)[]
+        {
+            ("Показать избранное", "Ctrl+1"),
+            ("Показать недавние", "Alt+3"),
+            ("Очистить поиск", "Ctrl+Shift+5"),
+            ("Смена пользователя", "Ctrl+Alt+9"),
+            ("Найти в списке", "Ctrl+T")
+        });
+
+        Assert.Equal(4, conflicts.Count);
+        Assert.Contains(conflicts, c => c.Key == "Ctrl+1");
+        Assert.Contains(conflicts, c => c.Key == "Alt+3");
+        Assert.Contains(conflicts, c => c.Key == "Ctrl+Shift+5");
+        Assert.Contains(conflicts, c => c.Key == "Ctrl+Alt+9");
+    }
+
+    [Fact]
+    public void FindReservedHotkeyConflicts_IsCaseInsensitive()
+    {
+        var conflicts = BookmarkSlotHelper.FindReservedHotkeyConflicts(new (string Name, string Key)[]
+        {
+            ("Показать избранное", "ctrl+1")
+        });
+
+        Assert.Single(conflicts);
+        Assert.Equal("ctrl+1", conflicts[0].Key);
+    }
+
+    [Fact]
+    public void FindReservedHotkeyConflicts_NonReservedAndEmpty_AreNotConflicts()
+    {
+        var conflicts = BookmarkSlotHelper.FindReservedHotkeyConflicts(new (string Name, string Key)[]
+        {
+            ("Найти в списке", "Ctrl+T"),
+            ("1С:Предприятие", "F3"),
+            ("Показать избранное", ""),
+            ("Показать недавние", "Ctrl+0")
+        });
+
+        Assert.Empty(conflicts);
+    }
 }

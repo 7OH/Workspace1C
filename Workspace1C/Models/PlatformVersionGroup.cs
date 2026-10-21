@@ -51,5 +51,11 @@ public class PlatformVersionGroup
     /// </summary>
     public bool IsCurrent { get; set; }
 
+    /// <summary>
+    /// True — лист является тонким клиентом (в bin только 1cv8c, полного 1cv8 нет):
+    /// в дереве выбора помечается суффиксом и подсветкой (issue #33).
+    /// </summary>
+    public bool IsThinClient { get; set; }
+
     public override string ToString() => Name;
 }

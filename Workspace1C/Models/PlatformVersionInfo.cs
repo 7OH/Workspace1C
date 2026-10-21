@@ -11,5 +11,11 @@ public class PlatformVersionInfo
     /// <summary>Полный путь к папке версии (каталог с bin/).</summary>
     public string Path { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True — установлен только тонкий клиент (в bin есть 1cv8c, но нет полного 1cv8):
+    /// конфигуратор, сервер и часть возможностей недоступны (issue #33).
+    /// </summary>
+    public bool IsThinClient { get; set; }
+
     public override string ToString() => Display;
 }

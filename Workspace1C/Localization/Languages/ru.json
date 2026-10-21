@@ -1212,6 +1212,7 @@
     "PlatformVersionPicker.Title": "Выбор версии платформы",
     "PlatformVersionPicker.FilterX32": "x32",
     "PlatformVersionPicker.FilterX64": "x64",
+    "PlatformVersionPicker.ThinClientSuffix": "(тонкий клиент)",
     "NameInput.Title": "Название темы",
 
     "AddEdit.Question": "Что добавить в список?",
@@ -1538,6 +1539,8 @@
     "Settings.Hotkeys.AssignedTo": "«{0}» назначена для: {1}",
     "Settings.Hotkeys.DuplicateMsg": "Одна и та же клавиша не может быть назначена разным действиям:\n\n{0}",
     "Settings.Hotkeys.DuplicateTitle": "Горячие клавиши",
+    "Settings.Hotkeys.ReservedDigitsHint": "Комбинации цифр с модификаторами (Alt+1…9, Ctrl+1…9, Ctrl+Shift+1…9, Ctrl+Alt+1…9) заняты закладками баз и не назначаются.",
+    "Settings.Hotkeys.ReservedConflictMsg": "Следующие комбинации заняты закладками баз и не будут работать:\n\n{0}",
 
     "Common.SortLabel": "Сортировка:",
     "Common.Choose": "Выбрать…",

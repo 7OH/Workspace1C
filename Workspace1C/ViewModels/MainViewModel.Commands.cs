@@ -889,7 +889,14 @@ public partial class MainViewModel : ViewModelBase
             }
         }
 
+        // Переход к строке (issue #31): пересобираем дерево, чтобы контейнер строки
+        // создался, затем ставим цель и сообщаем окну, что нужно выделить строку
+        // и прокрутить к ней (тот же приём, что в ExecuteFindInList). Без этого
+        // после оптимизации переключения вкладок (1.0.0.26+) выделение не
+        // восстанавливалось и прокрутки к строке не было.
+        RebuildGroupTree();
         SelectedInfobase = ib;
+        RevealFindInListRequested?.Invoke();
     }
 
     /// <summary>

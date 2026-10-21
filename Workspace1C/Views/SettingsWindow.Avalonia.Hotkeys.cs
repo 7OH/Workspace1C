@@ -70,6 +70,20 @@ namespace Workspace1C
                 used[value] = action;
             }
 
+            // Комбинации цифр с модификаторами заняты закладками баз (issue #32):
+            // они регистрируются системно и не видны в списке полей — предупреждаем,
+            // иначе клавиша «назначится», но не сработает.
+            var reserved = BookmarkSlotHelper.FindReservedHotkeyConflicts(
+                assignments.Select(a => (a.Action, a.Box.Value?.Trim() ?? string.Empty)));
+            if (reserved.Count > 0)
+            {
+                var msg = string.Join("\n", reserved.Select(r =>
+                    string.Format(LocalizationManager.T("Settings.Hotkeys.AssignedTo"), r.Key, r.Name)));
+                _viewModel.ShowWarning(string.Format(
+                    LocalizationManager.T("Settings.Hotkeys.ReservedConflictMsg"), msg));
+                return false;
+            }
+
             return true;
         }
 

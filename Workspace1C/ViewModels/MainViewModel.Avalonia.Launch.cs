@@ -656,6 +656,10 @@ public partial class MainViewModel : ViewModelBase
 
         SelectedInfobase = ib;
         RebuildTree();
+        // Переход к строке (issue #31): сообщаем окну, что нужно выделить строку
+        // и прокрутить к ней. Без этого после оптимизации переключения вкладок
+        // (1.0.0.26+) выделение не восстанавливалось и прокрутки не было.
+        RevealFindInListRequested?.Invoke();
     }
 
     /// <summary>

@@ -305,6 +305,21 @@ namespace Workspace1C
                         ? FontWeight.Bold
                         : (node.IsLeaf ? FontWeight.Normal : FontWeight.SemiBold)
                 };
+                // Тонкий клиент (issue #33): оранжевая подсветка + суффикс —
+                // видно, что полные возможности (конфигуратор, сервер) недоступны.
+                if (node.IsThinClient)
+                {
+                    var thinBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
+                    text.Foreground = thinBrush;
+                    var suffix = new TextBlock
+                    {
+                        Text = " " + LocalizationManager.T("PlatformVersionPicker.ThinClientSuffix"),
+                        FontSize = 12,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Foreground = thinBrush
+                    };
+                    panel.Children.Add(suffix);
+                }
                 panel.Children.Add(text);
                 return panel;
             }

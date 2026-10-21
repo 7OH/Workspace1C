@@ -564,6 +564,20 @@ namespace Workspace1C
                 return;
             }
 
+            // Комбинации цифр с модификаторами заняты закладками баз (issue #32):
+            // они регистрируются системно и не видны в списке полей — предупреждаем,
+            // иначе клавиша «назначится», но не сработает.
+            var reserved = ViewModels.BookmarkSlotHelper.FindReservedHotkeyConflicts(assigned);
+            if (reserved.Count > 0)
+            {
+                var msg = string.Join("\n", reserved.Select(r =>
+                    string.Format(LocalizationManager.T("Settings.Hotkeys.AssignedTo"), r.Key, r.Name)));
+                _dialogs.ShowWarning(
+                    string.Format(LocalizationManager.T("Settings.Hotkeys.ReservedConflictMsg"), msg),
+                    LocalizationManager.T("Settings.Hotkeys.DuplicateTitle"));
+                return;
+            }
+
             // Имя COM-коннектора 1С по шаблону версии платформы (issue #175).
             _viewModel.ComConnectorNameTemplate = ComConnectorNameTemplateBox.Text?.Trim() ?? "";
             // Таймаут определения свойств конфигурации через COM (issue #174).

@@ -1212,6 +1212,7 @@
     "PlatformVersionPicker.Title": "Choose platform version",
     "PlatformVersionPicker.FilterX32": "x32",
     "PlatformVersionPicker.FilterX64": "x64",
+    "PlatformVersionPicker.ThinClientSuffix": "(thin client)",
     "NameInput.Title": "Theme name",
 
     "AddEdit.Question": "What to add to the list?",
@@ -1538,6 +1539,8 @@
     "Settings.Hotkeys.AssignedTo": "«{0}» is assigned to: {1}",
     "Settings.Hotkeys.DuplicateMsg": "The same key cannot be assigned to different actions:\n\n{0}",
     "Settings.Hotkeys.DuplicateTitle": "Hotkeys",
+    "Settings.Hotkeys.ReservedDigitsHint": "Digit combinations with modifiers (Alt+1…9, Ctrl+1…9, Ctrl+Shift+1…9, Ctrl+Alt+1…9) are reserved for base bookmarks and cannot be assigned.",
+    "Settings.Hotkeys.ReservedConflictMsg": "The following combinations are reserved for base bookmarks and will not work:\n\n{0}",
 
     "Common.SortLabel": "Sort:",
     "Common.Choose": "Choose…",

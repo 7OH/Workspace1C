@@ -85,4 +85,29 @@ public static class BookmarkSlotHelper
 
     /// <summary>Ключи всех занятых слотов в порядке нумерации (копия, чтобы нельзя было мутировать источник).</summary>
     public static List<string> GetAllKeys(IEnumerable<string> keys) => new(keys);
+
+    /// <summary>
+    /// Возвращает назначения горячих клавиш, совпадающие с комбинациями, занятыми
+    /// закладками баз (issue #32): Alt+1…9 (запуск), Ctrl+1…9 (переход к закладке),
+    /// Ctrl+Shift+1…9 (назначить номер), Ctrl+Alt+1…9 (запуск Конфигуратора).
+    /// Эти сочетания регистрируются системно (RegisterHotkeys) и не видны в списке
+    /// назначаемых полей, поэтому пользователь должен быть предупреждён при попытке
+    /// их назначить — иначе клавиша «назначится», но не сработает.
+    /// </summary>
+    public static IReadOnlyList<(string Name, string Key)> FindReservedHotkeyConflicts(
+        IEnumerable<(string Name, string Key)> assignments)
+    {
+        var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 1; i <= MaxSlots; i++)
+        {
+            var digit = i.ToString();
+            reserved.Add("Alt+" + digit);
+            reserved.Add("Ctrl+" + digit);
+            reserved.Add("Ctrl+Shift+" + digit);
+            reserved.Add("Ctrl+Alt+" + digit);
+        }
+        return assignments
+            .Where(a => !string.IsNullOrEmpty(a.Key) && reserved.Contains(a.Key.Trim()))
+            .ToList();
+    }
 }

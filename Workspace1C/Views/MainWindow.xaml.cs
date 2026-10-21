@@ -312,7 +312,9 @@ namespace Workspace1C
                 // (RevealAndSelectAfterRebuild -> принудительный UpdateLayout + повторные
                 // проходы до MaxRevealAttempts) давало «паузу» на каждое переключение.
                 // Восстановление оставляем только для пересборок по изменению данных.
-                if (!_viewModel.IsListModeSwitchInProgress)
+                // Исключение — «Найти в списке»/переход к закладке (issue #31): цель
+                // выставлена явно, и строку нужно выделить и прокрутить даже при смене вкладки.
+                if (!_viewModel.IsListModeSwitchInProgress || _revealFindInListPending)
                 {
                     RestoreTreeKeyboardFocus();
                     QueueHeaderAlign();

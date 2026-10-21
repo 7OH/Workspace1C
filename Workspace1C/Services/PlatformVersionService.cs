@@ -40,19 +40,22 @@ public static class PlatformVersionService
     {
         // Display → Path (при дубликатах оставляем первый найденный путь)
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Display версий, у которых установлен ТОЛЬКО тонкий клиент (в bin есть 1cv8c,
+        // но нет полного 1cv8) — такие версии помечаются в дереве выбора (issue #33).
+        var thinClients = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
 
-        AddVersionsFromRoot(map, programFiles, "64");
-        AddVersionsFromRoot(map, programFilesX86, "32");
+        AddVersionsFromRoot(map, thinClients, programFiles, "64");
+        AddVersionsFromRoot(map, thinClients, programFilesX86, "32");
 
         // issue #361: версии, установленные на НЕсистемном диске (D:\Program Files\1cv8
         // и т.п.), не попадали в список установленных — строка «Есть обновление» на
         // последней версии своей линии (комментарий 7OH от 2026-10-11). Сканируем
         // стандартные каталоги Program Files на всех доступных логических дисках.
         foreach (var (root, arch) in EnumerateProgramFilesRootsOnAllDrives())
-            AddVersionsFromRoot(map, root, arch);
+            AddVersionsFromRoot(map, thinClients, root, arch);
 
         IEnumerable<string> extra;
         if (additionalPaths != null)
@@ -70,7 +73,7 @@ public static class PlatformVersionService
         }
 
         foreach (var path in extra)
-            AddVersionsFromCustomPath(map, path, programFiles, programFilesX86);
+            AddVersionsFromCustomPath(map, thinClients, path, programFiles, programFilesX86);
 
         // issue #361: отладочный флаг CM_DEBUG_PLATFORM_UPDATE=1 — найденные версии
         // с путями в platform-update-debug.log (диагностика «Есть обновление» для
@@ -83,7 +86,12 @@ public static class PlatformVersionService
         }
 
         return map
-            .Select(kv => new Models.PlatformVersionInfo { Display = kv.Key, Path = kv.Value })
+            .Select(kv => new Models.PlatformVersionInfo
+            {
+                Display = kv.Key,
+                Path = kv.Value,
+                IsThinClient = thinClients.Contains(kv.Key)
+            })
             .OrderByDescending(v => v.Display, new VersionComparer())
             .ToList();
     }
@@ -447,13 +455,26 @@ public static class PlatformVersionService
         return result;
     }
 
-    private static void TryAddVersion(Dictionary<string, string> map, string display, string versionDir)
+    private static void TryAddVersion(
+        Dictionary<string, string> map,
+        HashSet<string> thinClients,
+        string display,
+        string versionDir,
+        bool isThinClient)
     {
         if (!map.ContainsKey(display))
+        {
             map[display] = versionDir;
+            if (isThinClient)
+                thinClients.Add(display);
+        }
     }
 
-    private static void AddVersionsFromRoot(Dictionary<string, string> map, string? root, string architecture)
+    private static void AddVersionsFromRoot(
+        Dictionary<string, string> map,
+        HashSet<string> thinClients,
+        string? root,
+        string architecture)
     {
         if (string.IsNullOrEmpty(root))
             return;
@@ -462,11 +483,12 @@ public static class PlatformVersionService
         if (!Directory.Exists(baseDir))
             return;
 
-        AddVersionsFrom1cv8Dir(map, baseDir, architecture);
+        AddVersionsFrom1cv8Dir(map, thinClients, baseDir, architecture);
     }
 
     private static void AddVersionsFromCustomPath(
         Dictionary<string, string> map,
+        HashSet<string> thinClients,
         string path,
         string? programFiles,
         string? programFilesX86)
@@ -486,17 +508,17 @@ public static class PlatformVersionService
         var oneCDir = Path.Combine(path, "1cv8");
         if (Directory.Exists(oneCDir))
         {
-            AddVersionsFrom1cv8Dir(map, oneCDir, preferredArch);
+            AddVersionsFrom1cv8Dir(map, thinClients, oneCDir, preferredArch);
             // также рекурсивно — на случай вложенных копий
-            ScanForVersionDirectories(map, path, preferredArch, depth: 0, maxDepth: 4);
+            ScanForVersionDirectories(map, thinClients, path, preferredArch, depth: 0, maxDepth: 4);
             return;
         }
 
         if (HasVersionSubdirectories(path) ||
             string.Equals(Path.GetFileName(path), "1cv8", StringComparison.OrdinalIgnoreCase))
         {
-            AddVersionsFrom1cv8Dir(map, path, preferredArch);
-            ScanForVersionDirectories(map, path, preferredArch, depth: 0, maxDepth: 3);
+            AddVersionsFrom1cv8Dir(map, thinClients, path, preferredArch);
+            ScanForVersionDirectories(map, thinClients, path, preferredArch, depth: 0, maxDepth: 3);
             return;
         }
 
@@ -507,13 +529,17 @@ public static class PlatformVersionService
             if (File.Exists(Path.Combine(binDir, "1cv8.exe")) ||
                 File.Exists(Path.Combine(binDir, "1cv8x64.exe")))
             {
-                TryAddVersion(map, FormatVariant(Path.GetFileName(path), arch), path);
+                TryAddVersion(map, thinClients, FormatVariant(Path.GetFileName(path), arch), path, false);
+            }
+            else if (IsThinClientBin(binDir))
+            {
+                TryAddVersion(map, thinClients, FormatVariant(Path.GetFileName(path), arch), path, true);
             }
             return;
         }
 
         // Произвольный корень (например E:\1cPlatform) — ищем версии рекурсивно
-        ScanForVersionDirectories(map, path, preferredArch, depth: 0, maxDepth: 5);
+        ScanForVersionDirectories(map, thinClients, path, preferredArch, depth: 0, maxDepth: 5);
     }
 
     /// <summary>
@@ -521,6 +547,7 @@ public static class PlatformVersionService
     /// </summary>
     private static void ScanForVersionDirectories(
         Dictionary<string, string> map,
+        HashSet<string> thinClients,
         string path,
         string? preferredArchitecture,
         int depth,
@@ -545,7 +572,12 @@ public static class PlatformVersionService
                          File.Exists(Path.Combine(binDir, "1cv8x64.exe"))))
                     {
                         var arch = preferredArchitecture ?? DetectArchitecture(binDir);
-                        TryAddVersion(map, FormatVariant(name, arch), dir);
+                        TryAddVersion(map, thinClients, FormatVariant(name, arch), dir, false);
+                    }
+                    else if (IsThinClientBin(binDir))
+                    {
+                        var arch = preferredArchitecture ?? DetectArchitecture(binDir);
+                        TryAddVersion(map, thinClients, FormatVariant(name, arch), dir, true);
                     }
                 }
 
@@ -555,7 +587,7 @@ public static class PlatformVersionService
                     name.Equals("readme", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                ScanForVersionDirectories(map, dir, preferredArchitecture, depth + 1, maxDepth);
+                ScanForVersionDirectories(map, thinClients, dir, preferredArchitecture, depth + 1, maxDepth);
             }
         }
         catch
@@ -564,7 +596,11 @@ public static class PlatformVersionService
         }
     }
 
-    private static void AddVersionsFrom1cv8Dir(Dictionary<string, string> map, string baseDir, string? preferredArchitecture)
+    private static void AddVersionsFrom1cv8Dir(
+        Dictionary<string, string> map,
+        HashSet<string> thinClients,
+        string baseDir,
+        string? preferredArchitecture)
     {
         if (!Directory.Exists(baseDir))
             return;
@@ -583,9 +619,31 @@ public static class PlatformVersionService
                 File.Exists(Path.Combine(binDir, "1cv8x64.exe")))
             {
                 var arch = preferredArchitecture ?? DetectArchitecture(binDir);
-                TryAddVersion(map, FormatVariant(name, arch), dir);
+                TryAddVersion(map, thinClients, FormatVariant(name, arch), dir, false);
+            }
+            else if (IsThinClientBin(binDir))
+            {
+                // Тонкий клиент (issue #33): в bin есть 1cv8c.exe, но нет полного 1cv8.exe —
+                // версия должна попадать в список выбора платформы и помечаться.
+                var arch = preferredArchitecture ?? DetectArchitecture(binDir);
+                TryAddVersion(map, thinClients, FormatVariant(name, arch), dir, true);
             }
         }
+    }
+
+    /// <summary>
+    /// True — в каталоге bin установлен ТОЛЬКО тонкий клиент: есть 1cv8c.exe,
+    /// но нет полного 1cv8.exe/1cv8x64.exe (issue #33). Такая версия не даёт
+    /// полных возможностей (конфигуратор, сервер и т.п.).
+    /// </summary>
+    private static bool IsThinClientBin(string binDir)
+    {
+        if (!Directory.Exists(binDir))
+            return false;
+        if (File.Exists(Path.Combine(binDir, "1cv8.exe")) ||
+            File.Exists(Path.Combine(binDir, "1cv8x64.exe")))
+            return false;
+        return File.Exists(Path.Combine(binDir, "1cv8c.exe"));
     }
 
     /// <summary>
@@ -598,6 +656,8 @@ public static class PlatformVersionService
             return "64";
 
         var exe = Path.Combine(binDir, "1cv8.exe");
+        if (!File.Exists(exe))
+            exe = Path.Combine(binDir, "1cv8c.exe"); // тонкий клиент (issue #33)
         if (!File.Exists(exe))
             return "64";
 
@@ -839,6 +899,7 @@ public static class PlatformVersionService
                         Path = info.Path,
                         Variant = info.Display,
                         Kind = leafKind,
+                        IsThinClient = info.IsThinClient,
                         Versions = { info }
                     });
                     buildNode.Versions.Add(info);

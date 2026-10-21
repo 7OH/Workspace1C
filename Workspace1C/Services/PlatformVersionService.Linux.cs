@@ -321,7 +321,12 @@ namespace Workspace1C.Services
                     var arch = DetectArchitecture(dir);
                     if (!seen.Add(dir))
                         continue;
-                    result.Add(new PlatformVersionInfo { Display = FormatVariant(name, arch), Path = dir });
+                    result.Add(new PlatformVersionInfo
+                    {
+                        Display = FormatVariant(name, arch),
+                        Path = dir,
+                        IsThinClient = IsThinClientDir(dir)
+                    });
                 }
 
                 // 2. Сам корень — каталог версии (например ~/.1cv8/8.3.27.1).
@@ -333,7 +338,8 @@ namespace Workspace1C.Services
                         result.Add(new PlatformVersionInfo
                         {
                             Display = FormatVariant(Path.GetFileName(root), arch),
-                            Path = root
+                            Path = root,
+                            IsThinClient = IsThinClientDir(root)
                         });
                     }
                 }
@@ -381,7 +387,12 @@ namespace Workspace1C.Services
                     return;
                 var arch = DetectArchitecture(versionDir);
                 if (seen.Add(versionDir))
-                    result.Add(new PlatformVersionInfo { Display = FormatVariant(name, arch), Path = versionDir });
+                    result.Add(new PlatformVersionInfo
+                    {
+                        Display = FormatVariant(name, arch),
+                        Path = versionDir,
+                        IsThinClient = IsThinClientDir(versionDir)
+                    });
             }
             catch
             {
@@ -399,6 +410,21 @@ namespace Workspace1C.Services
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// True — в каталоге версии установлен ТОЛЬКО тонкий клиент: в bin есть 1cv8c,
+        /// но нет полного 1cv8 (issue #33). Такая версия не даёт полных возможностей
+        /// (конфигуратор, сервер и т.п.) и помечается в дереве выбора платформы.
+        /// </summary>
+        private static bool IsThinClientDir(string dir)
+        {
+            var bin = ResolveBinDirectory(dir);
+            if (bin is null)
+                return false;
+            if (File.Exists(Path.Combine(bin, "1cv8")))
+                return false;
+            return File.Exists(Path.Combine(bin, "1cv8c"));
         }
 
         private static bool LooksLikeVersion(string name)

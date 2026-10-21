@@ -2909,6 +2909,10 @@ namespace Workspace1C
             var hotkeysHint = Hint(LocalizationManager.T("Settings.Hotkeys.Description"));
             hotkeysHint.Margin = new Thickness(0, 0, 0, 8);
             hotkeys.Children.Add(hotkeysHint);
+            // Комбинации цифр с модификаторами заняты закладками (issue #32).
+            var reservedHint = Hint(LocalizationManager.T("Settings.Hotkeys.ReservedDigitsHint"));
+            reservedHint.Margin = new Thickness(0, 0, 0, 8);
+            hotkeys.Children.Add(reservedHint);
 
             // Поля назначения: HotkeyBox ловит сочетание с клавиатуры, Delete
             // снимает назначение, Escape отменяет ввод. Подписи и порядок строк

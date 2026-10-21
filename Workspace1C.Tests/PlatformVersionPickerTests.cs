@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using Workspace1C.Models;
 using Workspace1C.Services;
 using Xunit;
@@ -483,10 +485,131 @@ public sealed class PlatformVersionPickerTests
         }
     }
 
+    // ======================= Тонкий клиент (issue #33) =======================
+
+    [Fact]
+    public void BuildGroupedTree_ThinClientLeaf_MarkedAndKept()
+    {
+        // Версия, установленная как тонкий клиент (в bin только 1cv8c), должна
+        // попадать в дерево выбора и быть помечена IsThinClient — UI подсветит её.
+        var infos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2343 (32)", Path = "", IsThinClient = true },
+            new() { Display = "8.3.26.1540 (64)", Path = "", IsThinClient = false }
+        };
+
+        var tree = PlatformVersionService.BuildGroupedTree(infos);
+
+        var thinLeaf = FindLeaf(tree, "8.3.27.2343 (32)");
+        Assert.NotNull(thinLeaf);
+        Assert.True(thinLeaf!.IsThinClient);
+
+        var fullLeaf = FindLeaf(tree, "8.3.26.1540 (64)");
+        Assert.NotNull(fullLeaf);
+        Assert.False(fullLeaf!.IsThinClient);
+    }
+
+    [Fact]
+    public void BuildGroupedTree_ThinClientOnly_LineStillVisible()
+    {
+        // Тонкий клиент — единственная версия линии: линия и группа сборок
+        // сохраняются, лист помечен (не «пропадает» из дерева).
+        var infos = new List<PlatformVersionInfo>
+        {
+            new() { Display = "8.3.27.2343 (32)", Path = "", IsThinClient = true }
+        };
+
+        var tree = PlatformVersionService.BuildGroupedTree(infos);
+
+        Assert.Single(tree);
+        Assert.Equal("8.3", tree[0].Name);
+        Assert.Single(tree[0].Children);
+        Assert.Equal("8.3.27", tree[0].Children[0].Name);
+        Assert.True(tree[0].Children[0].Children[0].IsThinClient);
+    }
+
+#if !LINUX
+    [Fact]
+    public void FindInstalledVersionInfos_ThinClientDir_Detected()
+    {
+        // Сканер Windows: каталог версии с одним 1cv8c.exe (без 1cv8.exe) —
+        // тонкий клиент должен попадать в список и быть помечен (issue #33).
+        using var temp = new TempDirectory();
+        var binDir = Path.Combine(temp.Path, "1cv8", "8.3.27.2343", "bin");
+        Directory.CreateDirectory(binDir);
+        File.WriteAllText(Path.Combine(binDir, "1cv8c.exe"), string.Empty);
+
+        var found = PlatformVersionService.FindInstalledVersionInfos(new[] { temp.Path });
+
+        var thin = found.FirstOrDefault(v => v.Display.StartsWith("8.3.27.2343", StringComparison.Ordinal));
+        Assert.NotNull(thin);
+        Assert.True(thin!.IsThinClient);
+    }
+
+    [Fact]
+    public void FindInstalledVersionInfos_FullClientDir_NotThin()
+    {
+        // Полный клиент (1cv8.exe есть) — НЕ тонкий клиент.
+        using var temp = new TempDirectory();
+        var binDir = Path.Combine(temp.Path, "1cv8", "8.3.26.1540", "bin");
+        Directory.CreateDirectory(binDir);
+        File.WriteAllText(Path.Combine(binDir, "1cv8.exe"), string.Empty);
+        File.WriteAllText(Path.Combine(binDir, "1cv8c.exe"), string.Empty);
+
+        var found = PlatformVersionService.FindInstalledVersionInfos(new[] { temp.Path });
+
+        var full = found.FirstOrDefault(v => v.Display.StartsWith("8.3.26.1540", StringComparison.Ordinal));
+        Assert.NotNull(full);
+        Assert.False(full!.IsThinClient);
+    }
+#endif
+
     // ======================= Хелперы =======================
 
     private static List<PlatformVersionInfo> Infos(params string[] displays)
         => displays.Select(d => new PlatformVersionInfo { Display = d, Path = "" }).ToList();
+
+    private static PlatformVersionGroup? FindLeaf(IReadOnlyList<PlatformVersionGroup> roots, string variant)
+    {
+        foreach (var root in roots)
+        {
+            foreach (var group in root.Children)
+            {
+                foreach (var leaf in group.Children)
+                {
+                    if (leaf.Variant == variant)
+                        return leaf;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Временный каталог, удаляемый при освобождении.</summary>
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; }
+
+        public TempDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "cm-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+            catch
+            {
+                // Тестовые каталоги не критичны — оставляем как есть при сбое удаления.
+            }
+        }
+    }
 
     private static List<PlatformVersionGroup> BuildTree(params string[] displays)
         => PlatformVersionService.BuildGroupedTree(Infos(displays));
