@@ -295,6 +295,7 @@ namespace Workspace1C
             // Липкая цель: запоминаем базу в момент запроса (см. _revealTargetOverride).
             _revealTargetOverride = _viewModel?.SelectedInfobase;
             _revealFindInListPending = true;
+            RevealTrace.Log($"WPF OnFindInListRequested: target={DescribeRevealTarget(_revealTargetOverride)}, pending=true");
             // Reveal планируется здесь явно, а не только из TreeRebuilt через
             // RestoreTreeKeyboardFocus: во время целевой навигации
             // (IsRevealNavigationInProgress) промежуточное восстановление в TreeRebuilt
@@ -326,12 +327,26 @@ namespace Workspace1C
                 if (target is null)
                     return;
 
-                // Ранний выход (issue #21): если цель не присутствует в текущем дереве данных
-                // (например, выбранная база не входит в режим вкладки «Избранное»), её контейнер
+                // «Найти в списке» (issue #285): строка должна быть во «Все базы» — в настоящей
+                // группе базы или узле «Без группы», а НЕ первой копией в «Закреплённых».
+                // Закреплённая база присутствует в дереве дважды, и общий поиск всегда отдавал
+                // закрепления (они идут первыми), из-за чего команда «переходила» туда, а не
+                // к строке в общем списке. Обычные пересборки дерева не трогаем.
+                var revealToHome = _revealFindInListPending;
+
+                // Планирование reveal (issue #31): домашний узел (leaf) и достижимость цели
+                // считаются ЧИСТОЙ логикой по данным дерева (RevealPlanner) без визуального
+                // дерева; при revealToHome узел «Закреплённые» из кандидатов исключён — leaf
+                // это настоящая группа во «Все базы», «Без группы» либо плоский узел.
+                var plan = RevealPlanner.Plan(_viewModel.GroupNodes, target, revealToHome);
+
+                // Ранний выход (issue #21 + #31): если цель не присутствует в текущем дереве
+                // данных (например, выбранная база не входит в режим вкладки «Избранное», либо
+                // при revealToHome база представлена только копией в «Закреплённых»), её контейнер
                 // никогда не материализуется — не гоняем повторные проходы с принудительными
                 // полными раскладками (UpdateLayout на каждой попытке до MaxRevealAttempts).
                 // Проверка только по ViewModel-данным, визуальное дерево не трогаем.
-                if (!IsRevealTargetReachable(target))
+                if (!plan.Reachable)
                 {
                     // Цель недостижима (issue #31): reveal не сможет найти строку — снимаем
                     // липкий запрос, чтобы он не перехватывал последующие обычные пересборки.
@@ -340,27 +355,24 @@ namespace Workspace1C
                         _revealFindInListPending = false;
                         _revealTargetOverride = null;
                     }
+                    RevealTrace.Log($"WPF Reveal: target={DescribeRevealTarget(target)}, " +
+                                    $"revealToHome={revealToHome}, leaf=null, plan=rejected");
                     return;
                 }
+                var leaf = plan.Leaf;
 
-                // «Найти в списке» (issue #285): строка должна быть во «Все базы» — в настоящей
-                // группе базы или узле «Без группы», а НЕ первой копией в «Закреплённых».
-                // Закреплённая база присутствует в дереве дважды, и общий поиск всегда отдавал
-                // закрепления (они идут первыми), из-за чего команда «переходила» туда, а не
-                // к строке в общем списке. Обычные пересборки дерева не трогаем.
-                var revealToHome = _revealFindInListPending;
-
-                // Цепочка групп от корня к родителю цели (Group == null — спец-узлы «Без группы»/«Закреплённые»).
-                // Для цели-базы родитель — её группа; для цели-группы — её родитель. Раскрываем именно
-                // ПРЕДКОВ, чтобы отредактированная группа осталась свёрнутой, если была свёрнута.
-                GroupNodeViewModel? leaf = target switch
+                // Плоский режим (issue #31): «Все базы» без группировки/отбор — дерево из одного
+                // постоянного _flatNode, дублей нет, reveal обязан вести внутрь него.
+                if (revealToHome && _viewModel.GroupNodes.Count == 1 && _viewModel.GroupNodes[0] is { } onlyNode
+                    && (string.IsNullOrEmpty(onlyNode.Marker)
+                        || string.Equals(onlyNode.Marker, GroupNodeViewModel.AllBasesMarker, StringComparison.Ordinal)))
                 {
-                    Infobase ib => revealToHome
-                        ? GroupNodeViewModel.FindInfobaseHomeNode(_viewModel.GroupNodes, ib)
-                        : FindGroupNodeByInfobase(ib),
-                    GroupNodeViewModel gn => gn.Parent,
-                    _ => null
-                };
+                    RevealTrace.Log($"WPF Reveal: flat mode (GroupNodes==[_flatNode]), " +
+                                    $"leaf={DescribeLeaf(leaf)}, target={DescribeRevealTarget(target)}");
+                }
+
+                RevealTrace.Log($"WPF Reveal: attempt={attempt}, target={DescribeRevealTarget(target)}, " +
+                                $"revealToHome={revealToHome}, leaf={DescribeLeaf(leaf)}, reachable=true");
                 var stack = new Stack<GroupNodeViewModel>();
                 for (var g = leaf; g is not null && g.Group is not null; g = g.Parent)
                     stack.Push(g);
@@ -406,27 +418,42 @@ namespace Workspace1C
                 MainTree.UpdateLayout();
 
                 var item = FindTargetContainer(target, revealToHome ? leaf : null);
+                RevealTrace.Log($"WPF Reveal: attempt={attempt}, containerSearch: found={item is not null}, " +
+                                $"homeLeaf={DescribeLeaf(leaf)}");
                 if (item is null && revealToHome)
                 {
-                    // «Найти в списке» (issue #285): строка цели далеко вниз внутри длинной
-                    // раскрытой группы. При Recycling-виртуализации (VirtualizingStackPanel,
-                    // ScrollUnit=Pixel) её контейнер ниже вьюпорта не создаётся никогда, и
-                    // повторные проходы БЕЗ сдвига прокрутки бесполезны. В повторных проходах
-                    // первым делом прокручиваем к контейнеру домашней группы (BringIntoView):
-                    // его строки материализуются, и цель может попасть в реализованный диапазон.
-                    if (attempt > 0 && leaf is { } leafNode && FindTreeViewItemForData(leafNode) is { } homeItem)
+                    // Домашний узел не реализован при виртуализации (issue #31): контейнер
+                    // группы далеко за вьюпортом не создаётся, и FindTreeViewItemForData(leaf)
+                    // вернёт null на ЛЮБОМ повторном проходе без сдвига прокрутки — материализуем
+                    // дерево целиком сразу, не полагаясь на «добирающие» попытки с пустым результатом.
+                    if (leaf is not null && FindTreeViewItemForData(leaf) is null)
                     {
-                        homeItem.BringIntoView();
-                        MainTree.UpdateLayout();
-                        item = FindTargetContainer(target, leaf);
-                    }
-
-                    // Если цель всё ещё не создана — материализуем дерево целиком: временно
-                    // отключаем виртуализацию, находим контейнер цели, прокручиваем к нему,
-                    // возвращаем виртуализацию (цель остаётся в видимой области, а свежий
-                    // контейнер после включения ищется по данным заново).
-                    if (item is null)
+                        RevealTrace.Log($"WPF Reveal: attempt={attempt}, home leaf container NOT realized " +
+                                        $"({DescribeLeaf(leaf)}) — materializing immediately");
                         item = MaterializeRevealTarget(target, leaf);
+                    }
+                    else
+                    {
+                        // «Найти в списке» (issue #285): строка цели далеко вниз внутри длинной
+                        // раскрытой группы. При Recycling-виртуализации (VirtualizingStackPanel,
+                        // ScrollUnit=Pixel) её контейнер ниже вьюпорта не создаётся никогда, и
+                        // повторные проходы БЕЗ сдвига прокрутки бесполезны. В повторных проходах
+                        // первым делом прокручиваем к контейнеру домашней группы (BringIntoView):
+                        // его строки материализуются, и цель может попасть в реализованный диапазон.
+                        if (attempt > 0 && leaf is { } leafNode && FindTreeViewItemForData(leafNode) is { } homeItem)
+                        {
+                            homeItem.BringIntoView();
+                            MainTree.UpdateLayout();
+                            item = FindTargetContainer(target, leaf);
+                        }
+
+                        // Если цель всё ещё не создана — материализуем дерево целиком: временно
+                        // отключаем виртуализацию, находим контейнер цели, прокручиваем к нему,
+                        // возвращаем виртуализацию (цель остаётся в видимой области, а свежий
+                        // контейнер после включения ищется по данным заново).
+                        if (item is null)
+                            item = MaterializeRevealTarget(target, leaf);
+                    }
                 }
 
                 if (item is null)
@@ -437,8 +464,22 @@ namespace Workspace1C
                     // UpdateLayout и поиск; при неудаче за отведённое число попыток выходим.
                     if (attempt < MaxRevealAttempts)
                     {
+                        RevealTrace.Log($"WPF Reveal: attempt={attempt}, container not realized — " +
+                                        $"scheduling attempt={attempt + 1}");
                         Dispatcher.BeginInvoke(new Action(() => RevealAndSelectAfterRebuild(attempt + 1)),
                             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    }
+                    else
+                    {
+                        // Попытки исчерпаны (issue #31): снимаем липкий запрос, чтобы он не
+                        // перехватывал последующие обычные пересборки (паритет с Avalonia).
+                        RevealTrace.Log($"WPF Reveal: attempt={attempt} >= MaxRevealAttempts={MaxRevealAttempts}, " +
+                                        "EXHAUSTED: контейнер домашней строки не найден");
+                        if (_revealFindInListPending)
+                        {
+                            _revealFindInListPending = false;
+                            _revealTargetOverride = null;
+                        }
                     }
                     return;
                 }
@@ -446,7 +487,26 @@ namespace Workspace1C
                 switch (target)
                 {
                     case Infobase infobase:
+                        // Запрет выбора копии «Закреплённые» при revealToHome (issue #31):
+                        // проверка ПЕРЕД ApplySelection — контейнер обязан лежать в поддереве
+                        // домашнего узла и не иметь предка GroupNodeViewModel с PinnedMarker.
+                        // Если FindTargetContainer вернул чужой контейнер (сбой планирования/
+                        // устаревшее дерево), пробуем материализацию домашней строки.
+                        if (revealToHome && IsPinnedSectionContainer(item))
+                        {
+                            RevealTrace.Log($"WPF Reveal: pinned-copy guard hit for target={infobase.Id} " +
+                                            $"(leaf={DescribeLeaf(leaf)}) — materializing home row");
+                            item = MaterializeRevealTarget(infobase, leaf);
+                            if (item is null || IsPinnedSectionContainer(item))
+                            {
+                                RevealTrace.Log($"WPF Reveal: home row still not found, selection NOT set " +
+                                                $"on pinned copy (target={infobase.Id})");
+                                return;
+                            }
+                        }
                         ApplySelection(item, infobase);
+                        RevealTrace.Log($"WPF Reveal: attempt={attempt}, SELECTED target={infobase.Id}, " +
+                                        $"pinnedSection={IsPinnedSectionContainer(item)}, revealToHome={revealToHome}");
                         break;
                     case GroupNodeViewModel group when group.Group is not null:
                         ApplyGroupSelection(item, group);
@@ -662,16 +722,30 @@ namespace Workspace1C
 
         private static TreeViewItem? FindTreeViewItemIn(ItemsControl parent, object data)
         {
+            var dataGroup = data as GroupNodeViewModel;
             for (var i = 0; i < parent.Items.Count; i++)
             {
                 if (parent.ItemContainerGenerator.ContainerFromIndex(i) is not TreeViewItem tvi)
                     continue;
 
-                // Данные строки узла «Закреплённые» — обёртка PinnedInfobaseItem
-                // (issue #314): сравниваем по реальной базе, иначе контейнер
-                // закреплённой строки не находился бы по данным обычной базы.
-                if (ReferenceEquals(UnwrapInfobase(tvi.DataContext), UnwrapInfobase(data)))
-                    return tvi;
+                if (dataGroup is not null)
+                {
+                    // Узел-ГРУППА ищется строго по ссылке (issue #31): прежнее сравнение через
+                    // UnwrapInfobase сводило DataContext ЛЮБОГО не-базового узла к null и
+                    // «подходило» под ПЕРВЫЙ реализованный групповой заголовок (обычно
+                    // «Закреплённые», идущий первым в дереве). Из-за этого FindTargetContainer
+                    // искал цель ВНУТРИ «Закреплённых» и reveal «останавливался» на копии базы.
+                    if (ReferenceEquals(tvi.DataContext, dataGroup))
+                        return tvi;
+                }
+                else
+                {
+                    // Данные строки узла «Закреплённые» — обёртка PinnedInfobaseItem
+                    // (issue #314): сравниваем по реальной базе, иначе контейнер
+                    // закреплённой строки не находился бы по данным обычной базы.
+                    if (ReferenceEquals(UnwrapInfobase(tvi.DataContext), UnwrapInfobase(data)))
+                        return tvi;
+                }
 
                 if (tvi.Items.Count > 0)
                 {
@@ -724,49 +798,6 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Проверяет, присутствует ли цель восстановления выделения в текущем дереве данных
-        /// (issue #21): база размещена в каком-либо узле <see cref="MainViewModel.GroupNodes"/>,
-        /// выбранная группа с реальной моделью — в дереве (перепривязка по Id). Спец-узлы
-        /// («Закреплённые», «Без группы») целью не являются (их выбор не восстанавливается).
-        /// Работает только по ViewModel-данным, без обращения к визуальному дереву.
-        /// </summary>
-        private bool IsRevealTargetReachable(object target)
-        {
-            return target switch
-            {
-                Infobase infobase => FindGroupNodeByInfobase(infobase) is not null,
-                GroupNodeViewModel group => IsGroupInTree(group),
-                _ => false
-            };
-        }
-
-        private bool IsGroupInTree(GroupNodeViewModel group)
-        {
-            if (group.Group is null)
-                return false; // спец-узлы как цель выбора не восстанавливаются
-            var id = group.Group.Id;
-            if (string.IsNullOrEmpty(id))
-                return false;
-            foreach (var root in _viewModel.GroupNodes)
-                if (FindGroupNodeByIdData(root, id) is not null)
-                    return true;
-            return false;
-        }
-
-        private static GroupNodeViewModel? FindGroupNodeByIdData(GroupNodeViewModel node, string id)
-        {
-            if (node.Group is not null && string.Equals(node.Group.Id, id, StringComparison.OrdinalIgnoreCase))
-                return node;
-            foreach (var child in node.Children)
-            {
-                var found = FindGroupNodeByIdData(child, id);
-                if (found is not null)
-                    return found;
-            }
-            return null;
-        }
-
-        /// <summary>
         /// Возвращает контейнер строки цели. При «Найти в списке» (issue #285) строка ищется
         /// ТОЛЬКО внутри домашнего узла во «Все базы» (настоящая группа или «Без группы»):
         /// закреплённая база присутствует в дереве дважды, и общий поиск по данным вернул бы
@@ -777,10 +808,20 @@ namespace Workspace1C
         {
             if (homeNode is not null)
             {
-                // Контейнер домашнего узла уникален (объект узла один на дерево); затем ищем
-                // строку цели только в его поддереве, не выходя за пределы «Все базы».
+                // Контейнер домашнего узла уникален (объект узла один на дерево; поиск строго
+                // по ссылке, см. FindTreeViewItemIn); затем ищем строку цели только в его
+                // поддереве, не выходя за пределы «Все базы».
                 if (FindTreeViewItemForData(homeNode) is { } groupItem)
-                    return FindTreeViewItemIn(groupItem, target);
+                {
+                    var item = FindTreeViewItemIn(groupItem, target);
+                    // Гарантия «домашней» строки (issue #31): найденный контейнер обязан лежать
+                    // в поддереве homeNode и НЕ иметь предка-«Закреплённые» (GroupNodeViewModel
+                    // с PinnedMarker). При нарушении считаем «не найдено» — вызывающий пойдёт
+                    // в материализацию домашней строки, а не в копию закреплений.
+                    return item is not null && IsContainerWithinHomeTree(item, homeNode)
+                        ? item
+                        : null;
+                }
                 return null;
             }
             return FindTreeViewItemForData(target);
@@ -1239,6 +1280,86 @@ namespace Workspace1C
             return null;
         }
 
+        /// <summary>Возвращает строку-родитель указанной строки дерева (WPF: ItemsControl,
+        /// породивший контейнер, — TreeView для корневых строк либо родительский
+        /// TreeViewItem для вложенных).</summary>
+        private static TreeViewItem? ParentTreeViewItem(TreeViewItem item)
+            => ItemsControl.ItemsControlFromItemContainer(item) as TreeViewItem;
+
+        /// <summary>
+        /// Проверяет, что контейнер строки лежит в поддереве домашнего узла <paramref name="homeNode"/>
+        /// (issue #31): путь от строки вверх должен дойти до <c>homeNode</c> ДО того, как встретится
+        /// узел «Закреплённые» (GroupNodeViewModel с <see cref="GroupNodeViewModel.PinnedMarker"/>),
+        /// иначе строка — копия из закреплений и для reveal недопустима.
+        /// </summary>
+        private static bool IsContainerWithinHomeTree(TreeViewItem item, GroupNodeViewModel homeNode)
+        {
+            for (var current = item; current is not null; current = ParentTreeViewItem(current))
+            {
+                if (current.DataContext is GroupNodeViewModel gn)
+                {
+                    if (GroupNodeViewModel.IsPinnedNode(gn))
+                        return false;
+                    if (ReferenceEquals(gn, homeNode))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Лежит ли строка в узле «Закреплённые» (сама строка или любой предок
+        /// с <see cref="GroupNodeViewModel.PinnedMarker"/>). Используется как последний
+        /// рубеж перед <see cref="ApplySelection"/> при revealToHome (issue #31).</summary>
+        private static bool IsPinnedSectionContainer(TreeViewItem? item)
+        {
+            for (var current = item; current is not null; current = ParentTreeViewItem(current))
+            {
+                if (current.DataContext is GroupNodeViewModel gn && GroupNodeViewModel.IsPinnedNode(gn))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Развёрнутое описание цели reveal для журнала CM_REVEAL (issue #31):
+        /// id базы (+признак «есть копия в „Закреплённых“») либо ключ/маркер/путь группы.</summary>
+        private string DescribeRevealTarget(object? target) => target switch
+        {
+            Infobase ib => $"base={ib.Id}, pinned={IsInfobaseInPinnedSection(ib)}",
+            GroupNodeViewModel gn => $"group={gn.NodeKey}, marker={gn.Marker ?? "-"}, path={gn.FullPath}",
+            _ => target?.ToString() ?? "null"
+        };
+
+        /// <summary>Описание домашнего узла (leaf) для журнала CM_REVEAL.</summary>
+        private static string DescribeLeaf(GroupNodeViewModel? leaf) => leaf is null
+            ? "null"
+            : $"node={leaf.NodeKey}, marker={leaf.Marker ?? "-"}, path={leaf.FullPath}";
+
+        /// <summary>Присутствует ли копия базы в узле «Закреплённые» текущего дерева.</summary>
+        private bool IsInfobaseInPinnedSection(Infobase ib)
+        {
+            foreach (var root in _viewModel.GroupNodes)
+            {
+                if (FindPinnedNodeData(root) is { } pinned
+                    && pinned.Infobases.Any(x => ReferenceEquals(x, ib)))
+                {
+                    return true;
+                }
+            }
+            return false;
+
+            static GroupNodeViewModel? FindPinnedNodeData(GroupNodeViewModel node)
+            {
+                if (GroupNodeViewModel.IsPinnedNode(node))
+                    return node;
+                foreach (var child in node.Children)
+                {
+                    var found = FindPinnedNodeData(child);
+                    if (found is not null)
+                        return found;
+                }
+                return null;
+            }
+        }
     }
 }
 #endif

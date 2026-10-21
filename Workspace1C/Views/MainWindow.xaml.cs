@@ -57,6 +57,26 @@ namespace Workspace1C
         private long _lastTreeCollRemoveCount;
         private long _treeCollResetCount;
         private long _lastTreeCollResetCount;
+        // Счётчики реализованных/отсоединённых строк дерева за смену вкладки
+        // (диагностика v2, issue #21, CM_TREESWITCH): у WPF нет аналога Avalonia-событий
+        // ContainerPrepared/ContainerClearing, поэтому считаем Loaded/Unloaded сеток строк
+        // в шаблонах (MainWindow.xaml: GroupRowGrid/InfobaseRowGrid). rowsRealized —
+        // сколько раз строка (база или группа) подключена к визуальному дереву за смену;
+        // rowsCleared — сколько раз отсоединена. Устойчивый разрыв realized >> cleared
+        // между сменами указывает на удержание контейнеров (Recycling-пул / подписки).
+        private long _treeRowRealizeCount;
+        private long _lastTreeRowRealizeCount;
+        private long _treeRowUnrealizeCount;
+        private long _lastTreeRowUnrealizeCount;
+        // Базовый счётчик байт выделения на старте смены вкладки (TreeRebuilding) — из
+        // него в CM_TREESWITCH вычисляется allocMb (прирост GC.GetTotalAllocatedBytes
+        // за смену): мусор vs живой рост. 0 — старт не зафиксирован (первая запись).
+        private long _switchAllocBaseBytes;
+        private long _lastSwitchAllocMb;
+        // Демпфер эксперимента B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH):
+        // принудительный сброс Recycling-пула контейнеров планируется не чаще одного
+        // раза за смену вкладки (пока отложенный вызов не отработал).
+        private bool _treePoolFlushScheduled;
 
         /// <summary>
         /// Текущее состояние активности окна, по которому окрашивается шапка
@@ -314,7 +334,13 @@ namespace Workspace1C
                 // Замер VM-части чистого переключения вкладки (issue #21, Этап E):
                 // флаг IsListModeSwitchInProgress истинен на время RebuildGroupTreeCore.
                 if (_viewModel.IsListModeSwitchInProgress)
+                {
                     _switchVmStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                    // База выделения на старте смены (диагностика v2, issue #21): из
+                    // прироста GC.GetTotalAllocatedBytes(false) к TreeRebuilt получаем
+                    // allocMb за смену вкладки.
+                    _switchAllocBaseBytes = System.GC.GetTotalAllocatedBytes(precise: false);
+                }
             };
             // Перед открытием модального окна свойств базы запоминаем позицию прокрутки,
             // а при закрытии без сохранения («Нет») возвращаем её явно: пересборки не было,
@@ -368,11 +394,24 @@ namespace Workspace1C
                     // itemwise — поштучными событиями. По resetMode сопоставляются замеры
                     // 1.0.0.33 (всегда itemwise при пересечении) и 1.0.0.34.
                     var resetMode = collReset > 0 ? "reset" : "itemwise";
+                    // Диагностика v2 (issue #21, итерация B): реализованные/отсоединённые
+                    // строки за смену (WPF-аналог Avalonia-сквозных счётчиков контейнеров)
+                    // и прирост выделения GC.GetTotalAllocatedBytes (allocMb) за смену.
+                    var rowsRealized = _treeRowRealizeCount - _lastTreeRowRealizeCount;
+                    var rowsCleared = _treeRowUnrealizeCount - _lastTreeRowUnrealizeCount;
+                    var allocNow = System.GC.GetTotalAllocatedBytes(precise: false);
+                    var allocMb = _switchAllocBaseBytes != 0
+                        ? (allocNow - _switchAllocBaseBytes) / (1024 * 1024)
+                        : 0;
                     _lastTreeSizeChangedCount = _treeSizeChangedCount;
                     _lastHeaderAlignStabilizeTotal = _headerAlignStabilizeTotal;
                     _lastTreeCollAddCount = _treeCollAddCount;
                     _lastTreeCollRemoveCount = _treeCollRemoveCount;
                     _lastTreeCollResetCount = _treeCollResetCount;
+                    _lastTreeRowRealizeCount = _treeRowRealizeCount;
+                    _lastTreeRowUnrealizeCount = _treeRowUnrealizeCount;
+                    _switchAllocBaseBytes = 0;
+                    _lastSwitchAllocMb = allocMb;
                     if (_switchVmStartTicks != 0)
                     {
                         _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
@@ -390,6 +429,7 @@ namespace Workspace1C
                     var heapAfterGc = System.GC.GetTotalMemory(true);
                     AppServices.GetRequiredService<IAppLogger>().Info(
                         $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}, " +
+                        $"allocMb={_lastSwitchAllocMb}, rowsRealized={rowsRealized}, rowsCleared={rowsCleared}, " +
                         $"heapMb={heapBytes / (1024 * 1024)}, heapAfterGcMb={heapAfterGc / (1024 * 1024)}, " +
                         $"collAdd={collAdd}, collRemove={collRemove}, collReset={collReset}, " +
                         $"resetMode={resetMode}, " +
@@ -407,7 +447,60 @@ namespace Workspace1C
                 // MainTree.SizeChanged после материализации строк.
                 _headerAlignSinglePass = true;
                 QueueHeaderAlign();
+                // Эксперимент B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH): после
+                // чистого переключения вкладки управляемо сбрасываем Recycling-пул
+                // контейнеров (H2) — по замеру heapAfterGcMb с флагом и без координатор
+                // определит, отдаёт ли WPF старые контейнеры или они удерживаются.
+                ScheduleTreePoolFlush();
             };
+
+            // <summary>
+            // Эксперимент B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH): планирует
+            // принудительный сброс Recycling-пула контейнеров дерева после чистого
+            // переключения вкладки. Работает ТОЛЬКО при включённом флаге (как CM_TREESWITCH);
+            // по умолчанию поведение вкладок не меняется. Один отложенный вызов на смену.
+            // </summary>
+            void ScheduleTreePoolFlush()
+            {
+                if (!TraceFlags.IsEnabled(TraceFlags.TreeSwitchPoolFlushFlag))
+                    return;
+                if (_treePoolFlushScheduled)
+                    return;
+                _treePoolFlushScheduled = true;
+                Dispatcher.BeginInvoke(new Action(FlushTreeRecycledContainers),
+                    System.Windows.Threading.DispatcherPriority.ContextIdle);
+            }
+
+            // <summary>
+            // Эксперимент B (issue #21, итерация B): кратковременно переключает
+            // VirtualizingPanel.StandardMode="Standard" (контейнеры выбрасываются, а не
+            // рециклируются) и возвращает Recycling — панель при этом разбирает очередь
+            // переработанных контейнеров и освобождает старые строки прежней вкладки.
+            // Два принудительных UpdateLayout — цена эксперимента, поэтому путь активен
+            // только при CM_TREESWITCH_FLUSH=1. При сбое режим возвращается в Recycling.
+            // </summary>
+            void FlushTreeRecycledContainers()
+            {
+                _treePoolFlushScheduled = false;
+                if (MainTree is null)
+                    return;
+                try
+                {
+                    VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Standard);
+                    MainTree.UpdateLayout();
+                    VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Recycling);
+                    MainTree.UpdateLayout();
+                    if (TraceFlags.IsEnabled(TraceFlags.TreeSwitchFlag))
+                        AppServices.GetRequiredService<IAppLogger>().Info(
+                            "CM_TREESWITCH_FLUSH: Recycling-пул контейнеров сброшен после смены вкладки");
+                }
+                catch
+                {
+                    // Эксперимент не должен ломать раскладку: возвращаем режим Recycling.
+                    try { VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Recycling); }
+                    catch { /* не мешаем раскладке */ }
+                }
+            }
             // «Найти в списке» (issue #285): цель выставлена во вьюмодели, и при восстановлении
             // строки прокрутку нужно вести к цели, а не возвращать прежнюю позицию. Флаг читает
             // RevealAndSelectAfterRebuild (RevealFindInListRequested приходит синхронно из

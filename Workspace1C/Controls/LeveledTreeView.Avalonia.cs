@@ -769,6 +769,28 @@ namespace Workspace1C.Controls
         }
 
         /// <summary>
+        /// Проверяет, что строка лежит в поддереве домашнего узла «Все базы» (issue #31):
+        /// путь от строки вверх должен дойти до <paramref name="home"/> ДО того, как встретится
+        /// узел «Закреплённые» (GroupNodeViewModel с <see cref="GroupNodeViewModel.PinnedMarker"/>).
+        /// Используется как последний рубеж перед <see cref="SelectRow"/> в reveal перехода
+        /// к строке — даже при сбое поиска выбор не должен «остановиться» на копии закреплений.
+        /// </summary>
+        public bool IsRowWithinHome(TreeViewItem row, GroupNodeViewModel home)
+        {
+            foreach (var ancestor in row.GetSelfAndVisualAncestors().OfType<TreeViewItem>())
+            {
+                if (ancestor.DataContext is GroupNodeViewModel gn)
+                {
+                    if (GroupNodeViewModel.IsPinnedNode(gn))
+                        return false;
+                    if (ReferenceEquals(gn, home))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Контейнер строки базы в нужной секции дерева (issue #340): «Закреплённые» —
         /// строка с обёрткой <see cref="PinnedInfobaseItem"/>, обычный список — сама модель
         /// <see cref="Infobase"/>. Используется fallback-применением и стабилизацией
@@ -813,7 +835,20 @@ namespace Workspace1C.Controls
         /// </summary>
         public bool EnsureDataVisible(object data, object? home)
         {
-            if (ContainerForItem(data) is { } item)
+            // Строка ищется ТОЛЬКО в поддереве домашнего узла «Все базы» (issue #31):
+            // общий поиск по данным для закреплённой базы находил бы ПЕРВУЮ копию
+            // в «Закреплённых» (она идёт первой в дереве) и прокручивал бы к ней —
+            // reveal «останавливался» бы на закреплении вместо домашней строки.
+            var homeNode = home as GroupNodeViewModel;
+            if (homeNode is not null)
+            {
+                if (ContainerForItemWithin(homeNode, data) is { } within)
+                {
+                    within.BringIntoView();
+                    return true;
+                }
+            }
+            else if (ContainerForItem(data) is { } item)
             {
                 item.BringIntoView();
                 return true;
@@ -829,7 +864,7 @@ namespace Workspace1C.Controls
             //    либо вверх, если он выше текущего вьюпорта и контейнер ещё не создан.
             for (var step = 0; step < maxSteps; step++)
             {
-                if (home is { } homeData && ContainerForItem(homeData) is { } homeItem)
+                if (homeNode is not null && ContainerForItem(homeNode) is { } homeItem)
                 {
                     homeItem.BringIntoView();
                     break;
@@ -839,10 +874,14 @@ namespace Workspace1C.Controls
                 scroll.Offset = scroll.Offset.WithY(Math.Max(0, scroll.Offset.Y - viewport));
             }
 
-            // 2) От заголовка домашнего узла спускаемся к строке цели.
+            // 2) От заголовка домашнего узла спускаемся к строке цели — снова строго
+            //    внутри поддерева homeNode (не в «Закреплённые»).
             for (var step = 0; step < maxSteps; step++)
             {
-                if (ContainerForItem(data) is { } target)
+                var found = homeNode is not null
+                    ? ContainerForItemWithin(homeNode, data)
+                    : ContainerForItem(data);
+                if (found is { } target)
                 {
                     target.BringIntoView();
                     return true;

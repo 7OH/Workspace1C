@@ -1334,7 +1334,8 @@
                                                 </Style>
                                             </Border.Style>
                                         </Border>
-                                        <Grid x:Name="GroupRowGrid" Loaded="OnGroupRowGrid_Loaded">
+                                        <Grid x:Name="GroupRowGrid" Loaded="OnGroupRowGrid_Loaded"
+                                              Unloaded="OnGroupRowGrid_Unloaded">
                                         <Grid.ColumnDefinitions>
                                             <!-- Сетка повторяет набор ведущих колонок строки базы и заголовка
                                                  (кнопки групп + компенсатор + избранное + закрепление + название),
@@ -1615,7 +1616,8 @@
                                                 </Style>
                                             </Border.Style>
                                         </Border>
-                                        <Grid x:Name="InfobaseRowGrid" Loaded="OnInfobaseRowGrid_Loaded">
+                                        <Grid x:Name="InfobaseRowGrid" Loaded="OnInfobaseRowGrid_Loaded"
+                                              Unloaded="OnInfobaseRowGrid_Unloaded">
                                         <Grid.ColumnDefinitions>
                                             <!-- Ведущие колонки повторяют набор заголовка: кнопки групп + компенсатор +
                                                  избранное + закрепление + название. Одинаковая структура ведущих колонок

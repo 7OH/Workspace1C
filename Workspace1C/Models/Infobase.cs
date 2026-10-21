@@ -26,6 +26,16 @@ public class Infobase : INotifyPropertyChanged
         OnPropertyChanged(propertyName);
         return true;
     }
+
+    /// <summary>
+    /// Уведомляет привязки обо всех свойствах (после правки базы через
+    /// прямое присваивание полей, issue #35). Передаётся <c>null</c> —
+    /// каноническое значение <see cref="PropertyChangedEventArgs.PropertyName"/>,
+    /// означающее «изменились все свойства» (эквивалент string.Empty в WPF).
+    /// </summary>
+    public void NotifyAllPropertiesChanged() =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+
     /// <summary>
     /// Идентификатор базы 1С (GUID из файла ibases.v8i, ключ ID).
     /// Используется для точной очистки кеша 1С.

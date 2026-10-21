@@ -191,7 +191,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
             OnPropertyChanged(nameof(SelectedBases));
             OnPropertyChanged(nameof(ImportCompleted));
             if (value is Guid id)
-                _ = LoadBasesAsync(id);
+                StartLoadBases(id);
         }
     }
 
@@ -381,7 +381,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
     public void LoadBases()
     {
         if (SelectedClusterId is Guid id)
-            _ = LoadBasesAsync(id);
+            StartLoadBases(id);
     }
 
     /// <summary>
@@ -465,7 +465,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
         // Если кластер сменился во время загрузки — запускаем загрузку актуального
         // (после ExitBusy, чтобы флаг занятости не заблокировал повторный вход).
         if (stale && SelectedClusterId is Guid current)
-            _ = LoadBasesAsync(current);
+            StartLoadBases(current);
     }
 
     /// <summary>
@@ -516,6 +516,28 @@ public sealed class ClusterImportViewModel : ViewModelBase
         ServerPort = server.Port;
         UserName = server.User;
         Password = server.Password;
+    }
+
+    // ===================== Тест-сеam (issue #25) =====================
+
+    /// <summary>
+    /// Тест-сеam: последняя задача загрузки баз, запущенная из fire-and-forget
+    /// (<see cref="StartLoadBases"/>: сеттер <see cref="SelectedClusterId"/>, команда
+    /// «Загрузить», докачка после устаревшего результата). Публичный API не меняется
+    /// (internal): тесты ждут её завершения, чтобы детерминированно проверять чеклист
+    /// (<see cref="Rows"/>) и статус «Загружено N» после автовыбора единственного
+    /// кластера — без таймаут-циклов.
+    /// </summary>
+    internal Task? LastLoadBasesTask { get; private set; }
+
+    /// <summary>
+    /// Запускает загрузку баз кластера без ожидания (fire-and-forget) и запоминает
+    /// задачу для тестов (<see cref="LastLoadBasesTask"/>). Ошибки обрабатывает сама
+    /// <see cref="LoadBasesAsync"/> (статус/ошибка окна) — безопасно не ждать.
+    /// </summary>
+    private void StartLoadBases(Guid clusterId)
+    {
+        LastLoadBasesTask = LoadBasesAsync(clusterId);
     }
 
     private RacConnectionParams BuildParams()

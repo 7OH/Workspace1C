@@ -275,7 +275,11 @@ namespace Workspace1C
                 // Замер VM-части чистого переключения вкладки (issue #21, Этап E):
                 // флаг IsListModeSwitchInProgress истинен на время ApplyFilterCore.
                 if (_vm.IsListModeSwitchInProgress)
+                {
                     _switchVmStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                    // База выделения на старте смены (диагностика v2, issue #21).
+                    _switchAllocBaseBytes = System.GC.GetTotalAllocatedBytes(precise: false);
+                }
             };
             // Перед открытием модального окна свойств базы запоминаем позицию прокрутки,
             // а при закрытии без сохранения («Нет») возвращаем её явно: пересборки не было,
@@ -312,9 +316,17 @@ namespace Workspace1C
                     var created = _containersCreated - _lastContainersCreated;
                     var cleared = _containersCleared - _lastContainersCleared;
                     var collReset = _treeCollResetCount - _lastTreeCollResetCount;
+                    // Диагностика v2 (issue #21, итерация B): прирост выделения
+                    // GC.GetTotalAllocatedBytes за смену вкладки — мусор vs живой рост.
+                    var allocNow = System.GC.GetTotalAllocatedBytes(precise: false);
+                    var allocMb = _switchAllocBaseBytes != 0
+                        ? (allocNow - _switchAllocBaseBytes) / (1024 * 1024)
+                        : 0;
                     _lastContainersCreated = _containersCreated;
                     _lastContainersCleared = _containersCleared;
                     _lastTreeCollResetCount = _treeCollResetCount;
+                    _switchAllocBaseBytes = 0;
+                    _lastSwitchAllocMb = allocMb;
                     if (_switchVmStartTicks != 0)
                     {
                         _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
@@ -329,7 +341,7 @@ namespace Workspace1C
                     // itemwise — поштучными событиями.
                     var resetMode = collReset > 0 ? "reset" : "itemwise";
                     AppServices.GetRequiredService<Services.IAppLogger>().Info(
-                        $"CM_TREESWITCH: containersCreated={created}, containersCleared={cleared}, vmMs={_lastSwitchVmMs}, " +
+                        $"CM_TREESWITCH: containersCreated={created}, containersCleared={cleared}, allocMb={_lastSwitchAllocMb}, vmMs={_lastSwitchVmMs}, " +
                         $"heapMb={heapBytes / (1024 * 1024)}, collReset={collReset}, resetMode={resetMode}");
                 }
             };
@@ -515,6 +527,11 @@ namespace Workspace1C
         private long _lastTreeCollResetCount;
         private long _switchVmStartTicks;
         private long _lastSwitchVmMs;
+        // Диагностика v2 (issue #21, итерация B): базовый счётчик байт выделения на старте
+        // смены вкладки (TreeRebuilding) — в CM_TREESWITCH из прироста
+        // GC.GetTotalAllocatedBytes(false) вычисляется allocMb за смену (мусор vs живой рост).
+        private long _switchAllocBaseBytes;
+        private long _lastSwitchAllocMb;
 
         /// <summary>Пункт «Отменить последнюю замену строк подключения» в меню «Утилиты»
         /// (0.3.9.191): IsEnabled синхронизируется с <see cref="MainViewModel.CanUndoConnectionReplace"/>.</summary>

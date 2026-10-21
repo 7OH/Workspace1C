@@ -291,43 +291,12 @@ public partial class MainViewModel : ViewModelBase
         {
             // Применяем изменения к существующему объекту, а не заменяем его новым.
             // Это важно, потому что на объект могут ссылаться и основной список, и представление.
+            // Перенос редактируемых полей вынесен в общий помощник InfobaseEditor.ApplyEdits
+            // (один источник для WPF и Avalonia); он же поднимает NotifyAllPropertiesChanged —
+            // иначе при активном отборе контейнер строки не пересоздаётся и привязки не
+            // перечитывали бы обновлённые значения (issue #35).
             var target = ib;
-            target.Id = dialog.Result.Id;
-            target.Name = dialog.Result.Name;
-            target.Group = dialog.Result.Group;
-            target.Description = dialog.Result.Description;
-            target.PlatformVersion = dialog.Result.PlatformVersion;
-            // Поля конфигурации переносим явно, иначе введённые вручную имя/версия
-            // конфигурации не сохранялись бы (issue #164).
-            target.ConfigurationName = dialog.Result.ConfigurationName;
-            target.ConfigurationVersion = dialog.Result.ConfigurationVersion;
-            target.Architecture = dialog.Result.Architecture;
-            target.LaunchMode = dialog.Result.LaunchMode;
-            target.LaunchParameters = dialog.Result.LaunchParameters;
-            target.DefaultLaunchMode = dialog.Result.DefaultLaunchMode;
-            // Внешняя обработка при запуске и действие по двойному щелчку (Этап 7).
-            target.DoubleClickAction = dialog.Result.DoubleClickAction;
-            target.ExternalProcessingPath = dialog.Result.ExternalProcessingPath;
-            target.ExternalProcessingData = dialog.Result.ExternalProcessingData;
-            target.ClientType = dialog.Result.ClientType;
-            target.IsFavorite = dialog.Result.IsFavorite;
-            target.IsPinned = dialog.Result.IsPinned;
-            target.LastLaunchDate = dialog.Result.LastLaunchDate;
-            target.Tags = dialog.Result.Tags;
-            target.MetadataRoot = dialog.Result.MetadataRoot;
-            // Ручной размер базы переносим явно, иначе введённый вручную размер терялся
-            // при сохранении (поле редактируется в окне подключения, issue #243).
-            target.ManualSizeBytes = dialog.Result.ManualSizeBytes;
-            target.Connection = dialog.Result.Connection;
-            target.EnterpriseAuth = dialog.Result.EnterpriseAuth;
-            target.ConfiguratorAuth = dialog.Result.ConfiguratorAuth;
-            target.Repository = dialog.Result.Repository;
-            // Произвольные поля базы (issue #6): переносим явно с копированием списка,
-            // иначе отредактированные строки таблицы «Произвольные поля» терялись при
-            // сохранении и %Additional_N% оставался бы без подстановки в сценариях.
-            target.AdditionalFields = new List<string>(dialog.Result.AdditionalFields ?? new List<string>());
-            if (!string.IsNullOrWhiteSpace(dialog.Result.LaunchMode))
-                target.LaunchMode = dialog.Result.LaunchMode;
+            InfobaseEditor.ApplyEdits(target, dialog.Result);
 
             // Правка могла снять или поставить звезду — пересчитываем слоты
             // Alt+1…9, чтобы вкладка, счётчик и список горячих клавиш не

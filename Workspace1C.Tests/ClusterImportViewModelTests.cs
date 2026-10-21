@@ -72,6 +72,11 @@ public sealed class ClusterImportViewModelTests
 
         await vm.ConnectAsync();
 
+        // Детерминированное ожидание завершения фоновой загрузки (автовыбор запускает
+        // fire-and-forget из сеттера SelectedClusterId): тест-сеам LastLoadBasesTask
+        // вместо таймаут-цикла — проверяем именно ПОЛНЫЙ результат загрузки (issue #25).
+        await AwaitBackgroundLoadBases(vm);
+
         Assert.Equal(1, vm.Clusters.Count);
         Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
         Assert.Equal(1, client.ClustersCalls);
@@ -79,6 +84,11 @@ public sealed class ClusterImportViewModelTests
         Assert.Equal(3, vm.Rows.Count);
         Assert.Empty(vm.ErrorMessage);
         Assert.False(vm.IsBusy);
+        // Статус прошёл цепочку «Загрузка баз…» → «Загружено N» (а не подсказка
+        // «выберите кластер» — автовыбор единственного сработал до ветки нескольких).
+        Assert.Equal(
+            string.Format(LocalizationManager.T("ClusterImport.Status.LoadedFormat"), vm.Rows.Count),
+            vm.StatusText);
 
         // Поля строки чеклиста: подпись (описание/СУБД/сервер/имя БД), кластер, строка подключения.
         var buh = vm.Rows.Single(r => r.Name == "Бухгалтерия");
@@ -500,6 +510,36 @@ public sealed class ClusterImportViewModelTests
     }
 
     [Fact]
+    public async Task InitializeFromServer_AutoConnectTrue_SingleCluster_LoadsBasesImmediately_Issue25()
+    {
+        // Из окна «Серверы 1С» без переданного кластера, но на сервере ЕДИНСТВЕННЫЙ
+        // кластер: автоподключение выбирает его сразу и загружает базы — чеклист
+        // появляется без нажатия «Получить базы» (комментарий 7OH 2026-10-21: «если
+        // один — сразу и список баз показывать»). Детерминизм — через тест-сеам
+        // LastLoadBasesTask (ожидание завершения fire-and-forget загрузки, issue #25).
+        var client = new FakeRacClient(singleCluster: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        await vm.InitializeFromServer(server, autoConnect: true);
+
+        Assert.Equal(1, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        Assert.Equal(1, client.ClustersCalls);
+
+        await AwaitBackgroundLoadBases(vm);
+
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.NotEmpty(vm.Rows);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+        // Статус — «Загружено N» (не «выберите кластер» и не «Загрузка баз…»).
+        Assert.Equal(
+            string.Format(LocalizationManager.T("ClusterImport.Status.LoadedFormat"), vm.Rows.Count),
+            vm.StatusText);
+    }
+
+    [Fact]
     public async Task InitializeFromServer_SeveralClustersNoRequested_NoBusy_SelectClusterHint_Issue25()
     {
         // Несколько кластеров и без переданного: автовыбор не выполняется, но прогресс
@@ -644,6 +684,20 @@ public sealed class ClusterImportViewModelTests
         Assert.Contains(true, busyEvents);
         Assert.False(vm.IsBusy);
         Assert.NotEmpty(vm.Rows);
+    }
+
+    /// <summary>
+    /// Дожидается завершения фоновой загрузки баз, запущенной fire-and-forget через
+    /// тест-сеam <see cref="ClusterImportViewModel.LastLoadBasesTask"/> (issue #25):
+    /// детерминированно, без таймаут-циклов. Автовыбор единственного кластера
+    /// запускает загрузку из сеттера <see cref="ClusterImportViewModel.SelectedClusterId"/>.
+    /// </summary>
+    private static async Task AwaitBackgroundLoadBases(ClusterImportViewModel vm)
+    {
+        var loadTask = vm.LastLoadBasesTask;
+        Assert.NotNull(loadTask);
+        if (loadTask is not null)
+            await loadTask;
     }
 
     /// <summary>Запись справочника «Серверы 1С» для тестов issue #27.</summary>

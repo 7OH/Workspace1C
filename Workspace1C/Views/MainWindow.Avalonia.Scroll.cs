@@ -8,6 +8,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Workspace1C.Models;
+using Workspace1C.Services;
 using Workspace1C.ViewModels;
 
 namespace Workspace1C
@@ -226,6 +227,7 @@ namespace Workspace1C
             if (target is null)
                 return;
             _revealFindInListPending = true;
+            RevealTrace.Log($"Avalonia RevealFindInList: start, target={DescribeAvaloniaTarget(target)}");
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (_vm is null || _tree is null)
@@ -238,6 +240,7 @@ namespace Workspace1C
                 {
                     SelectAndReveal(row);
                     _revealFindInListPending = false;
+                    RevealTrace.Log($"Avalonia Reveal: attempt=first, SELECTED target={DescribeAvaloniaTarget(target)}");
                     return;
                 }
 
@@ -250,14 +253,21 @@ namespace Workspace1C
         /// во «Все базы» (настоящая группа или «Без группы»), для группы — первый найденный.
         /// Общий поиск по данным для закреплённой базы вернул бы строку «Закреплённых»
         /// (она первая в дереве), поэтому он используется только как запасной вариант.
+        /// Домашний узел считается ЧИСТОЙ логикой планирования (<see cref="RevealPlanner"/>),
+        /// а у найденного контейнера дополнительно проверяются предки — путь обязан дойти
+        /// до домашнего узла без узла «Закреплённые» (issue #31).
         /// </summary>
         private TreeViewItem? FindFindInListRow(object target)
         {
             if (_vm is not null
                 && target is Infobase ib
-                && GroupNodeViewModel.FindInfobaseHomeNode(_vm.GroupNodes, ib) is { } home)
+                && RevealPlanner.PlanLeaf(_vm.GroupNodes, ib, revealToHome: true) is { } home)
             {
-                return _tree.ContainerForItemWithin(home, ib);
+                var row = _tree.ContainerForItemWithin(home, ib);
+                var ok = row is not null && _tree.IsRowWithinHome(row, home);
+                RevealTrace.Log($"Avalonia FindFindInListRow: target={ib.Id}, home={DescribeAvaloniaLeaf(home)}, " +
+                                $"row={row is not null}, withinHome={ok}");
+                return ok ? row : null;
             }
             return _tree.ContainerForItem(target);
         }
@@ -290,6 +300,7 @@ namespace Workspace1C
                 {
                     SelectAndReveal(row);
                     _revealFindInListPending = false;
+                    RevealTrace.Log($"Avalonia Reveal: attempt={attempt}, SELECTED target={DescribeAvaloniaTarget(target)}");
                     return;
                 }
             }
@@ -305,17 +316,23 @@ namespace Workspace1C
             // двигаемся к цели прокруткой — сначала к домашнему узлу во «Все базы» (его строки
             // материализуются), затем итеративно к самой строке через EnsureDataVisible.
             // Каждый Dispatcher-цикл делает шаг прокрутки; когда контейнер появится, выделяем.
+            // Домашний узел считается чистой логикой (RevealPlanner), а EnsureDataVisible
+            // ищет строку ТОЛЬКО в его поддереве — дубль «Закреплённые» исключён (issue #31).
             if (target is Infobase ib
-                && GroupNodeViewModel.FindInfobaseHomeNode(_vm.GroupNodes, ib) is { } home
+                && RevealPlanner.PlanLeaf(_vm.GroupNodes, ib, revealToHome: true) is { } home
                 && _tree.EnsureDataVisible(ib, home)
                 && FindFindInListRow(target) is { } revealed)
             {
                 SelectAndReveal(revealed);
+                RevealTrace.Log($"Avalonia Reveal: attempt={attempt}, SELECTED after scroll, " +
+                                $"target={DescribeAvaloniaTarget(target)}");
                 return;
             }
 
             if (attempt < MaxRevealAttempts)
             {
+                RevealTrace.Log($"Avalonia Reveal: attempt={attempt}, not realized — " +
+                                $"scheduling attempt={attempt + 1}, target={DescribeAvaloniaTarget(target)}");
                 Avalonia.Threading.Dispatcher.UIThread.Post(
                     () => RevealFindInListAttempt(target, attempt + 1),
                     Avalonia.Threading.DispatcherPriority.Background);
@@ -325,7 +342,21 @@ namespace Workspace1C
             // Попытки исчерпаны (issue #31): строка так и не стала видимой — снимаем запрос,
             // чтобы он не перехватывал последующие обычные пересборки.
             _revealFindInListPending = false;
+            RevealTrace.Log($"Avalonia Reveal: attempt={attempt} >= MaxRevealAttempts={MaxRevealAttempts}, " +
+                            "EXHAUSTED — контейнер домашней строки не найден");
         }
+
+        /// <summary>Описание цели reveal для журнала CM_REVEAL (issue #31).</summary>
+        private static string DescribeAvaloniaTarget(object? target) => target switch
+        {
+            Infobase ib => $"base={ib.Id}",
+            GroupNodeViewModel gn => $"group={gn.NodeKey}, marker={gn.Marker ?? "-"}, path={gn.FullPath}",
+            _ => target?.ToString() ?? "null"
+        };
+
+        /// <summary>Описание домашнего узла для журнала CM_REVEAL (issue #31).</summary>
+        private static string DescribeAvaloniaLeaf(GroupNodeViewModel leaf)
+            => $"node={leaf.NodeKey}, marker={leaf.Marker ?? "-"}, path={leaf.FullPath}";
 
         /// <summary>
         /// Восстанавливает прежнюю позицию прокрутки после закрытия окна свойств базы без

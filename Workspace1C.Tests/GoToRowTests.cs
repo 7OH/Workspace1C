@@ -107,6 +107,140 @@ public sealed class GoToRowTests
         Assert.Same(flatNode, home);
     }
 
+    /// <summary>
+    /// Планирование reveal (issue #31): закреплённая база присутствует в дереве дважды,
+    /// и при revealToHome планировщик обязан выбрать домашний узел во «Все базы» —
+    /// копия «Закреплённых» в кандидаты не входит.
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_PinnedBaseRevealToHome_ReturnsHomeGroupReachable()
+    {
+        var target = CreateBase("База в закреплениях");
+        var pinnedNode = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        pinnedNode.Infobases.Add(target);
+        var groupNode = new GroupNodeViewModel(new Group { Id = "g1", Name = "Группа" });
+        groupNode.Infobases.Add(target);
+        var roots = new List<GroupNodeViewModel> { pinnedNode, groupNode };
+
+        var plan = RevealPlanner.Plan(roots, target, revealToHome: true);
+
+        Assert.True(plan.Reachable);
+        Assert.Same(groupNode, plan.Leaf);
+    }
+
+    /// <summary>
+    /// База видна ТОЛЬКО в «Закреплённых» (в текущем дереве нет её группы во «Все базы»):
+    /// при revealToHome план отклоняется — reveal не должен «останавливаться» на копии
+    /// закреплений (issue #31; аналог IsRevealTargetReachable с исключением «Закреплённых»).
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_PinnedOnlyBase_RevealRejected()
+    {
+        var target = CreateBase("Только в закреплениях");
+        var pinnedNode = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        pinnedNode.Infobases.Add(target);
+        var roots = new List<GroupNodeViewModel> { pinnedNode };
+
+        var plan = RevealPlanner.Plan(roots, target, revealToHome: true);
+
+        Assert.False(plan.Reachable);
+        Assert.Null(plan.Leaf);
+    }
+
+    /// <summary>
+    /// Плоский режим (issue #31): «Все базы» без группировки/отбор — дерево из одного
+    /// постоянного _flatNode, дублей нет; домашний узел — сам плоский узел, reveal ведёт
+    /// внутрь него.
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_FlatMode_ReturnsFlatNode()
+    {
+        var target = CreateBase("База в плоском списке");
+        var flatNode = new GroupNodeViewModel(null, marker: GroupNodeViewModel.AllBasesMarker);
+        flatNode.Infobases.Add(target);
+        var roots = new List<GroupNodeViewModel> { flatNode };
+
+        var plan = RevealPlanner.Plan(roots, target, revealToHome: true);
+
+        Assert.True(plan.Reachable);
+        Assert.Same(flatNode, plan.Leaf);
+    }
+
+    /// <summary>
+    /// Обычная пересборка (revealToHome == false): планировщик находит ПЕРВЫЙ узел с базой —
+    /// для закреплённой это копия в «Закреплённых» (прежнее поведение нецелевой навигации,
+    /// специальные узлы копией не считаются ошибкой).
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_RegularRebuild_FindsPinnedNodeFirst()
+    {
+        var target = CreateBase("База 1");
+        var pinnedNode = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        pinnedNode.Infobases.Add(target);
+        var groupNode = new GroupNodeViewModel(new Group { Id = "g1", Name = "Группа" });
+        groupNode.Infobases.Add(target);
+        var roots = new List<GroupNodeViewModel> { pinnedNode, groupNode };
+
+        var plan = RevealPlanner.Plan(roots, target, revealToHome: false);
+
+        Assert.True(plan.Reachable);
+        Assert.Same(pinnedNode, plan.Leaf);
+    }
+
+    /// <summary>
+    /// Цель (база) отсутствует в дереве данных: план отклоняется и при revealToHome —
+    /// домашний узел не найден (закрепления так и не выбираются).
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_MissingBase_NotReachable()
+    {
+        var other = CreateBase("Другая база");
+        var target = CreateBase("Отсутствующая база");
+        var groupNode = new GroupNodeViewModel(new Group { Id = "g1", Name = "Группа" });
+        groupNode.Infobases.Add(other);
+        var roots = new List<GroupNodeViewModel> { groupNode };
+
+        var plan = RevealPlanner.Plan(roots, target, revealToHome: true);
+
+        Assert.Null(plan.Leaf);
+        Assert.False(plan.Reachable);
+    }
+
+    /// <summary>
+    /// Цель — группа: leaf для раскрытия цепочки предков — родитель (issue #31); группа
+    /// достижима в дереве данных (по Id модели).
+    /// </summary>
+    [Fact]
+    public void RevealPlanner_Plan_GroupTarget_LeafIsParent()
+    {
+        var root = new GroupNodeViewModel(new Group { Id = "r1", Name = "Корень" });
+        var child = new GroupNodeViewModel(new Group { Id = "c1", Name = "Дочерняя" }, parent: root);
+        root.Children.Add(child);
+        var roots = new List<GroupNodeViewModel> { root };
+
+        var plan = RevealPlanner.Plan(roots, child, revealToHome: false);
+
+        Assert.True(plan.Reachable);
+        Assert.Same(root, plan.Leaf);
+    }
+
+    /// <summary>
+    /// Идентификация узла «Закреплённые» (issue #31): только узел с маркером PinnedMarker
+    /// считается «закреплениями» — обычная группа и плоский узел таковыми не являются.
+    /// </summary>
+    [Fact]
+    public void GroupNodeViewModel_IsPinnedNode_IdentifiesOnlyPinnedMarker()
+    {
+        var pinned = new GroupNodeViewModel(null, marker: GroupNodeViewModel.PinnedMarker);
+        var group = new GroupNodeViewModel(new Group { Id = "g1", Name = "Группа" });
+        var flat = new GroupNodeViewModel(null, marker: GroupNodeViewModel.AllBasesMarker);
+
+        Assert.True(GroupNodeViewModel.IsPinnedNode(pinned));
+        Assert.False(GroupNodeViewModel.IsPinnedNode(group));
+        Assert.False(GroupNodeViewModel.IsPinnedNode(flat));
+        Assert.False(GroupNodeViewModel.IsPinnedNode(null));
+    }
+
 #if !LINUX
     /// <summary>
     /// Второй проход «перехода к строке» (issue #31): NavigateToBookmark раскрывает цепочку

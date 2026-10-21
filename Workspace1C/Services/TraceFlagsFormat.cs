@@ -95,7 +95,9 @@ internal static class TraceFlagsFormat
         "CM_MENUCLICK",
         "CM_MENUCLOSE",
         "CM_REDIRECT",
-        "CM_TREESWITCH"
+        "CM_TREESWITCH",
+        "CM_TREESWITCH_FLUSH",
+        "CM_REVEAL"
     };
 
     /// <summary>

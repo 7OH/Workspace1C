@@ -415,6 +415,11 @@ namespace Workspace1C
         /// </summary>
         private void OnInfobaseRowGrid_Loaded(object sender, RoutedEventArgs e)
         {
+            // Диагностика переключения вкладок (issue #21, CM_TREESWITCH, v2): строка базы
+            // реализована/подключена к визуальному дереву — счётчик realized (аналог
+            // Avalonia-события ContainerPrepared). В Recycling-виртуализации тот же экземпляр
+            // сетки может «загрузиться» заново под новую строку — каждая реализация считается.
+            _treeRowRealizeCount++;
             if (sender is not Grid grid)
                 return;
             // issue #255: при Recycling-виртуализации экземпляр сетки переиспользуется под новые
@@ -443,6 +448,9 @@ namespace Workspace1C
         /// </summary>
         private void OnGroupRowGrid_Loaded(object sender, RoutedEventArgs e)
         {
+            // Диагностика переключения вкладок (issue #21, CM_TREESWITCH, v2): счётчик
+            // реализованных строк — см. OnInfobaseRowGrid_Loaded.
+            _treeRowRealizeCount++;
             if (sender is not Grid grid)
                 return;
             // То же, что в OnInfobaseRowGrid_Loaded (issue #255): пропускаем пересборку колонок
@@ -454,6 +462,28 @@ namespace Workspace1C
             }
             grid.Tag = GroupGridMarker;
             ApplyRowCompact(grid);
+        }
+
+        /// <summary>
+        /// Диагностика переключения вкладок (issue #21, CM_TREESWITCH, v2): строка базы
+        /// отсоединена от визуального дерева (виртуализация/пересборка/рециклинг) —
+        /// счётчик cleared (аналог Avalonia-события ContainerClearing). Совместно с
+        /// <see cref="OnInfobaseRowGrid_Loaded"/> даёт пару realized/cleared за смену:
+        /// устойчивый разрыв (realized ≫ cleared между сменами) указывает на удержание
+        /// контейнеров (Recycling-пул ItemContainerGenerator или подписки).
+        /// </summary>
+        private void OnInfobaseRowGrid_Unloaded(object sender, RoutedEventArgs e)
+        {
+            _treeRowUnrealizeCount++;
+        }
+
+        /// <summary>
+        /// Диагностика переключения вкладок (issue #21, CM_TREESWITCH, v2): отсоединение
+        /// строки заголовка группы — тот же счётчик cleared, см. <see cref="OnInfobaseRowGrid_Unloaded"/>.
+        /// </summary>
+        private void OnGroupRowGrid_Unloaded(object sender, RoutedEventArgs e)
+        {
+            _treeRowUnrealizeCount++;
         }
 
         /// <summary>

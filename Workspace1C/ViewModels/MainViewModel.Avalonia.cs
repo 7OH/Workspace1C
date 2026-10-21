@@ -1449,41 +1449,12 @@ public partial class MainViewModel : ViewModelBase
         // Применяем изменения к существующему объекту, а не заменяем его новым.
         // Диалог возвращает свежий Infobase, в который переносятся только
         // редактируемые поля, поэтому замена стёрла бы историю запусков,
-        // порядок сортировки и номер горячей клавиши избранного.
-        ib.Id = dialog.Result.Id;
-        ib.Name = dialog.Result.Name;
-        ib.Group = dialog.Result.Group;
-        ib.Description = dialog.Result.Description;
-        ib.PlatformVersion = dialog.Result.PlatformVersion;
-        // Поля конфигурации переносим явно, иначе введённые вручную имя/версия
-        // конфигурации не сохранялись бы (issue #164).
-        ib.ConfigurationName = dialog.Result.ConfigurationName;
-        ib.ConfigurationVersion = dialog.Result.ConfigurationVersion;
-        ib.Architecture = dialog.Result.Architecture;
-        ib.LaunchMode = dialog.Result.LaunchMode;
-        ib.LaunchParameters = dialog.Result.LaunchParameters;
-        ib.DefaultLaunchMode = dialog.Result.DefaultLaunchMode;
-        // Внешняя обработка при запуске и действие по двойному щелчку (Этап 7).
-        ib.DoubleClickAction = dialog.Result.DoubleClickAction;
-        ib.ExternalProcessingPath = dialog.Result.ExternalProcessingPath;
-        ib.ExternalProcessingData = dialog.Result.ExternalProcessingData;
-        ib.ClientType = dialog.Result.ClientType;
-        ib.IsFavorite = dialog.Result.IsFavorite;
-        ib.IsPinned = dialog.Result.IsPinned;
-        ib.LastLaunchDate = dialog.Result.LastLaunchDate;
-        ib.Tags = dialog.Result.Tags;
-        ib.MetadataRoot = dialog.Result.MetadataRoot;
-        // Ручной размер базы переносим явно, иначе введённый вручную размер терялся
-        // при сохранении (поле редактируется в окне подключения, issue #243).
-        ib.ManualSizeBytes = dialog.Result.ManualSizeBytes;
-        ib.Connection = dialog.Result.Connection;
-        ib.EnterpriseAuth = dialog.Result.EnterpriseAuth;
-        ib.ConfiguratorAuth = dialog.Result.ConfiguratorAuth;
-        ib.Repository = dialog.Result.Repository;
-        // Произвольные поля базы (issue #6): переносим явно с копированием списка,
-        // иначе отредактированные строки таблицы «Произвольные поля» терялись при
-        // сохранении и %Additional_N% оставался бы без подстановки в сценариях.
-        ib.AdditionalFields = new List<string>(dialog.Result.AdditionalFields ?? new List<string>());
+        // порядок сортировки и номер горячей клавиши избранного. Перенос полей
+        // вынесен в общий помощник InfobaseEditor.ApplyEdits (один источник для
+        // WPF и Avalonia); он же поднимает NotifyAllPropertiesChanged — иначе при
+        // активном отборе контейнер строки не пересоздаётся и привязки не
+        // перечитывали бы обновлённые значения (issue #35).
+        InfobaseEditor.ApplyEdits(ib, dialog.Result);
 
         // Правка могла снять или поставить звезду, а у базы без идентификатора
         // сменить и ключ слота: он строится из имени. Версия для Windows этого

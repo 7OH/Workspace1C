@@ -140,6 +140,13 @@ namespace Workspace1C
                     // «Подключиться» снова доступна, прогресс скрыт.
                     UpdateCommandStates();
                     break;
+                case nameof(ClusterImportViewModel.SelectedClusterId):
+                    // Автовыбор кластера после подключения (issue #25): пересчёт кнопок
+                    // и индикатора занятости, чтобы окно не «зависло» в состоянии после
+                    // автоподключения при единственном кластере (аналог Avalonia-версии).
+                    // Комбобокс синхронизируется сам — двухсторонняя привязка SelectedValue.
+                    UpdateCommandStates();
+                    break;
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();

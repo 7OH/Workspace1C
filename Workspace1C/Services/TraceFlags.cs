@@ -55,6 +55,20 @@ public static class TraceFlags
     /// «Все/Избранное/Недавние» — для контроля утечки памяти и роста задержки.</summary>
     public const string TreeSwitchFlag = "CM_TREESWITCH";
 
+    /// <summary>Флаг эксперимента B при переключении вкладок (CM_TREESWITCH_FLUSH, issue #21,
+    /// итерация B): после чистого переключения вкладки на Windows/WPF кратковременно
+    /// переключает VirtualizingPanel с Recycling на Standard и обратно — управляемый сброс
+    /// Recycling-пула контейнеров (гипотеза H2). По умолчанию выключен: путь не меняется;
+    /// координатор сопоставляет heapAfterGcMb с флагом и без, чтобы отличить отложенное
+    /// освобождение пула от реальной утечки.</summary>
+    public const string TreeSwitchPoolFlushFlag = "CM_TREESWITCH_FLUSH";
+
+    /// <summary>Флаг диагностики «перехода к строке» (CM_REVEAL, issue #31): цель и
+    /// revealToHome/leaf, результаты поиска контейнера (найдено/поддерево/предки),
+    /// attempt и исход попыток reveal в WPF и Avalonia — чтобы по логам автора точно
+    /// определить, где reveal «останавливается» (обычно — на копии в «Закреплённых»).</summary>
+    public const string RevealFlag = "CM_REVEAL";
+
     /// <summary>Флаг детальной диагностики проверки обновлений конфигураций (CM_UPDATES):
     /// URL, длина ответа, найденные кандидаты версий с источником, выбранная версия
     /// и решение о повторе с полным каталогом (issue #371).</summary>
