@@ -56,6 +56,10 @@ public partial class MainViewModel : ViewModelBase
     private bool _showFavoritesButton = true;
     private bool _showPinnedButton = true;
     private bool _showTagFilterPanel;
+    /// <summary>«Дополнить заголовок программы» (issue #28): добавлять строку из шаблона к заголовку окна.</summary>
+    private bool _titleSuffixEnabled;
+    /// <summary>Шаблон дополнения заголовка окна (issue #28): %computer_name%, %user_name%, %user_domain%, %computer_ip%, %display_server%.</summary>
+    private string _titleSuffixTemplate = "%computer_name%";
     private bool _allowMultipleInstances;
     private bool _checkForUpdatesOnStartup = true;
     private bool _autoUpdateEnabled = true;
@@ -356,6 +360,11 @@ public partial class MainViewModel : ViewModelBase
         _customLaunchParameters = new List<string>(settings.CustomLaunchParameters ?? new List<string>());
         // Глобальное действие по двойному щелчку на базе (функция №28 StartManager).
         _defaultDoubleClickAction = Models.DoubleClickAction.Normalize(settings.DefaultDoubleClickAction);
+        // «Дополнить заголовок программы» (issue #28): шаблон и галочка дополнения заголовка.
+        _titleSuffixEnabled = settings.TitleSuffixEnabled;
+        _titleSuffixTemplate = string.IsNullOrWhiteSpace(settings.TitleSuffixTemplate)
+            ? "%computer_name%"
+            : settings.TitleSuffixTemplate;
         // Актуальный список версий платформы с диска (Program Files + доп. пути) собирается
         // в фоне уже после показа окна: рекурсивное сканирование каталогов установки могло бы
         // заметно задержать появление главного окна. Сразу берём сохранённый список из настроек,

@@ -1204,6 +1204,78 @@ namespace Workspace1C
             hintShowEmptyGroupsHint.Margin = new Thickness(24, 0, 0, 12);
             displayPanels.Children.Add(hintShowEmptyGroupsHint);
 
+            // ---- Заголовок окна (issue #28): дополнение заголовка шаблоном с переменными. ----
+            displayPanels.Children.Add(GroupTitle(LocalizationManager.T("Settings.Display.TitleSuffix")));
+
+            var titleSuffixEnabledCheck = DisplayCheck(
+                "Settings.Display.TitleSuffixEnabled", _viewModel.TitleSuffixEnabled,
+                iconKey: null, iconColor: null);
+            displayPanels.Children.Add(titleSuffixEnabledCheck);
+
+            var titleSuffixRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Margin = new Thickness(0, 6, 0, 4)
+            };
+            titleSuffixRow.Children.Add(new TextBlock
+            {
+                Text = LocalizationManager.T("Settings.Display.TitleSuffixTemplate"),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            var titleSuffixTemplateBox = new TextBox
+            {
+                Text = _viewModel.TitleSuffixTemplate,
+                MinWidth = 260,
+                VerticalContentAlignment = VerticalAlignment.Center
+            }.Styled(ControlThemes.ModernTextBox);
+            titleSuffixRow.Children.Add(titleSuffixTemplateBox);
+            displayPanels.Children.Add(titleSuffixRow);
+
+            var titleSuffixPreview = new TextBlock
+            {
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            ThemeBrushes.Bind(titleSuffixPreview, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            displayPanels.Children.Add(titleSuffixPreview);
+            displayPanels.Children.Add(Hint(LocalizationManager.T("Settings.Display.TitleSuffixHints"), bottom: 4));
+
+            // Токены-подсказки: клик вставляет токен в поле шаблона.
+            var titleSuffixTokens = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+            foreach (var token in Workspace1C.Services.TitleSuffixResolver.Tokens)
+            {
+                var tokenButton = new Button
+                {
+                    Content = token,
+                    FontSize = 11,
+                    Padding = new Thickness(6, 2),
+                    Margin = new Thickness(0, 0, 4, 4)
+                };
+                tokenButton.Click += (_, _) =>
+                {
+                    titleSuffixTemplateBox.Text = (titleSuffixTemplateBox.Text ?? string.Empty) + token;
+                    UpdateAvaloniaTitleSuffixPreview(titleSuffixTemplateBox, titleSuffixPreview);
+                };
+                titleSuffixTokens.Children.Add(tokenButton);
+            }
+            displayPanels.Children.Add(titleSuffixTokens);
+
+            void UpdateAvaloniaTitleSuffixPreview(TextBox box, TextBlock preview)
+            {
+                var resolved = Workspace1C.Services.TitleSuffixResolver.Resolve(box.Text ?? string.Empty);
+                preview.Text = string.Format(
+                    LocalizationManager.T("Settings.Display.TitleSuffixPreviewFormat"),
+                    resolved.Length == 0
+                        ? LocalizationManager.T("Settings.Display.TitleSuffixPreviewEmpty")
+                        : resolved);
+            }
+
+            titleSuffixTemplateBox.GetObservable(TextBox.TextProperty)
+                .Subscribe(new SettingsObserver<string?>(_ => UpdateAvaloniaTitleSuffixPreview(titleSuffixTemplateBox, titleSuffixPreview)));
+            UpdateAvaloniaTitleSuffixPreview(titleSuffixTemplateBox, titleSuffixPreview);
+
             displayStatus.Children.Add(Hint(LocalizationManager.T("Settings.Status.Description"), bottom: 10));
             var statusPathCheck = DisplayCheck("Settings.Status.ConnectionPath", _viewModel.StatusShowConnectionPath, "IconFolderOutline", "#3B82F6");
             var statusPortCheck = DisplayCheck("Settings.Status.Port", _viewModel.StatusShowPort, "IconLan", "#6366F1");
@@ -2152,6 +2224,29 @@ namespace Workspace1C
             ToolTip.SetTip(importV8i, LocalizationManager.T("Settings.Bases.ImportV8iTooltip"));
             importV8i.Click += (_, _) => _viewModel.ImportFromIbasesV8i();
 
+            // Экспорт/импорт в произвольный файл *.v8i (issue #29): подготовка общего
+            // списка информационных баз в отдельном профиле, не затрагивая основной список.
+            var exportV8iFile = new Button { Content = LocalizationManager.T("Settings.Bases.ExportV8iFile") };
+            ToolTip.SetTip(exportV8iFile, LocalizationManager.T("Settings.Bases.ExportV8iFileTooltip"));
+            exportV8iFile.Click += (_, _) =>
+            {
+                var path = _viewModel.PickSaveFile(
+                    LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"), "ibases.v8i");
+                if (!string.IsNullOrWhiteSpace(path))
+                    _viewModel.ExportToIbasesFile(path);
+            };
+
+            var importV8iFile = new Button { Content = LocalizationManager.T("Settings.Bases.ImportV8iFile") };
+            ToolTip.SetTip(importV8iFile, LocalizationManager.T("Settings.Bases.ImportV8iFileTooltip"));
+            importV8iFile.Click += (_, _) =>
+            {
+                var path = _viewModel.PickFile(
+                    LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
+                    LocalizationManager.T("Main.IbasesFileFilter"));
+                if (!string.IsNullOrWhiteSpace(path))
+                    _viewModel.ImportFromIbasesFile(path);
+            };
+
             // Импорт баз и настроек платформы из программы StartManager (issue #163).
             var importStartManager = new Button { Content = LocalizationManager.T("Settings.Bases.ImportStartManager") };
             ToolTip.SetTip(importStartManager, LocalizationManager.T("Settings.Bases.ImportStartManagerTooltip"));
@@ -2202,6 +2297,8 @@ namespace Workspace1C
             listButtons.Children.Add(importList);
             listButtons.Children.Add(importMerge);
             listButtons.Children.Add(importV8i);
+            listButtons.Children.Add(exportV8iFile);
+            listButtons.Children.Add(importV8iFile);
             listButtons.Children.Add(importStartManager);
             listButtons.Children.Add(detectAll);
             listButtons.Children.Add(findLostBases);
@@ -3258,6 +3355,11 @@ namespace Workspace1C
                     // ошибка, что с «Действиями», — флажок читался, но значение
                     // не передавалось, и колонка оставалась видимой всегда.
                     VisibleOf("LastBackup"));
+
+                // «Дополнение заголовка программы» (issue #28).
+                _viewModel.ApplyTitleSuffixSettings(
+                    titleSuffixEnabledCheck.IsChecked == true,
+                    titleSuffixTemplateBox.Text ?? string.Empty);
 
                 // «Только избранные» это режим списка, а не отдельный фильтр:
                 // снятие флажка возвращает список к показу всех баз, но режим

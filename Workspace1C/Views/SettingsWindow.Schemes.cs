@@ -610,11 +610,15 @@ namespace Workspace1C
         private void RefreshColorItems()
         {
             _colorItems.Clear();
-            // Кисть HEX-текста контрастна фону редактируемой палитры (issue #26):
-            // тёмная палитра → светлый текст, светлая → тёмный. Фон берём из самой
-            // схемы (ContentBackgroundColor), чтобы текст не сливался ни в одной теме.
-            var backgroundHex = _settings.CurrentColorScheme.PaletteValue(
-                _settings.EditingDarkPalette, "ContentBackgroundColor");
+            // Кисть HEX-текста контрастна ФАКТИЧЕСКОМУ фону строки редактора (issue #26):
+            // строка лежит на фоне окна настроек (карточка активной темы приложения),
+            // а не на фоне редактируемой палитры. Иначе при редактировании светлой
+            // палитры в тёмной теме текст HEX становился тёмным и сливался с тёмной
+            // формой (и наоборот). Фон берём из активной темы приложения.
+            var appDark = Themes.ThemeManager.CurrentTheme == Themes.ThemeManager.DarkThemeName;
+            var backgroundHex = Themes.ThemeManager.CurrentScheme is { } appScheme
+                ? appScheme.PaletteValue(appDark, "CardBackgroundColor")
+                : (appDark ? "#1E293B" : "#FFFFFF");
             var hexForeground = Parse(Models.ColorScheme.ContrastTextHex(backgroundHex));
             foreach (var (key, label, hex) in _settings.GetEditableColors())
             {

@@ -241,6 +241,13 @@ namespace Workspace1C
             if (AddTimestampToExportFileNameCheck != null)
                 AddTimestampToExportFileNameCheck.IsChecked = _viewModel.AddTimestampToExportFileName;
 
+            // «Дополнение заголовка программы» (issue #28): галочка, шаблон и превью.
+            if (TitleSuffixEnabledCheck != null)
+                TitleSuffixEnabledCheck.IsChecked = _viewModel.TitleSuffixEnabled;
+            if (TitleSuffixTemplateBox != null)
+                TitleSuffixTemplateBox.Text = _viewModel.TitleSuffixTemplate;
+            UpdateTitleSuffixPreview();
+
             if (ShowRightPanelDetailsCheck != null)
                 ShowRightPanelDetailsCheck.IsChecked = _viewModel.ShowRightPanelDetails;
             if (ShowSessionLaunchPanelCheck != null)
@@ -265,6 +272,45 @@ namespace Workspace1C
                 StatusShowIdCheck.IsChecked = _viewModel.StatusShowId;
 
             InitHotkeyCombos();
+        }
+
+        /// <summary>
+        /// Обновляет превью дополнения заголовка (issue #28): показывает результат
+        /// будущей подстановки шаблона (мелким шрифтом под полем ввода).
+        /// </summary>
+        private void UpdateTitleSuffixPreview()
+        {
+            if (TitleSuffixPreviewText is null)
+                return;
+            var template = TitleSuffixTemplateBox?.Text ?? string.Empty;
+            var resolved = Services.TitleSuffixResolver.Resolve(template);
+            TitleSuffixPreviewText.Text = string.Format(
+                LocalizationManager.T("Settings.Display.TitleSuffixPreviewFormat"),
+                resolved.Length == 0
+                    ? LocalizationManager.T("Settings.Display.TitleSuffixPreviewEmpty")
+                    : resolved);
+        }
+
+        /// <summary>Изменение шаблона дополнения заголовка: обновляет превью (issue #28).</summary>
+        private void OnTitleSuffixTemplate_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            UpdateTitleSuffixPreview();
+        }
+
+        /// <summary>
+        /// Клик по токену-подсказке: вставляет токен в поле шаблона дополнения
+        /// заголовка (issue #28) и обновляет превью.
+        /// </summary>
+        private void OnTitleSuffixToken_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string token } || TitleSuffixTemplateBox is null)
+                return;
+
+            var current = TitleSuffixTemplateBox.Text ?? string.Empty;
+            TitleSuffixTemplateBox.Text = current.Length == 0 ? token : current + token;
+            TitleSuffixTemplateBox.Focus();
+            TitleSuffixTemplateBox.SelectAll();
+            UpdateTitleSuffixPreview();
         }
     }
 }

@@ -265,4 +265,30 @@ public sealed class ObservableRangeCollectionTests
         Assert.True(events < 600,
             $"Ожидалось меньше 600 событий при частичном пересечении, получено {events}");
     }
+
+    [Fact]
+    public void ReplaceItemWise_SmallRecentFromLargeAll_NoReset_Issue21()
+    {
+        // Регрессия issue #21: переход «Все»(600) → «Недавние»(10 из тех же объектов).
+        // Прежний порог «меняется большинство» (kept*2 < total) уводил в полный Reset —
+        // WPF пересоздавал контейнеры всех 600 строк, а память росла с каждым
+        // переключением. Теперь Reset только при нулевом пересечении: 10 сохранённых
+        // строк переиспользуют свои контейнеры, остальные удаляются поштучно.
+        var all = Enumerable.Range(0, 600).Select(i => new Item("b" + i)).ToList();
+        var recent = all.Take(10).ToList();
+        var collection = new ObservableRangeCollection<Item>();
+        collection.ReplaceAll(all);
+
+        var resets = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+                resets++;
+        };
+
+        collection.ReplaceItemWise(recent);
+
+        Assert.Equal(recent, collection);
+        Assert.Equal(0, resets);
+    }
 }

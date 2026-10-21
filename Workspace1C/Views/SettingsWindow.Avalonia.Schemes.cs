@@ -76,11 +76,17 @@ namespace Workspace1C
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(4, 0, 0, 0)
             };
-            // Цвет HEX-текста контрастен фону редактируемой палитры (issue #26):
-            // в тёмной палитре светлый текст, в светлой — тёмный (иначе текст
-            // чёрный сливается с тёмной формой).
+            // Цвет HEX-текста контрастен ФАКТИЧЕСКОМУ фону строки редактора (issue #26):
+            // строка лежит на фоне окна настроек (карточка активной темы приложения),
+            // а не на фоне редактируемой палитры. Иначе при редактировании светлой
+            // палитры в тёмной теме текст HEX становился тёмным и сливался с тёмной
+            // формой (и наоборот).
+            var appDark = Themes.ThemeManager.CurrentTheme == Themes.ThemeManager.DarkThemeName;
+            var rowBackground = Themes.ThemeManager.CurrentScheme is { } appScheme
+                ? appScheme.PaletteValue(appDark, "CardBackgroundColor")
+                : (appDark ? "#1E293B" : "#FFFFFF");
             hex.Foreground = new SolidColorBrush(Color.Parse(
-                Models.ColorScheme.ContrastTextHex(scheme.PaletteValue(dark, "ContentBackgroundColor"))));
+                Models.ColorScheme.ContrastTextHex(rowBackground)));
 
             hexText = updated => hex.Text = updated;
 

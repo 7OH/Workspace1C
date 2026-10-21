@@ -270,9 +270,13 @@ namespace Workspace1C
                 // Версия в заголовке (используем информационную версию, чтобы показать
                 // точное значение «0.2.7.15», которое не помещается в 4-частный AssemblyVersion).
                 // Из InformationalVersion отбрасываем возможный суффикс «+<sha>».
+                // «Дополнение заголовка» (issue #28): шаблон и галочка из настроек.
                 var infoVersion = VersionInfo.Display();
-                var versionText = string.IsNullOrWhiteSpace(infoVersion) ? "" : $" v{infoVersion}";
-                mainWindow.Title = $"{LocalizationManager.T("App.Title")}{versionText}";
+                mainWindow.Title = Workspace1C.Services.TitleSuffixResolver.Compose(
+                    LocalizationManager.T("App.Title"),
+                    infoVersion,
+                    settings.TitleSuffixEnabled,
+                    settings.TitleSuffixTemplate);
 
                 // Значок в заголовке главного окна — тот же app.ico (основной значок приложения).
                 mainWindow.Icon = LoadAppIconImageSource() ?? mainWindow.Icon;

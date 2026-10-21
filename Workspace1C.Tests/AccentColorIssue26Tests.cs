@@ -153,6 +153,26 @@ public sealed class AccentColorIssue26Tests
         Assert.NotEqual(themeDark.DarkColors["AccentColor"], editedActive.DarkColors["AccentColor"]);
     }
 
+    [Fact]
+    public void EditedLightAccent_IsNotYellowDefault()
+    {
+        // Жалоба ArtyoZ после 1.0.0.30: образцы «Акцентный цвет»/«Акцент (наведение)»
+        // встроенной «Светлой» снова показывали дефолтные #FDBF00/#E0A800 после
+        // установки своих цветов. Правки светлой палитры должны перекрывать дефолты.
+        var edited = ColorScheme.CreateLight();
+        edited.LightColors["AccentColor"] = "#2563EB";
+        edited.LightColors["AccentHoverColor"] = "#1D4ED8";
+        edited.AccentColor = "#2563EB";
+
+        var restored = ColorScheme.FromJson(edited.ToJson());
+        restored!.Normalize();
+
+        Assert.Equal("#2563EB", restored.PaletteValue(false, "AccentColor"));
+        Assert.NotEqual("#FDBF00", restored.PaletteValue(false, "AccentColor"));
+        Assert.Equal("#1D4ED8", restored.PaletteValue(false, "AccentHoverColor"));
+        Assert.NotEqual("#E0A800", restored.PaletteValue(false, "AccentHoverColor"));
+    }
+
 #if !LINUX
     // ===================== Единый источник правок встроенных тем (SettingsViewModel) =====================
 

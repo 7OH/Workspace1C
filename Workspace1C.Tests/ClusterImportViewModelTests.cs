@@ -43,14 +43,36 @@ public sealed class ClusterImportViewModelTests
     }
 
     [Fact]
-    public async Task Connect_Success_FillsClusters_AutoSelectsFirst_AndLoadsBases()
+    public async Task Connect_Success_FillsClusters_NoAutoSelectWhenMultiple_Issue25()
     {
+        // issue #25: при НЕСКОЛЬКИХ кластерах автовыбор не выполняется — пользователь
+        // выбирает кластер сам, чтобы не запускать спонтанную загрузку баз не того
+        // кластера (и не оставлять ошибку после успешного подключения).
         var client = new FakeRacClient();
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
 
         await vm.ConnectAsync();
 
         Assert.Equal(3, vm.Clusters.Count);
+        Assert.Null(vm.SelectedClusterId);
+        Assert.Equal(1, client.ClustersCalls);
+        Assert.Empty(client.InfobaseClusterIds);
+        Assert.Empty(vm.Rows);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Connect_SingleCluster_AutoSelectsIt_AndLoadsBases_Issue25()
+    {
+        // issue #25: при ЕДИНСТВЕННОМ кластере он выбирается автоматически (как в окне
+        // «Серверы 1С») — загрузка баз запускается сразу после подключения.
+        var client = new FakeRacClient(singleCluster: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+
+        await vm.ConnectAsync();
+
+        Assert.Equal(1, vm.Clusters.Count);
         Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
         Assert.Equal(1, client.ClustersCalls);
         Assert.Equal(FakeRacClient.FirstClusterId, client.InfobaseClusterIds.Single());
@@ -76,12 +98,13 @@ public sealed class ClusterImportViewModelTests
         // (код -1). Исправленный RacClient перебирает форматы внутри GetInfobasesAsync
         // (первая попытка отклонена, вторая успешна) — ViewModel видит успех:
         // подключение и загрузка чеклиста баз проходят без повторного нажатия.
-        var client = new FakeRacClient(rejectEqualsClusterFormat: true);
+        // Единственный кластер выбирается автоматически (issue #25).
+        var client = new FakeRacClient(rejectEqualsClusterFormat: true, singleCluster: true);
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
 
         await vm.ConnectAsync();
 
-        Assert.Equal(3, vm.Clusters.Count);
+        Assert.Equal(1, vm.Clusters.Count);
         Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
         Assert.Equal(3, vm.Rows.Count);
         Assert.Empty(vm.ErrorMessage);
@@ -147,11 +170,18 @@ public sealed class ClusterImportViewModelTests
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
-        // Автовыбор первого кластера → базы загружены с его id, cluster info запрошен один раз.
+        // Несколько кластеров — автовыбор не выполняется (issue #25); выбираем первый вручную.
+        Assert.Null(vm.SelectedClusterId);
+        await vm.LoadBasesAsync(FakeRacClient.FirstClusterId);
+
         Assert.Equal(FakeRacClient.FirstClusterId, client.InfobaseClusterIds.Single());
         Assert.Equal(1, client.ClusterInfoCalls);
 
         vm.SelectedClusterId = FakeRacClient.SecondClusterId;
+        // Дожидаемся завершения фоновой загрузки (таймаут-цикл вместо сна).
+        var deadline = System.DateTime.UtcNow.AddSeconds(5);
+        while (client.InfobaseCalls < 2 && System.DateTime.UtcNow < deadline)
+            await Task.Delay(10);
 
         Assert.Equal(2, client.InfobaseCalls);
         Assert.Equal(FakeRacClient.SecondClusterId, client.InfobaseClusterIds[^1]);
@@ -172,7 +202,7 @@ public sealed class ClusterImportViewModelTests
         var existing = RacInfobaseMapper.ToInfobase(
             new RacInfobaseSummary { Name = "Бухгалтерия", Dbms = "MSSQLServer" },
             "srv1", 1541, null, "Группа");
-        var client = new FakeRacClient();
+        var client = new FakeRacClient(singleCluster: true);
         var vm = new ClusterImportViewModel(client, new[] { existing });
 
         await vm.ConnectAsync();
@@ -195,7 +225,7 @@ public sealed class ClusterImportViewModelTests
         // Файловых баз в кластере не бывает (комментарий 7OH от 2026-10-18 20:24):
         // пустой «dbms» не является причиной пропуска — база импортируется как
         // клиент-серверная (строка подключения строится из сервера/имени).
-        var vm = new ClusterImportViewModel(new FakeRacClient(), Array.Empty<Infobase>());
+        var vm = new ClusterImportViewModel(new FakeRacClient(singleCluster: true), Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
         var row = vm.Rows.Single(r => r.Name == "Кадры");
@@ -214,7 +244,7 @@ public sealed class ClusterImportViewModelTests
         var existing = RacInfobaseMapper.ToInfobase(
             new RacInfobaseSummary { Name = "Бухгалтерия", Dbms = "MSSQLServer" },
             "srv1", 1541, null, "Группа");
-        var vm = new ClusterImportViewModel(new FakeRacClient(), new[] { existing });
+        var vm = new ClusterImportViewModel(new FakeRacClient(singleCluster: true), new[] { existing });
         await vm.ConnectAsync();
 
         // Первый кластер: Бухгалтерия (дубликат), Управление персоналом и Кадры (новые).
@@ -237,7 +267,7 @@ public sealed class ClusterImportViewModelTests
     [Fact]
     public async Task Import_ReturnsOnlyCheckedNewBases_WithMappedFields()
     {
-        var client = new FakeRacClient();
+        var client = new FakeRacClient(singleCluster: true);
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
@@ -284,7 +314,7 @@ public sealed class ClusterImportViewModelTests
     [Fact]
     public async Task IsBusy_BlocksReentrantLoadBases()
     {
-        var client = new FakeRacClient(loadDelay: TimeSpan.FromMilliseconds(300));
+        var client = new FakeRacClient(loadDelay: TimeSpan.FromMilliseconds(300), singleCluster: true);
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
         await vm.ConnectAsync();
 
@@ -325,10 +355,10 @@ public sealed class ClusterImportViewModelTests
     [Fact]
     public async Task LoadBases_Failure_ReportsError_NotBusy()
     {
-        var client = new FakeRacClient(throwOnLoad: true);
+        var client = new FakeRacClient(throwOnLoad: true, singleCluster: true);
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
 
-        await vm.ConnectAsync(); // автовыбор первого → загрузка баз падает внутри LoadBasesAsync
+        await vm.ConnectAsync(); // автовыбор единственного → загрузка баз падает внутри LoadBasesAsync
 
         Assert.Equal(1, client.InfobaseCalls);
         Assert.NotEmpty(vm.ErrorMessage);
@@ -339,7 +369,7 @@ public sealed class ClusterImportViewModelTests
     [Fact]
     public async Task LoadBases_Cancelled_SetsStatus_WithoutError()
     {
-        var client = new FakeRacClient(throwCancel: true);
+        var client = new FakeRacClient(throwCancel: true, singleCluster: true);
         var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
 
         await vm.ConnectAsync();
@@ -408,7 +438,8 @@ public sealed class ClusterImportViewModelTests
         Assert.Equal("admin", client.LastParams.User);
         Assert.Equal("secret", client.LastParams.Password);
         Assert.Equal(3, vm.Clusters.Count);
-        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        // Несколько кластеров — автовыбор не выполняется (issue #25), пользователь выбирает сам.
+        Assert.Null(vm.SelectedClusterId);
         Assert.False(vm.IsBusy);
     }
 
@@ -475,18 +506,20 @@ public sealed class ClusterImportViewModelTests
         private readonly bool _throwOnLoad;
         private readonly bool _throwCancel;
         private readonly bool _rejectEqualsClusterFormat;
+        private readonly bool _singleCluster;
         private readonly TimeSpan _clusterDelay;
         private readonly TimeSpan _loadDelay;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnLoad = false, bool throwCancel = false,
             TimeSpan? clusterDelay = null, TimeSpan? loadDelay = null,
-            bool rejectEqualsClusterFormat = false)
+            bool rejectEqualsClusterFormat = false, bool singleCluster = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnLoad = throwOnLoad;
             _throwCancel = throwCancel;
             _rejectEqualsClusterFormat = rejectEqualsClusterFormat;
+            _singleCluster = singleCluster;
             _clusterDelay = clusterDelay ?? TimeSpan.Zero;
             _loadDelay = loadDelay ?? TimeSpan.Zero;
         }
@@ -524,6 +557,13 @@ public sealed class ClusterImportViewModelTests
                 await Task.Delay(_clusterDelay, cancellationToken).ConfigureAwait(false);
             if (_throwOnClusters)
                 throw new RacClientException("rac not found");
+            if (_singleCluster)
+            {
+                return new[]
+                {
+                    new RacCluster { Id = FirstClusterId, Name = "Главный кластер", Port = 1541 }
+                };
+            }
             return new[]
             {
                 new RacCluster { Id = FirstClusterId, Name = "Главный кластер", Port = 1541 },

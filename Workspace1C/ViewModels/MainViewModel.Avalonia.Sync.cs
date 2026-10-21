@@ -176,7 +176,11 @@ public partial class MainViewModel : ViewModelBase
         ImportFromIbasesFileInteractive(path);
     }
 
-    /// <summary>Ручная выгрузка списка баз в ibases.v8i.</summary>
+    /// <summary>
+    /// Ручная выгрузка списка баз в ibases.v8i. Для произвольного файла (issue #29)
+    /// запись АДДИТИВНАЯ (<see cref="IbasesV8iExporter.AddInfobasesToFile"/>): чужие
+    /// записи в существующем файле не удаляются, чтобы не затирать общий список.
+    /// </summary>
     public void ExportToIbasesFile(string? filePath)
     {
         var path = ResolveIbasesPathForCommand(filePath);
@@ -187,16 +191,30 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        if (TryExportToIbases(path, backup: true, "Ручная выгрузка", out var error))
+        try
         {
+            if (_settings.IbasesBackupEnabled && System.IO.File.Exists(path))
+            {
+                try { IbasesBackupService.CreateBackup(path, _settings.IbasesBackupKeepCount); }
+                catch (Exception ex) { _logger.Error("Не удалось создать резервную копию ibases.v8i", ex); }
+            }
+
+            IbasesV8iExporter.AddInfobasesToFile(path, _allInfobases, _groups);
+            // Метка последней выгрузки обновляется только после успешного экспорта (issue #278).
+            _settings.IbasesLastSyncExportUtc = DateTime.UtcNow;
+            SaveSettingsSilently();
+            _logger.Info($"Ручная выгрузка в {path}");
+
             _dialog.ShowInfo(LocalizationManager.T("Settings.Ibases.ExportOk"),
                 LocalizationManager.T("Settings.Ibases.ExportTitle"));
-            return;
         }
-
-        _dialog.ShowError(
-            string.Format(LocalizationManager.T("Settings.Ibases.ExportFailed"), error),
-            LocalizationManager.T("Settings.Ibases.ExportErrorTitle"));
+        catch (Exception ex)
+        {
+            _logger.Error("Ошибка выгрузки в ibases.v8i", ex);
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Settings.Ibases.ExportFailed"), ex.Message),
+                LocalizationManager.T("Settings.Ibases.ExportErrorTitle"));
+        }
     }
 
     /// <summary>

@@ -1127,6 +1127,11 @@ public partial class MainViewModel : ViewModelBase
             settings.ShowDialog(owner);
         else
             settings.Show();
+
+        // После «ОК» окно настроек могло изменить «Дополнение заголовка программы»
+        // (issue #28) — пересобираем заголовок главного окна.
+        if (OwnerWindow() is Workspace1C.MainWindow main)
+            main.RefreshWindowTitle();
     }
 
     /// <summary>

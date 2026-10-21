@@ -227,6 +227,11 @@ public partial class MainViewModel : ViewModelBase
             Owner = Application.Current.MainWindow
         };
         dialog.ShowDialog();
+
+        // После «ОК» окно настроек могло изменить «Дополнение заголовка программы»
+        // (issue #28) — пересобираем заголовок главного окна.
+        if (Application.Current?.MainWindow is MainWindow main)
+            main.RefreshWindowTitle();
     }
 
     /// <summary>

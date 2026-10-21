@@ -381,6 +381,21 @@ public class AppSettings
     public double LastBackupColumnWidth { get; set; }
 
     /// <summary>
+    /// «Дополнить заголовок программы» (issue #28): при включении к заголовку окна
+    /// после названия программы и её версии добавляется строка, собранная из шаблона
+    /// <see cref="TitleSuffixTemplate"/>. Заголовок обновляется при запуске приложения
+    /// и при изменении настроек.
+    /// </summary>
+    public bool TitleSuffixEnabled { get; set; }
+
+    /// <summary>
+    /// Шаблон дополнения заголовка окна (issue #28). Поддерживаются переменные:
+    /// %computer_name%, %user_name%, %user_domain%, %computer_ip%, %display_server%
+    /// (x11/wayland на Linux, «windows» на Windows). По умолчанию — имя компьютера.
+    /// </summary>
+    public string TitleSuffixTemplate { get; set; } = "%computer_name%";
+
+    /// <summary>
     /// Порядок колонок списка баз слева направо (кроме фиксированных колонок
     /// «Название» и «Действия»). Пустой список — порядок по умолчанию
     /// (колонка «Конфигурация» в самом конце).

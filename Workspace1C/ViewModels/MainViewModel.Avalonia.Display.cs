@@ -629,6 +629,24 @@ public partial class MainViewModel : ViewModelBase
     public bool ShowExpandCollapseButtons => GroupByGroup;
     public bool ShowFavoritesButton => _settings.ShowFavoritesButton;
     public bool ShowPinnedButton => _settings.ShowPinnedButton;
+
+    /// <summary>«Дополнить заголовок программы» (issue #28): добавлять строку из шаблона к заголовку окна.</summary>
+    public bool TitleSuffixEnabled => _settings.TitleSuffixEnabled;
+
+    /// <summary>Шаблон дополнения заголовка окна (issue #28): %computer_name%, %user_name%, %user_domain%, %computer_ip%, %display_server%.</summary>
+    public string TitleSuffixTemplate => _settings.TitleSuffixTemplate;
+
+    /// <summary>
+    /// Применяет настройки дополнения заголовка окна (issue #28): «Дополнить заголовок
+    /// программы» и шаблон дополнения. Сохраняет в настройки (в отличие от WPF-версии —
+    /// не пересобирает UI, это делают окна).
+    /// </summary>
+    public void ApplyTitleSuffixSettings(bool enabled, string template)
+    {
+        _settings.TitleSuffixEnabled = enabled;
+        _settings.TitleSuffixTemplate = string.IsNullOrWhiteSpace(template) ? "%computer_name%" : template.Trim();
+        SaveSettingsSilently();
+    }
     public bool ShowVersionColumn => _settings.ShowVersionColumn;
     public bool ShowConfigurationColumn => _settings.ShowConfigurationColumn;
     public bool ShowConfigurationVersionColumn => _settings.ShowConfigurationVersionColumn;

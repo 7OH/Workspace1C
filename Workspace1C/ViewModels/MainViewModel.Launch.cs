@@ -620,6 +620,8 @@ public partial class MainViewModel : ViewModelBase
         s.ShowPinnedButton = _showPinnedButton;
         s.ShowTags = _showTags;
         s.ShowTagFilterPanel = _showTagFilterPanel;
+        s.TitleSuffixEnabled = _titleSuffixEnabled;
+        s.TitleSuffixTemplate = _titleSuffixTemplate;
         s.AllowMultipleInstances = _allowMultipleInstances;
         s.CheckForUpdatesOnStartup = _checkForUpdatesOnStartup;
         s.AutoUpdateEnabled = _autoUpdateEnabled;

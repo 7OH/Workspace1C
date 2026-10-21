@@ -95,6 +95,12 @@ namespace Workspace1C
         }
 
         /// <summary>
+        /// Пересобирает заголовок окна из текущих настроек. Вызывается после «ОК» окна
+        /// настроек (изменение дополнения заголовка, issue #28).
+        /// </summary>
+        public void RefreshWindowTitle() => UpdateWindowTitle();
+
+        /// <summary>
         /// Собирает заголовок программы из базового локализованного имени приложения
         /// и суффикса версии «v<версия>». Метод устойчив к повторному вызову: если
         /// базовый заголовок уже содержит суффикс версии, он не добавляется повторно
@@ -107,10 +113,20 @@ namespace Workspace1C
         private void UpdateWindowTitle()
         {
             var baseTitle = LocalizationManager.T("App.Title");
-            var suffix = $" v{_infoVersion}";
-            var fullTitle = baseTitle.EndsWith(suffix, StringComparison.Ordinal)
-                ? baseTitle
-                : baseTitle + suffix;
+
+            // «Дополнение заголовка» (issue #28): настройки из ViewModel; в конструкторе
+            // окна VM ещё может не существовать (первичный заголовок пересобирается
+            // App.xaml.cs после создания окна), поэтому без VM дополнение не добавляем.
+            var titleSuffixEnabled = false;
+            var titleSuffixTemplate = string.Empty;
+            if (_viewModel is not null)
+            {
+                titleSuffixEnabled = _viewModel.TitleSuffixEnabled;
+                titleSuffixTemplate = _viewModel.TitleSuffixTemplate;
+            }
+
+            var fullTitle = TitleSuffixResolver.Compose(
+                baseTitle, _infoVersion ?? string.Empty, titleSuffixEnabled, titleSuffixTemplate);
 
             // Системный заголовок окна (важен для панели задач и перечисления окон).
             Title = fullTitle;

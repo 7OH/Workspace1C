@@ -464,6 +464,11 @@ namespace Workspace1C
                 VisibleOf("Actions"),
                 VisibleOf("LastBackup"));
 
+            // «Дополнение заголовка программы» (issue #28).
+            _viewModel.ApplyTitleSuffixSettings(
+                TitleSuffixEnabledCheck?.IsChecked ?? false,
+                TitleSuffixTemplateBox?.Text ?? string.Empty);
+
             _viewModel.ShowRightPanelDetails = ShowRightPanelDetailsCheck?.IsChecked ?? true;
             _viewModel.ShowSessionLaunchPanel = ShowSessionLaunchPanelCheck?.IsChecked ?? true;
             _viewModel.ApplyStatusBarSettings(

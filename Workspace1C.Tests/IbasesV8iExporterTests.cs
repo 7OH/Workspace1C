@@ -1462,6 +1462,97 @@ public sealed class IbasesV8iExporterTests
         }
     }
 
+    [Fact]
+    public void ExportToNewFileInCustomDirectory_CreatesValidV8iAndIsIdempotent()
+    {
+        // Сценарий issue #29: экспорт в произвольный файл в нестандартном каталоге
+        // (подготовка общего списка в отдельном профиле) создаёт валидный v8i
+        // и идемпотентен при повторном вызове.
+        var dir = Path.Combine(Path.GetTempPath(), $"ibases-dir-{Guid.NewGuid():N}");
+        var filePath = Path.Combine(dir, "shared.v8i");
+        try
+        {
+            var groups = new List<Group>
+            {
+                new() { Id = "group-id", Name = "Общая" }
+            };
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "base-id",
+                    Name = "База",
+                    Group = "Общая",
+                    Connection = new ConnectionSettings
+                    {
+                        Type = ConnectionType.File,
+                        FilePath = @"C:\base"
+                    }
+                }
+            };
+
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+            Assert.True(File.Exists(filePath));
+
+            var first = File.ReadAllText(filePath, Encoding.Default);
+            Assert.Contains("[База]", first);
+            Assert.Contains("Folder=/Общая", first);
+
+            // Повторный экспорт не должен менять файл (идемпотентность).
+            IbasesV8iExporter.Export(filePath, infobases, groups);
+            Assert.Equal(first, File.ReadAllText(filePath, Encoding.Default));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AddInfobasesToFile_PreservesForeignEntries()
+    {
+        // Сценарий issue #29: аддитивная запись в существующий файл (общий список)
+        // не удаляет чужие записи, которых нет в списке приложения.
+        var filePath = Path.Combine(Path.GetTempPath(), $"ibases-{Guid.NewGuid():N}.v8i");
+        try
+        {
+            File.WriteAllText(filePath, """
+                [Foreign]
+                ID=foreign-id
+                Folder=/
+                Connect=File="C:\foreign";
+
+                """, Encoding.Default);
+
+            var infobases = new List<Infobase>
+            {
+                new()
+                {
+                    Id = "base-id",
+                    Name = "База",
+                    Connection = new ConnectionSettings
+                    {
+                        Type = ConnectionType.File,
+                        FilePath = @"C:\base"
+                    }
+                }
+            };
+
+            var written = IbasesV8iExporter.AddInfobasesToFile(filePath, infobases, new List<Group>());
+            Assert.Equal(1, written);
+
+            var text = File.ReadAllText(filePath, Encoding.Default);
+            // Чужая запись сохранилась, новая добавлена.
+            Assert.Contains("[Foreign]", text);
+            Assert.Contains("[База]", text);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
     private static string GetSection(string content, string name)
     {
         var marker = $"[{name}]";

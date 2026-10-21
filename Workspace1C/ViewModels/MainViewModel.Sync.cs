@@ -259,6 +259,68 @@ public partial class MainViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Экспорт списка баз и групп приложения в ПРОИЗВОЛЬНЫЙ файл ibases.v8i (issue #29).
+    /// В отличие от <see cref="ExportToIbases"/>, путь задаётся явно (диалог выбора файла)
+    /// и не привязан к основному списку пользователя — это позволяет подготовить общий
+    /// список информационных баз в отдельном профиле/файле, не трогая основной список.
+    /// Запись АДДИТИВНАЯ (<see cref="IbasesV8iExporter.AddInfobasesToFile"/>): чужие записи
+    /// в существующем файле не удаляются, чтобы не затирать общий список других участников.
+    /// </summary>
+    /// <param name="filePath">Путь к целевому файлу ibases.v8i.</param>
+    /// <returns>true при успешной записи.</returns>
+    public bool ExportToIbasesFile(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return false;
+
+        try
+        {
+            if (_ibasesBackupEnabled && File.Exists(filePath))
+            {
+                try { IbasesBackupService.CreateBackup(filePath, _ibasesBackupKeepCount); }
+                catch { /* не блокируем экспорт */ }
+            }
+            IbasesV8iExporter.AddInfobasesToFile(filePath, Infobases, Groups);
+            // Метка последней выгрузки обновляется только после успешного экспорта (issue #278).
+            _ibasesLastSyncExportUtc = DateTime.UtcNow;
+            SaveSettings();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Импорт списка баз из ПРОИЗВОЛЬНОГО файла ibases.v8i в приложение (issue #29).
+    /// В отличие от <see cref="ImportFromIbases"/>, путь задаётся явно (диалог выбора файла)
+    /// и не привязан к основному списку пользователя — позволяет загрузить общий список
+    /// информационных баз из отдельного профиля/файла.
+    /// </summary>
+    /// <param name="filePath">Путь к файлу ibases.v8i.</param>
+    /// <returns>true при успешном импорте.</returns>
+    public bool ImportFromIbasesFile(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            return false;
+
+        try
+        {
+            _ibasesSync.Import(filePath, Infobases, Groups, _deletedGroupPaths.Load());
+            InfobasesView.Refresh();
+            Save();
+            SaveGroups();
+            RebuildGroupTree();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Определяет путь к файлу ibases.v8i: пользовательский путь из настроек,
     /// либо стандартный путь 1С, если пользовательский не задан.
     /// </summary>

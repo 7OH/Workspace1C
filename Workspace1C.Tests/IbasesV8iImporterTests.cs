@@ -209,6 +209,35 @@ public sealed class IbasesV8iImporterTests
         Assert.Contains(groups, g => g.Name == "Весь кобошоп" && g.ParentId == nan.Id);
     }
 
+    [Fact]
+    public void ImportFromArbitraryFile_AppliesToPassedCollections()
+    {
+        // Сценарий issue #29: импорт из произвольного файла (общий список в отдельном
+        // профиле) применяет изменения переданным коллекциям, не затрагивая стандартный
+        // файл пользователя (его путь вообще не участвует в операции).
+        var filePath = WriteIbases("""
+            [Shared]
+            ID=shared-id
+            Folder=/
+            Connect=File="C:\shared";
+
+            """);
+
+        var groups = new List<Group>();
+        var infobases = new List<Infobase>();
+
+        var result = IbasesV8iImporter.Import(filePath, infobases, groups);
+
+        Assert.Equal(1, result.Added);
+        var ibase = Assert.Single(infobases);
+        Assert.Equal("Shared", ibase.Name);
+        Assert.Equal("shared-id", ibase.Id);
+
+        // Импорт из явного файла использует переданный путь и не обращается к стандартному.
+        if (File.Exists(filePath))
+            File.Delete(filePath);
+    }
+
     private static string WriteIbases(string content)
     {
         var filePath = Path.Combine(Path.GetTempPath(), $"ibases-imp-{Guid.NewGuid():N}.v8i");

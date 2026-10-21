@@ -706,6 +706,58 @@
                                 </ToggleButton>
                                 <TextBlock Text="{loc:Loc Settings.Panels.ShowEmptyGroupsHint}"
                                            Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="24,0,0,12"/>
+
+                                <!-- Заголовок окна (issue #28): дополнение заголовка программы шаблоном с переменными. -->
+                                <Separator Margin="0,12,0,12"/>
+                                <TextBlock Text="{loc:Loc Settings.Display.TitleSuffix}"
+                                           FontSize="14" FontWeight="Bold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+                                <ToggleButton Style="{DynamicResource SettingsToggle}" x:Name="TitleSuffixEnabledCheck" Margin="0,0,0,6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <materialDesign:PackIcon Kind="StarCircle" Width="16" Height="16" Foreground="#14B8A6" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{loc:Loc Settings.Display.TitleSuffixEnabled}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{loc:Loc Settings.Display.TitleSuffixTemplate}" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <TextBox x:Name="TitleSuffixTemplateBox" Grid.Column="1" Margin="10,0,0,0"
+                                             Height="36" VerticalAlignment="Center"
+                                             Style="{StaticResource ModernTextBox}"
+                                             TextChanged="OnTitleSuffixTemplate_TextChanged"/>
+                                </Grid>
+                                <TextBlock x:Name="TitleSuffixPreviewText"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                                           TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                <TextBlock Text="{loc:Loc Settings.Display.TitleSuffixHints}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"
+                                           TextWrapping="Wrap" Margin="0,0,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button x:Name="TitleSuffixTokenComputerName" Style="{DynamicResource SecondaryButton}"
+                                            Padding="6,2" Margin="0,0,4,0" Click="OnTitleSuffixToken_Click" Tag="%computer_name%">
+                                        <TextBlock Text="%computer_name%" FontSize="11" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <Button x:Name="TitleSuffixTokenUserName" Style="{DynamicResource SecondaryButton}"
+                                            Padding="6,2" Margin="0,0,4,0" Click="OnTitleSuffixToken_Click" Tag="%user_name%">
+                                        <TextBlock Text="%user_name%" FontSize="11" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <Button x:Name="TitleSuffixTokenUserDomain" Style="{DynamicResource SecondaryButton}"
+                                            Padding="6,2" Margin="0,0,4,0" Click="OnTitleSuffixToken_Click" Tag="%user_domain%">
+                                        <TextBlock Text="%user_domain%" FontSize="11" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <Button x:Name="TitleSuffixTokenComputerIp" Style="{DynamicResource SecondaryButton}"
+                                            Padding="6,2" Margin="0,0,4,0" Click="OnTitleSuffixToken_Click" Tag="%computer_ip%">
+                                        <TextBlock Text="%computer_ip%" FontSize="11" VerticalAlignment="Center"/>
+                                    </Button>
+                                    <Button x:Name="TitleSuffixTokenDisplayServer" Style="{DynamicResource SecondaryButton}"
+                                            Padding="6,2" Click="OnTitleSuffixToken_Click" Tag="%display_server%">
+                                        <TextBlock Text="%display_server%" FontSize="11" VerticalAlignment="Center"/>
+                                    </Button>
+                                </StackPanel>
                             </StackPanel>
                         </ScrollViewer>
                     </TabItem>
@@ -2171,6 +2223,26 @@
                                                 <StackPanel Orientation="Horizontal">
                                                     <materialDesign:PackIcon Kind="FileDownload" Width="16" Height="16" Foreground="#14B8A6" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                                     <TextBlock Text="{loc:Loc Settings.Bases.ImportV8i}" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <!-- Экспорт/импорт в произвольный файл *.v8i (issue #29): подготовка общего
+                                                 списка информационных баз в отдельном профиле, не затрагивая основной список. -->
+                                            <Button Style="{DynamicResource SecondaryButton}" Margin="0,0,0,8" Padding="10,8"
+                                                    HorizontalAlignment="Stretch"
+                                                    Click="OnExportIbasesV8iFile_Click"
+                                                    ToolTip="{loc:Loc Settings.Bases.ExportV8iFileTooltip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <materialDesign:PackIcon Kind="Upload" Width="16" Height="16" Foreground="#A855F7" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{loc:Loc Settings.Bases.ExportV8iFile}" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{DynamicResource SecondaryButton}" Margin="0,0,0,8" Padding="10,8"
+                                                    HorizontalAlignment="Stretch"
+                                                    Click="OnImportIbasesV8iFile_Click"
+                                                    ToolTip="{loc:Loc Settings.Bases.ImportV8iFileTooltip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <materialDesign:PackIcon Kind="FileDownload" Width="16" Height="16" Foreground="#F97316" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{loc:Loc Settings.Bases.ImportV8iFile}" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Button>
                                             <!-- Определение/обновление конфигураций всех баз (issue #236). -->

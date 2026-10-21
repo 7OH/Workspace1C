@@ -138,8 +138,15 @@ public sealed class RacClient : IRacClient
             }
         }
 
-        var output = await RunAsync(parameters, cancellationToken, "cluster", "info",
-                $"--cluster={clusterId}")
+        // issue #25: rac 8.5.x может отклонять «--cluster=<uuid>» (код -1) и в команде
+        // «cluster info» (как в «job list»/«infobase summary list») — перебираем форматы
+        // передачи идентификатора кластера (0/1/2) с запоминанием рабочего формата по
+        // ключу подключения + имени команды (RacJobListFormatStore). Для rac 8.3/8.4
+        // формат 0 (--cluster=<uuid>) успешен с первой попытки — поведение не меняется.
+        var formatKey = ClusterFormatKey(parameters, clusterId, "cluster info");
+        var output = await RunListCommandWithFormatFallbackAsync(
+                parameters, cancellationToken, "cluster info", formatKey,
+                index => ClusterInfoArgs(index, clusterId))
             .ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(output) ? null : RacOutputParser.ToClusterInfo(output);
     }
@@ -391,6 +398,15 @@ public sealed class RacClient : IRacClient
     /// </summary>
     internal static string[] InfobaseSummaryListArgs(int formatIndex, Guid clusterId) =>
         ClusterArgs(new[] { "infobase", "summary", "list" }, formatIndex, clusterId);
+
+    /// <summary>
+    /// Аргументы команды «cluster info» по индексу формата передачи идентификатора
+    /// кластера (issue #25): обёртка над <see cref="ClusterArgs"/>. rac 8.5.x может
+    /// отклонять «--cluster=<uuid>» и в этой команде — перебор форматов нужен наравне
+    /// с «job list»/«infobase summary list». Internal — для юнит-тестов без запуска rac.
+    /// </summary>
+    internal static string[] ClusterInfoArgs(int formatIndex, Guid clusterId) =>
+        ClusterArgs(new[] { "cluster", "info" }, formatIndex, clusterId);
 
     /// <summary>Человекочитаемое имя формата передачи идентификатора кластера для
     /// журнала (issue #25).</summary>

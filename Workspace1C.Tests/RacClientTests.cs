@@ -372,6 +372,25 @@ public sealed class RacClientTests
     }
 
     [Fact]
+    public void ClusterInfoArgs_Formats()
+    {
+        // «cluster info» — команда окна «Импорт из кластера 1С» (issue #25): rac 8.5.x
+        // может отклонять «--cluster=<uuid>» и в ней, как в «job list»/«infobase summary
+        // list» — перебор форматов нужен наравне с ними.
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(
+            new[] { "cluster", "info", $"--cluster={clusterId}" },
+            RacClient.ClusterInfoArgs(0, clusterId));
+        Assert.Equal(
+            new[] { "cluster", "info", "--cluster", clusterId.ToString() },
+            RacClient.ClusterInfoArgs(1, clusterId));
+        Assert.Equal(
+            new[] { "cluster", "info", clusterId.ToString() },
+            RacClient.ClusterInfoArgs(2, clusterId));
+    }
+
+    [Fact]
     public void ClusterFormatCount_CoversAllFormats()
     {
         Assert.Equal(3, RacClient.ClusterFormatCount);

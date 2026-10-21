@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.IO;
+using Microsoft.Win32;
 using MaterialDesignThemes.Wpf;
 using Workspace1C.Localization;
 using Workspace1C.Models;
@@ -201,6 +202,75 @@ namespace Workspace1C
         private void OnImportIbasesV8i_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ImportFromIbasesV8iCommand.Execute(null);
+            RefreshGroupsAfterDataChange();
+        }
+
+        /// <summary>
+        /// «Экспорт в файл *.v8i…» (issue #29): выгружает список баз и групп приложения
+        /// в произвольный файл ibases.v8i, выбранный пользователем (SaveFileDialog).
+        /// Не привязан к основному списку пользователя — позволяет подготовить общий
+        /// список информационных баз в отдельном профиле/файле.
+        /// </summary>
+        private void OnExportIbasesV8iFile_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"),
+                Filter = $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*",
+                FileName = "ibases.v8i",
+                DefaultExt = ".v8i",
+                AddExtension = true
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            if (_viewModel.ExportToIbasesFile(dialog.FileName))
+            {
+                _dialogs.ShowInfo(
+                    string.Format(LocalizationManager.T("Settings.Bases.ExportV8iFileDone"), dialog.FileName),
+                    LocalizationManager.T("Settings.Bases.ExportV8iFileTitle"));
+            }
+            else
+            {
+                _dialogs.ShowError(
+                    LocalizationManager.T("Settings.Bases.ExportV8iFileFailed"),
+                    LocalizationManager.T("Settings.Bases.ExportV8iFileTitle"));
+            }
+        }
+
+        /// <summary>
+        /// «Импорт из файла *.v8i…» (issue #29): загружает список баз из произвольного
+        /// файла ibases.v8i, выбранного пользователем (OpenFileDialog). Не привязан
+        /// к основному списку пользователя — позволяет загрузить общий список
+        /// информационных баз из отдельного профиля/файла.
+        /// </summary>
+        private void OnImportIbasesV8iFile_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
+                Filter = $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            if (_viewModel.ImportFromIbasesFile(dialog.FileName))
+            {
+                _dialogs.ShowInfo(
+                    string.Format(LocalizationManager.T("Settings.Bases.ImportV8iFileDone"), dialog.FileName),
+                    LocalizationManager.T("Settings.Bases.ImportV8iFileTitle"));
+            }
+            else
+            {
+                _dialogs.ShowError(
+                    LocalizationManager.T("Settings.Bases.ImportV8iFileFailed"),
+                    LocalizationManager.T("Settings.Bases.ImportV8iFileTitle"));
+            }
+
             RefreshGroupsAfterDataChange();
         }
 

@@ -335,8 +335,12 @@ namespace Workspace1C
                             * 1000 / System.Diagnostics.Stopwatch.Frequency;
                         _switchVmStartTicks = 0;
                     }
+                    // Замер кучи после смены вкладки (issue #21): рост с каждым переключением
+                    // указывает на утечку в UI-слое (контейнеры/подписки), а не в фильтрации.
+                    var heapBytes = System.GC.GetTotalMemory(false);
                     AppServices.GetRequiredService<IAppLogger>().Info(
-                        $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}");
+                        $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}, " +
+                        $"heapMb={heapBytes / (1024 * 1024)}");
                 }
 
                 // Виртуализация создаёт новые контейнеры строк в проходе разметки ПОСЛЕ события

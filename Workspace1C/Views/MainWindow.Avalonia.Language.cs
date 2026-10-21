@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Workspace1C.Localization;
+using Workspace1C.Services;
 
 namespace Workspace1C
 {
@@ -27,6 +28,12 @@ namespace Workspace1C
             else
                 Avalonia.Threading.Dispatcher.UIThread.Post(RebuildAfterLanguageChange);
         }
+
+        /// <summary>
+        /// Пересобирает заголовок окна из текущих настроек. Вызывается после «ОК» окна
+        /// настроек (изменение дополнения заголовка, issue #28).
+        /// </summary>
+        public void RefreshWindowTitle() => Title = ComposeWindowTitle();
 
         private void RebuildAfterLanguageChange()
         {
@@ -70,20 +77,21 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Заголовок программы: локализованное имя и суффикс версии. Суффикс
-        /// не задваивается при повторном вызове, как в версии для Windows
-        /// (MainWindow.Language.cs:107-122). Пользователь видит эту строку в шапке
-        /// окна, потому что системной строки заголовка на Linux у нас нет.
+        /// Заголовок программы: локализованное имя, суффикс версии и (если включено
+        /// в настройках, issue #28) дополнение из шаблона. Суффикс не задваивается
+        /// при повторном вызове, как в версии для Windows (MainWindow.Language.cs:107-122).
+        /// Пользователь видит эту строку в шапке окна, потому что системной строки
+        /// заголовка на Linux у нас нет.
         /// </summary>
-        private static string ComposeWindowTitle()
+        private string ComposeWindowTitle()
         {
             var baseTitle = LocalizationManager.T("App.Title");
             var version = VersionInfo.Display();
-            if (string.IsNullOrWhiteSpace(version))
-                return baseTitle;
-
-            var suffix = $" v{version}";
-            return baseTitle.EndsWith(suffix, StringComparison.Ordinal) ? baseTitle : baseTitle + suffix;
+            return TitleSuffixResolver.Compose(
+                baseTitle,
+                version,
+                _vm?.TitleSuffixEnabled ?? false,
+                _vm?.TitleSuffixTemplate ?? string.Empty);
         }
     }
 }

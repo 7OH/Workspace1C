@@ -305,9 +305,13 @@ namespace Workspace1C
 
                     // Версия в заголовке (информационная версия, напр. «0.3.1.1»).
                     // Из InformationalVersion отбрасываем возможный суффикс «+<sha>».
+                    // «Дополнение заголовка» (issue #28): шаблон и галочка из настроек.
                     var infoVersion = VersionInfo.Display();
-                    var versionText = string.IsNullOrWhiteSpace(infoVersion) ? "" : $" v{infoVersion}";
-                    mainWindow.Title = $"{LocalizationManager.T("App.Title")}{versionText}";
+                    mainWindow.Title = Workspace1C.Services.TitleSuffixResolver.Compose(
+                        LocalizationManager.T("App.Title"),
+                        infoVersion,
+                        settings.TitleSuffixEnabled,
+                        settings.TitleSuffixTemplate);
 
                     // Применяем сохранённые настройки шрифта интерфейса и отдельных областей
                     // (дерево групп, кнопки, поля ввода, правая панель, статус-бар).

@@ -24,6 +24,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
     private readonly IReadOnlyList<Infobase> _existingInfobases;
     private readonly Action<Action>? _dispatchToUi;
     private readonly Dictionary<Guid, RacClusterInfo?> _clusterInfoCache = new();
+    /// <summary>Логгер (nullable — в тестах DI может отсутствовать).</summary>
+    private readonly IAppLogger? _logger;
 
     private int _busy;
     private string _serverAddress = "localhost";
@@ -68,6 +70,14 @@ public sealed class ClusterImportViewModel : ViewModelBase
         _existingInfobases = existingInfobases ?? throw new ArgumentNullException(nameof(existingInfobases));
         _dispatchToUi = dispatchToUi;
         AvailableServers = availableServers ?? Array.Empty<ManagementServer>();
+        try
+        {
+            _logger = AppServices.GetRequiredService<IAppLogger>();
+        }
+        catch
+        {
+            _logger = null; // тестовый контекст без DI
+        }
     }
 
     // ---- Справочник «Сервера 1С» (issue #27) ----
@@ -318,13 +328,23 @@ public sealed class ClusterImportViewModel : ViewModelBase
         {
             StatusText = LocalizationManager.T("ClusterImport.Status.Cancelled");
         }
+        catch (Exception ex)
+        {
+            // Страховка: неожиданное исключение не должно оставлять «крутящийся» прогресс
+            // (issue #25) — флаг занятости снимается в finally, а причина попадает в журнал.
+            ErrorMessage = ex.Message;
+            StatusText = LocalizationManager.T("ClusterImport.Status.ConnectFailed");
+            _logger?.Error("Ошибка подключения к кластеру 1С", ex);
+        }
         finally
         {
             ExitBusy();
         }
 
-        // Автовыбор первого кластера — уже вне флага занятости: сеттер запустит загрузку баз.
-        if (SelectedClusterId is null && Clusters.Count > 0)
+        // Автовыбор кластера — уже вне флага занятости: сеттер запустит загрузку баз.
+        // Выбираем ТОЛЬКО единственный кластер (issue #25): при нескольких пользователь
+        // выбирает сам, чтобы не запускать спонтанную загрузку баз не того кластера.
+        if (SelectedClusterId is null && Clusters.Count == 1)
             SelectedClusterId = Clusters[0].Id;
     }
 
@@ -387,6 +407,14 @@ public sealed class ClusterImportViewModel : ViewModelBase
         catch (OperationCanceledException)
         {
             StatusText = LocalizationManager.T("ClusterImport.Status.Cancelled");
+        }
+        catch (Exception ex)
+        {
+            // Страховка (issue #25): неожиданное исключение не должно оставлять
+            // «крутящийся» прогресс — флаг занятости снимается в finally.
+            ErrorMessage = ex.Message;
+            StatusText = LocalizationManager.T("ClusterImport.Status.LoadFailed");
+            _logger?.Error("Ошибка загрузки баз кластера 1С", ex);
         }
         finally
         {

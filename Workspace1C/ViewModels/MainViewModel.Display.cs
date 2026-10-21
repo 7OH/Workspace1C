@@ -97,6 +97,23 @@ public partial class MainViewModel : ViewModelBase
     /// <summary>Показывать колонку-кнопку «Закрепить» (📌) в списке баз.</summary>
     public bool ShowPinnedButton => _showPinnedButton;
 
+    /// <summary>«Дополнить заголовок программы» (issue #28): добавлять строку из шаблона к заголовку окна.</summary>
+    public bool TitleSuffixEnabled => _titleSuffixEnabled;
+
+    /// <summary>Шаблон дополнения заголовка окна (issue #28): %computer_name%, %user_name%, %user_domain%, %computer_ip%, %display_server%.</summary>
+    public string TitleSuffixTemplate => _titleSuffixTemplate;
+
+    /// <summary>
+    /// Применяет настройки дополнения заголовка окна (issue #28): «Дополнить заголовок
+    /// программы» и шаблон дополнения. Сохраняется в настройки.
+    /// </summary>
+    public void ApplyTitleSuffixSettings(bool enabled, string template)
+    {
+        _titleSuffixEnabled = enabled;
+        _titleSuffixTemplate = string.IsNullOrWhiteSpace(template) ? "%computer_name%" : template.Trim();
+        SaveSettings();
+    }
+
     /// <summary>Показывать теги баз в списке (кнопка тегов в заголовке списка баз).</summary>
     public bool ShowTags
     {
