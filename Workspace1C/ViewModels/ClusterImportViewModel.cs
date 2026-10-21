@@ -106,6 +106,9 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// <summary>
     /// Выбранный сервер справочника. При установке значения адрес/порт/логин/пароль
     /// заполняются из записи (пароль — только в памяти VM, на диск не пишется).
+    /// Смена сервера сбрасывает состояние предыдущего подключения (issue #25):
+    /// кластеры, чеклист и результат импорта очищаются, кнопка «Подключиться»
+    /// становится снова доступной (окно пересчитывает её по событию SelectedServer).
     /// </summary>
     public ManagementServer? SelectedServer
     {
@@ -118,6 +121,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
             OnPropertyChanged(nameof(SelectedServer));
             if (value is not null)
                 FillFromServer(value);
+            // Состояние подключения прежнего сервера больше не актуально.
+            ResetConnectionState();
         }
     }
 
@@ -285,14 +290,15 @@ public sealed class ClusterImportViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(server);
 
-        // Кластер, переданный из окна «Серверы 1С» (issue #25): при автоподключении
-        // выбирается он (если присутствует в списке кластеров), иначе — единственный,
-        // иначе выбор остаётся пользователю с подсказкой.
-        _requestedClusterId = clusterId;
-
         var matched = AvailableServers.FirstOrDefault(
             s => string.Equals(s.Id, server.Id, StringComparison.OrdinalIgnoreCase)) ?? server;
+
+        // Выбор сервера (сеттер) сбрасывает состояние предыдущего подключения,
+        // включая _requestedClusterId (issue #25), поэтому запрошенный кластер
+        // запоминаем ПОСЛЕ установки SelectedServer — для автовыбора при
+        // автоподключении: переданный кластер → единственный → выбор пользователем.
         SelectedServer = matched;
+        _requestedClusterId = clusterId;
 
         return autoConnect ? ConnectAsync() : Task.CompletedTask;
     }
@@ -652,13 +658,57 @@ public sealed class ClusterImportViewModel : ViewModelBase
         // Один запрос за раз: длительная rac-команда не должна копить очередь (см. ProcessInspectorViewModel:80).
         if (Interlocked.Exchange(ref _busy, 1) == 1)
             return false;
-        OnPropertyChanged(nameof(IsBusy));
+        NotifyIsBusy();
         return true;
     }
 
     private void ExitBusy()
     {
         Interlocked.Exchange(ref _busy, 0);
-        OnPropertyChanged(nameof(IsBusy));
+        NotifyIsBusy();
+    }
+
+    /// <summary>
+    /// Доставляет уведомление IsBusy в UI-поток через <see cref="_dispatchToUi"/>,
+    /// чтобы окно обновляло кнопки и индикатор занятости на своём потоке (issue #25):
+    /// WPF-кнопки нельзя переключать из фонового потока, иначе событие «теряется»
+    /// и прогресс застревает. Без диспетчера (тесты) — синхронно, как раньше.
+    /// </summary>
+    private void NotifyIsBusy()
+    {
+        if (_dispatchToUi is null)
+        {
+            OnPropertyChanged(nameof(IsBusy));
+            return;
+        }
+        _dispatchToUi(() => OnPropertyChanged(nameof(IsBusy)));
+    }
+
+    /// <summary>
+    /// Сбрасывает состояние предыдущего подключения при смене сервера (issue #25):
+    /// очищаются кластеры, чеклист, выбор кластера, результат импорта, ошибки/статус
+    /// и запомненный автовыбор кластера (чтобы повторное «Подключиться» не тянуло
+    /// кластер старого сервера).
+    /// </summary>
+    private void ResetConnectionState()
+    {
+        Clusters = Array.Empty<RacCluster>();
+        OnPropertyChanged(nameof(Clusters));
+
+        // Сеттер при null чистит строки чеклиста, выбор и ImportCompleted и не
+        // запускает загрузку баз; после no-op сеттера строки чистим явно.
+        SelectedClusterId = null;
+        SelectedBases = Array.Empty<Infobase>();
+        OnPropertyChanged(nameof(SelectedBases));
+        ImportCompleted = false;
+        OnPropertyChanged(nameof(ImportCompleted));
+        ClearRows();
+
+        ErrorMessage = string.Empty;
+        StatusText = string.Empty;
+        OnPropertyChanged(nameof(ErrorMessage));
+        OnPropertyChanged(nameof(StatusText));
+
+        _requestedClusterId = null;
     }
 }

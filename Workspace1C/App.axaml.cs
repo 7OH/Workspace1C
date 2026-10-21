@@ -303,15 +303,12 @@ namespace Workspace1C
                     var mainWindow = AppServices.GetRequiredService<MainWindow>();
                     LogStartupStage(startupLogger, "Главное окно построено");
 
-                    // Версия в заголовке (информационная версия, напр. «0.3.1.1»).
-                    // Из InformationalVersion отбрасываем возможный суффикс «+<sha>».
-                    // «Дополнение заголовка» (issue #28): шаблон и галочка из настроек.
-                    var infoVersion = VersionInfo.Display();
-                    mainWindow.Title = Workspace1C.Services.TitleSuffixResolver.Compose(
-                        LocalizationManager.T("App.Title"),
-                        infoVersion,
-                        settings.TitleSuffixEnabled,
-                        settings.TitleSuffixTemplate);
+                    // «Дополнение заголовка» (issue #28): заголовок собирает само окно из
+                    // актуальных настроек профиля — RefreshWindowTitle вызывает
+                    // ComposeWindowTitle (идемпотентно) и обновляет Title с суффиксом из
+                    // шаблона. Тот же путь, что и после «ОК» настроек; дублирования
+                    // логики с настройками из App здесь больше нет (issue #34).
+                    mainWindow.RefreshWindowTitle();
 
                     // Применяем сохранённые настройки шрифта интерфейса и отдельных областей
                     // (дерево групп, кнопки, поля ввода, правая панель, статус-бар).

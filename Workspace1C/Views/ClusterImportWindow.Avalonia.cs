@@ -221,16 +221,13 @@ namespace Workspace1C
                 case nameof(ClusterImportViewModel.IsBusy):
                 case nameof(ClusterImportViewModel.HasAvailableServers):
                     // «Подключиться» недоступно при пустом справочнике (issue #27) и во время запроса.
-                    var busy = _vm.IsBusy;
-                    _connectButton.IsEnabled = !busy && _vm.HasAvailableServers;
-                    _loadBasesButton.IsEnabled = !busy;
-                    _selectAllButton.IsEnabled = !busy;
-                    _selectNoneButton.IsEnabled = !busy;
-                    _importButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
-                    _progressBar.IsVisible = busy;
+                    UpdateCommandStates();
                     break;
                 case nameof(ClusterImportViewModel.SelectedServer):
+                    // Смена сервера сбрасывает состояние подключения (issue #25):
+                    // синхронизация комбобокса и пересчёт кнопок/прогресса.
                     SyncSelectedServer();
+                    UpdateCommandStates();
                     break;
                 case nameof(ClusterImportViewModel.SelectedClusterId):
                     SyncSelectedCluster();
@@ -238,9 +235,26 @@ namespace Workspace1C
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
-                    _importButton.IsEnabled = !_vm.IsBusy && _vm.ReadyToImportCount > 0;
+                    UpdateCommandStates();
                     break;
             }
+        }
+
+        /// <summary>
+        /// Единый пересчёт кнопок и индикатора занятости из состояния VM (issue #25):
+        /// вызывается при изменении флага занятости, наполнении справочника и смене
+        /// сервера. «Подключиться» доступна при выбранном сервере и неактивном запросе;
+        /// «Импортировать» — только при отмеченных новых базах.
+        /// </summary>
+        private void UpdateCommandStates()
+        {
+            var busy = _vm.IsBusy;
+            _connectButton.IsEnabled = !busy && _vm.HasAvailableServers;
+            _loadBasesButton.IsEnabled = !busy;
+            _selectAllButton.IsEnabled = !busy;
+            _selectNoneButton.IsEnabled = !busy;
+            _importButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
+            _progressBar.IsVisible = busy;
         }
 
         /// <summary>

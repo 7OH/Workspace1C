@@ -267,16 +267,12 @@ namespace Workspace1C
                 var mainWindow = AppServices.GetRequiredService<MainWindow>();
                 MainWindow = mainWindow;
 
-                // Версия в заголовке (используем информационную версию, чтобы показать
-                // точное значение «0.2.7.15», которое не помещается в 4-частный AssemblyVersion).
-                // Из InformationalVersion отбрасываем возможный суффикс «+<sha>».
-                // «Дополнение заголовка» (issue #28): шаблон и галочка из настроек.
-                var infoVersion = VersionInfo.Display();
-                mainWindow.Title = Workspace1C.Services.TitleSuffixResolver.Compose(
-                    LocalizationManager.T("App.Title"),
-                    infoVersion,
-                    settings.TitleSuffixEnabled,
-                    settings.TitleSuffixTemplate);
+                // «Дополнение заголовка» (issue #28): заголовок собирает само окно из
+                // актуальных настроек профиля — RefreshWindowTitle пересчитывает и системный
+                // Title, и видимую шапку (AppTitleBlock) с суффиксом из шаблона. Это тот же
+                // путь, что и после «ОК» настроек. Раньше здесь ставился только Title
+                // напрямую, и шапка оставалась без дополнения до открытия настроек (issue #34).
+                mainWindow.RefreshWindowTitle();
 
                 // Значок в заголовке главного окна — тот же app.ico (основной значок приложения).
                 mainWindow.Icon = LoadAppIconImageSource() ?? mainWindow.Icon;

@@ -135,21 +135,34 @@ namespace Workspace1C
             {
                 case nameof(ClusterImportViewModel.IsBusy):
                 case nameof(ClusterImportViewModel.HasAvailableServers):
-                    // «Подключиться» недоступно при пустом справочнике (issue #27) и во время запроса.
-                    var busy = _vm.IsBusy;
-                    ConnectButton.IsEnabled = !busy && _vm.HasAvailableServers;
-                    LoadBasesButton.IsEnabled = !busy;
-                    SelectAllButton.IsEnabled = !busy;
-                    SelectNoneButton.IsEnabled = !busy;
-                    ImportButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
-                    ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+                case nameof(ClusterImportViewModel.SelectedServer):
+                    // Смена сервера сбрасывает состояние подключения (issue #25):
+                    // «Подключиться» снова доступна, прогресс скрыт.
+                    UpdateCommandStates();
                     break;
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
-                    ImportButton.IsEnabled = !_vm.IsBusy && _vm.ReadyToImportCount > 0;
+                    UpdateCommandStates();
                     break;
             }
+        }
+
+        /// <summary>
+        /// Единый пересчёт кнопок и индикатора занятости из состояния VM (issue #25):
+        /// вызывается при изменении флага занятости, наполнении справочника и смене
+        /// сервера. «Подключиться» доступна при выбранном сервере и неактивном запросе;
+        /// «Импортировать» — только при отмеченных новых базах.
+        /// </summary>
+        private void UpdateCommandStates()
+        {
+            var busy = _vm.IsBusy;
+            ConnectButton.IsEnabled = !busy && _vm.HasAvailableServers;
+            LoadBasesButton.IsEnabled = !busy;
+            SelectAllButton.IsEnabled = !busy;
+            SelectNoneButton.IsEnabled = !busy;
+            ImportButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
+            ProgressBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void UpdateSummary()

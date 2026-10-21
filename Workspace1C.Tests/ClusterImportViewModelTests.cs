@@ -539,6 +539,113 @@ public sealed class ClusterImportViewModelTests
         Assert.False(vm.IsBusy);
     }
 
+    // ============= Issue #25: смена сервера очищает состояние и активирует «Подключиться» =============
+
+    [Fact]
+    public async Task SelectedServerChange_ClearsConnectionState_Issue25()
+    {
+        // Жалоба 7OH после 1.0.0.33: после успешного подключения выбор ДРУГОГО сервера
+        // в списке не очищал состояние и не активировал «Подключиться». Теперь смена
+        // сервера полностью сбрасывает кластеры/чеклист/выбор/ошибки, кнопка доступна.
+        var client = new FakeRacClient(singleCluster: true);
+        var servers = new[] { BuildServer("srv-1"), BuildServer("srv-2") };
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>(), availableServers: servers);
+        vm.SelectedServer = servers[0];
+        await vm.ConnectAsync();
+
+        Assert.Equal(1, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        Assert.NotEmpty(vm.Rows);
+
+        vm.SelectedServer = servers[1];
+
+        Assert.Empty(vm.Clusters);
+        Assert.Null(vm.SelectedClusterId);
+        Assert.Empty(vm.Rows);
+        Assert.Empty(vm.SelectedBases);
+        Assert.False(vm.ImportCompleted);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.Empty(vm.StatusText);
+        Assert.Equal(0, vm.ReadyToImportCount);
+        Assert.False(vm.IsBusy);
+        // Справочник не пуст — окно пересчитает кнопку «Подключиться» в доступную.
+        Assert.True(vm.HasAvailableServers);
+    }
+
+    [Fact]
+    public async Task SelectedServerChange_ReconnectUsesNewServerParams_Issue25()
+    {
+        // После смены сервера повторное «Подключиться» идёт с параметрами НОВОГО
+        // сервера (адрес/порт/логин/пароль из выбранной записи), а не прежнего.
+        var client = new FakeRacClient();
+        var servers = new[] { BuildServer("srv-1"), BuildServer("srv-2") };
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>(), availableServers: servers);
+        vm.SelectedServer = servers[0];
+        await vm.ConnectAsync();
+
+        vm.SelectedServer = servers[1];
+        await vm.ConnectAsync();
+
+        Assert.Equal(2, client.ClustersCalls);
+        Assert.NotNull(client.LastParams);
+        Assert.Equal("srv-prod", client.LastParams.Address);
+        Assert.Equal(1545, client.LastParams.Port);
+        Assert.Equal("admin", client.LastParams.User);
+        Assert.Equal("secret", client.LastParams.Password);
+    }
+
+    [Fact]
+    public async Task SelectedServerChange_ClearsRequestedClusterId_Issue25()
+    {
+        // Запомненный автовыбор кластера («Серверы 1С» → монитор) относится к прежнему
+        // серверу: после смены сервера повторное подключение не должно тянуть его.
+        var client = new FakeRacClient(); // три кластера
+        var servers = new[] { BuildServer("srv-1"), BuildServer("srv-2") };
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>(), availableServers: servers);
+
+        await vm.InitializeFromServer(servers[0], autoConnect: true, clusterId: FakeRacClient.SecondClusterId);
+        Assert.Equal(FakeRacClient.SecondClusterId, vm.SelectedClusterId);
+
+        vm.SelectedServer = servers[1];
+        Assert.Null(vm.SelectedClusterId);
+
+        // Повторное подключение без переданного кластера: при нескольких кластерах
+        // автовыбор не выполняется (выбор за пользователем).
+        await vm.ConnectAsync();
+        Assert.Equal(2, client.ClustersCalls);
+        Assert.Null(vm.SelectedClusterId);
+    }
+
+    [Fact]
+    public async Task IsBusy_NotificationsAreDispatchedToUi_Issue25()
+    {
+        // Уведомления IsBusy должны доставляться через переданный диспетчер (окно
+        // обновляет кнопки/прогресс на UI-потоке), иначе WPF-кнопка может «застрять»
+        // неактивной, а прогресс — крутящимся (жалоба 7OH после 1.0.0.33).
+        var client = new FakeRacClient(singleCluster: true);
+        var busyEvents = new System.Collections.Generic.List<bool>();
+        var dispatchCalls = 0;
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>(), dispatchToUi: action =>
+        {
+            dispatchCalls++;
+            action();
+        });
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ClusterImportViewModel.IsBusy))
+                busyEvents.Add(vm.IsBusy);
+        };
+
+        await vm.ConnectAsync();
+
+        // Подключение + автовыбор единственного кластера с загрузкой баз: каждое
+        // изменение IsBusy прошло через диспетчер (минимум 2 — connect и load).
+        Assert.True(dispatchCalls >= 2);
+        Assert.Contains(true, busyEvents);
+        Assert.False(vm.IsBusy);
+        Assert.NotEmpty(vm.Rows);
+    }
+
     /// <summary>Запись справочника «Серверы 1С» для тестов issue #27.</summary>
     private static ManagementServer BuildServer(string id) => new()
     {

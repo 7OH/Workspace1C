@@ -253,6 +253,12 @@ namespace Workspace1C
             _viewModel = viewModel ?? new ViewModels.MainViewModel();
             DataContext = _viewModel;
 
+            // Заголовок с «дополнением» (issue #28/#34): первый вызов UpdateWindowTitle
+            // выше выполнялся до присваивания _viewModel и собирал заголовок без суффикса.
+            // Пересобираем с VM — и системный Title, и видимая шапка содержат дополнение
+            // сразу при открытии окна (в т.ч. если окно создаётся не через App.OnStartup).
+            UpdateWindowTitle();
+
             // Отслеживание открытых ToolTip и перехват ESC перенесены в общий механизм
             // ToolTipCloser (issues #270/#275): он отслеживает сами инстансы ToolTip (в т.ч.
             // внутренние для строковых подсказок ToolTip="..."), закрывает их по первому ESC
