@@ -10,16 +10,18 @@ using Workspace1C.ViewModels;
 namespace Workspace1C
 {
     /// <summary>
-    /// Окно «Импорт из кластера 1С» (0.3.9.174, Windows/WPF): импорт информационных
-    /// баз из кластера сервера 1С через утилиту rac — подключение к ragent/RAS
-    /// (адрес/порт/логин/пароль), выбор кластера, чеклист найденных баз с пометкой
-    /// дубликатов, сводка «будет добавлено» и импорт отмеченных баз в список
-    /// приложения. Вся логика — в чистой ViewModel
-    /// <see cref="ClusterImportViewModel"/>; окно — тонкая обёртка: префилл настроек
-    /// RAS, пароль передаётся в VM вручную из PasswordBox (на диск не сохраняется,
-    /// см. решения планирования цикла 0.3.9.172–0.3.9.175), адрес/порт/логин
-    /// сохраняются при успешном подключении. После <c>ShowDialog()==true</c> выбранные
-    /// базы доступны через <see cref="SelectedBases"/>.
+    /// Окно «Импорт из кластера 1С» (0.3.9.174, Windows/WPF; issue #27): импорт
+    /// информационных баз из кластера сервера 1С через утилиту rac. Параметры
+    /// подключения (адрес/порт/логин/пароль) берутся из выбранной записи справочника
+    /// «Серверы 1С» (вместо четырёх полей — список выбора); пароль живёт только
+    /// в памяти окна (на диск не пишется, см. решения планирования цикла
+    /// 0.3.9.172–0.3.9.175). Выбор кластера, чеклист найденных баз с пометкой
+    /// дубликатов, сводка «будет добавлено» и импорт отмеченных баз. Вся логика —
+    /// в чистой ViewModel <see cref="ClusterImportViewModel"/>; окно — тонкая
+    /// обёртка: источник серверов (<see cref="IServerListStore"/>), подстановка
+    /// выбранного сервера и автоподключение при открытии из окна «Серверы 1С».
+    /// После <c>ShowDialog()==true</c> выбранные базы доступны через
+    /// <see cref="SelectedBases"/>.
     /// </summary>
     public partial class ClusterImportWindow : Window
     {
@@ -29,10 +31,18 @@ namespace Workspace1C
         /// <param name="rac">Клиент rac (кластеры, «cluster info», базы кластера).</param>
         /// <param name="repository">Репозиторий настроек (адрес/порт/логин RAS сохраняются при успешном подключении).</param>
         /// <param name="existingInfobases">Базы, уже присутствующие в списке приложения — для пометки дубликатов.</param>
+        /// <param name="initialServer">
+        /// Сервер, открытый из окна «Серверы 1С» (issue #27): подставляется в список
+        /// выбора; при <paramref name="autoConnect"/> подключение выполняется сразу.
+        /// Null — обычное открытие из меню «Утилиты» (без автоподключения).
+        /// </param>
+        /// <param name="autoConnect">Выполнить «Подключиться» сразу после показа.</param>
         public ClusterImportWindow(
             IRacClient rac,
             IInfobaseRepository repository,
-            IReadOnlyList<Infobase> existingInfobases)
+            IReadOnlyList<Infobase> existingInfobases,
+            ManagementServer? initialServer = null,
+            bool autoConnect = false)
         {
             InitializeComponent();
             _repository = repository;
@@ -42,8 +52,9 @@ namespace Workspace1C
                 existingInfobases,
                 action => Application.Current?.Dispatcher.BeginInvoke(action));
 
-            // Начальные адрес/порт/логин — из настроек приложения (пароль НЕ сохраняется).
-            LoadSavedConnectionSettings();
+            // Справочник «Серверы 1С» — источник подключения (issue #27); при пустом
+            // списке в разметке подсказка и «Подключиться» недоступна.
+            _vm.AvailableServers = AppServices.GetRequiredService<IServerListStore>().Load();
 
             DataContext = _vm;
             Title = LocalizationManager.T("ClusterImport.Title");
@@ -52,6 +63,12 @@ namespace Workspace1C
             _vm.PropertyChanged += OnVmPropertyChanged;
             Closed += (_, _) => _vm.PropertyChanged -= OnVmPropertyChanged;
             UpdateSummary();
+
+            // Открытие из окна «Серверы 1С»: выбранный сервер + автоподключение.
+            if (initialServer is not null)
+                _ = _vm.InitializeFromServer(initialServer, autoConnect);
+            else
+                ConnectButton.IsEnabled = _vm.HasAvailableServers;
         }
 
         /// <summary>
@@ -62,8 +79,7 @@ namespace Workspace1C
 
         private async void OnConnect_Click(object sender, RoutedEventArgs e)
         {
-            // PasswordBox не биндится (пароль живёт только в памяти окна) — передаём вручную.
-            _vm.Password = PasswordBox.Password;
+            // Пароль приходит из выбранной записи справочника (issue #27) — PasswordBox нет.
             await _vm.ConnectAsync();
             if (_vm.Clusters.Count > 0)
                 SaveRacSettings();
@@ -112,8 +128,10 @@ namespace Workspace1C
             switch (e.PropertyName)
             {
                 case nameof(ClusterImportViewModel.IsBusy):
+                case nameof(ClusterImportViewModel.HasAvailableServers):
+                    // «Подключиться» недоступно при пустом справочнике (issue #27) и во время запроса.
                     var busy = _vm.IsBusy;
-                    ConnectButton.IsEnabled = !busy;
+                    ConnectButton.IsEnabled = !busy && _vm.HasAvailableServers;
                     LoadBasesButton.IsEnabled = !busy;
                     SelectAllButton.IsEnabled = !busy;
                     SelectNoneButton.IsEnabled = !busy;
@@ -158,22 +176,5 @@ namespace Workspace1C
             }
         }
 
-        private void LoadSavedConnectionSettings()
-        {
-            try
-            {
-                var settings = _repository.LoadSettings();
-                _vm.ServerAddress = string.IsNullOrWhiteSpace(settings.RacServerAddress)
-                    ? "localhost"
-                    : settings.RacServerAddress;
-                if (settings.RacServerPort > 0)
-                    _vm.ServerPort = settings.RacServerPort;
-                _vm.UserName = settings.RacUserName ?? string.Empty;
-            }
-            catch
-            {
-                // Без сохранённых настроек остаются дефолты VM.
-            }
-        }
     }
 }

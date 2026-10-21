@@ -509,6 +509,43 @@ public class ColorScheme
         return $"#{Clamp(r * factor):X2}{Clamp(g * factor):X2}{Clamp(b * factor):X2}";
     }
 
+    // ---- Контраст текста (issue #26): чистые хелперы без UI-зависимостей ----
+
+    /// <summary>
+    /// Относительная яркость цвета sRGB по спецификации WCAG 2.x (0 — чёрный, 1 — белый).
+    /// Используется для выбора контрастного цвета текста HEX-полей в обеих темах
+    /// (Windows/WPF и Linux/Avalonia) и покрыта юнит-тестами.
+    /// </summary>
+    public static double RelativeLuminance(string hex)
+    {
+        var (r, g, b) = ParseRgb(hex);
+        static double Linearize(byte c)
+        {
+            var s = c / 255.0;
+            return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * Linearize(r) + 0.7152 * Linearize(g) + 0.0722 * Linearize(b);
+    }
+
+    /// <summary>
+    /// Контрастное соотношение двух цветов (#RRGGBB) по WCAG 2.x (диапазон 1..21).
+    /// Значение ≥ 4.5:1 обычно считается достаточным для текста обычного размера.
+    /// </summary>
+    public static double ContrastRatio(string fgHex, string bgHex)
+    {
+        var lighter = Math.Max(RelativeLuminance(fgHex), RelativeLuminance(bgHex));
+        var darker = Math.Min(RelativeLuminance(fgHex), RelativeLuminance(bgHex));
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    /// <summary>
+    /// Возвращает цвет текста (#FFFFFF или #000000) с максимальным контрастом на заданном
+    /// фоне (#RRGGBB): для тёмного фона — белый, для светлого — чёрный. Порог выбирается
+    /// по относительной яркости (0.5), как в существующих превью темы.
+    /// </summary>
+    public static string ContrastTextHex(string backgroundHex)
+        => RelativeLuminance(backgroundHex) > 0.5 ? "#000000" : "#FFFFFF";
+
     private static void RgbToHsl(byte r, byte g, byte b, out double h, out double s, out double l)
     {
         double rd = r / 255.0, gd = g / 255.0, bd = b / 255.0;

@@ -37,6 +37,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
     private int _duplicateCount;
     private IReadOnlyList<Infobase> _selectedBases = Array.Empty<Infobase>();
     private bool _importCompleted;
+    private IReadOnlyList<ManagementServer> _availableServers = Array.Empty<ManagementServer>();
+    private ManagementServer? _selectedServer;
 
     private ICommand? _connectCommand;
     private ICommand? _loadBasesCommand;
@@ -50,14 +52,60 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// Доставка применения результатов в UI-поток (передаёт окно); null — результаты
     /// применяются прямо из рабочего потока (тесты).
     /// </param>
+    /// <param name="availableServers">
+    /// Справочник «Сервера 1С» (issue #27): список выбора вместо четырёх полей
+    /// адрес/порт/логин/пароль. Пароль берётся из выбранной записи — только в памяти
+    /// окна, на диск не пишется. Опционально — старые вызовы без серверов работают
+    /// как раньше (дефолты localhost:1540).
+    /// </param>
     public ClusterImportViewModel(
         IRacClient rac,
         IReadOnlyList<Infobase> existingInfobases,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        IReadOnlyList<ManagementServer>? availableServers = null)
     {
         _rac = rac ?? throw new ArgumentNullException(nameof(rac));
         _existingInfobases = existingInfobases ?? throw new ArgumentNullException(nameof(existingInfobases));
         _dispatchToUi = dispatchToUi;
+        AvailableServers = availableServers ?? Array.Empty<ManagementServer>();
+    }
+
+    // ---- Справочник «Сервера 1С» (issue #27) ----
+
+    /// <summary>
+    /// Записи справочника «Сервера 1С» для выбора подключения (вместо четырёх полей
+    /// адрес/порт/логин/пароль). Заполняется окном; пустой список — в окне подсказка
+    /// и кнопка «Подключиться» недоступна.
+    /// </summary>
+    public IReadOnlyList<ManagementServer> AvailableServers
+    {
+        get => _availableServers;
+        set
+        {
+            if (SetProperty(ref _availableServers, value ?? Array.Empty<ManagementServer>()))
+                OnPropertyChanged(nameof(HasAvailableServers));
+        }
+    }
+
+    /// <summary>Есть ли хотя бы один сервер в справочнике (для доступности «Подключиться»).</summary>
+    public bool HasAvailableServers => AvailableServers.Count > 0;
+
+    /// <summary>
+    /// Выбранный сервер справочника. При установке значения адрес/порт/логин/пароль
+    /// заполняются из записи (пароль — только в памяти VM, на диск не пишется).
+    /// </summary>
+    public ManagementServer? SelectedServer
+    {
+        get => _selectedServer;
+        set
+        {
+            if (ReferenceEquals(_selectedServer, value))
+                return;
+            _selectedServer = value;
+            OnPropertyChanged(nameof(SelectedServer));
+            if (value is not null)
+                FillFromServer(value);
+        }
     }
 
     // ===================== Параметры подключения =====================
@@ -210,6 +258,26 @@ public sealed class ClusterImportViewModel : ViewModelBase
     public bool IsBusy => _busy == 1;
 
     // ===================== Действия =====================
+
+    /// <summary>
+    /// Подставляет сервер справочника и (при <paramref name="autoConnect"/>) сразу
+    /// подключается (issue #27). Вызывается окном импорта при открытии из окна
+    /// «Серверы 1С»: адрес/порт/логин/пароль заполняются из записи, подключение
+    /// запускается в UI-потоке после показа окна. Если в <see cref="AvailableServers"/>
+    /// есть запись с тем же Id — выбирается она (один и тот же объект в комбобоксе).
+    /// </summary>
+    /// <param name="server">Запись справочника; может отличаться по ссылке от списка <see cref="AvailableServers"/>.</param>
+    /// <param name="autoConnect">Сразу выполнить «Подключиться» (без ручного нажатия).</param>
+    public Task InitializeFromServer(ManagementServer server, bool autoConnect)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+
+        var matched = AvailableServers.FirstOrDefault(
+            s => string.Equals(s.Id, server.Id, StringComparison.OrdinalIgnoreCase)) ?? server;
+        SelectedServer = matched;
+
+        return autoConnect ? ConnectAsync() : Task.CompletedTask;
+    }
 
     /// <summary>
     /// «Подключиться»: получить список кластеров (rac «cluster list»); при успехе — выбрать
@@ -368,6 +436,18 @@ public sealed class ClusterImportViewModel : ViewModelBase
     }
 
     // ===================== Внутреннее =====================
+
+    /// <summary>
+    /// Заполняет адрес/порт/логин/пароль из записи справочника (issue #27). Пароль
+    /// берётся только в память VM — на диск не пишется (политика неизменна).
+    /// </summary>
+    private void FillFromServer(ManagementServer server)
+    {
+        ServerAddress = server.Address;
+        ServerPort = server.Port;
+        UserName = server.User;
+        Password = server.Password;
+    }
 
     private RacConnectionParams BuildParams()
     {

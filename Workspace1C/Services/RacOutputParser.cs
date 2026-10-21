@@ -233,9 +233,12 @@ public static class RacOutputParser
         {
             // Формат новых версий rac: «cluster list» выводится блоками «ключ : значение»
             // вместо таблицы; блок начинается строкой «cluster : GUID» (issue #324).
-            foreach (var block in TryParseKeyValueBlocks(output, "cluster", IsGuid))
+            // Стартер «cluster-id» пробуем наравне с «cluster» (переименование ключей
+            // в 8.5.x, issue #25); идентификатор — из любого из двух ключей.
+            foreach (var block in TryParseKeyValueBlocks(
+                         output, new[] { "cluster", "cluster-id" }, IsGuid))
             {
-                var id = ParseGuid(Get(block, "cluster"));
+                var id = ParseGuid(GetAny(block, "cluster", "cluster-id"));
                 if (id == Guid.Empty)
                     continue; // блок без валидного идентификатора — пропускаем
 
@@ -244,8 +247,9 @@ public static class RacOutputParser
                     Id = id,
                     // Имя кластера — по первому найденному ключу-алиасу: разные версии rac
                     // называют колонку по-разному (issue #324, «в поле ключ вместо имени»:
-                    // у новых rac 8.5 возможны fullName/displayName вместо name).
-                    Name = Unquote(GetAny(block, "name", "fullName", "displayName", "descr", "description")),
+                    // у новых rac 8.5 возможны fullName/displayName/display-name вместо name).
+                    Name = Unquote(GetAny(block, "name", "fullName", "displayName", "display-name",
+                        "descr", "description")),
                     Port = ParseInt(Get(block, "port")),
                     // Хост кластера — для запасной подписи в списке, когда name пуст
                     // (issue #324: «ключ вместо имени» — пользователь должен видеть
@@ -787,30 +791,32 @@ public static class RacOutputParser
         }
 
         // issue #324: новые версии rac отдают «infobase summary list» блоками «ключ : значение».
-        // Стартер «infobase-id» пробуем наравне с «infobase» (переименование ключей в
-        // 8.5.4.1878, issue #324); идентификатор — из любого из двух ключей.
+        // Стартеры «infobase-id» (8.5.4.1878, issue #324) и «infobase-summary-id» (8.5.x,
+        // issue #25) пробуем наравне с «infobase»; идентификатор — из любого из них.
         if (infobases.Count == 0 && LooksLikeKeyValueOutput(output))
         {
             foreach (var block in TryParseKeyValueBlocks(
-                         output, new[] { "infobase", "infobase-id" }, IsGuid))
+                         output, new[] { "infobase", "infobase-id", "infobase-summary-id" }, IsGuid))
             {
-                var id = ParseGuid(Get(block, "infobase"));
-                if (id == Guid.Empty)
-                    id = ParseGuid(Get(block, "infobase-id"));
+                var id = ParseGuid(GetAny(block, "infobase", "infobase-id", "infobase-summary-id"));
                 if (id == Guid.Empty)
                     continue;
 
                 infobases.Add(new RacInfobaseSummary
                 {
                     InfobaseId = id,
-                    Name = Unquote(Get(block, "name")),
+                    // Имя — по первому найденному алиасу (8.5.x может отдавать
+                    // fullName/displayName/display-name вместо name, issue #25).
+                    Name = Unquote(GetAny(block, "name", "fullName", "displayName", "display-name")),
                     Descr = Unquote(Get(block, "descr")),
                     Dbms = Unquote(Get(block, "dbms")),
-                    DbServer = Unquote(Get(block, "db-server")),
-                    DbName = Unquote(Get(block, "db-name")),
+                    // Алиасы camelCase (dbServer/dbName/securityLevel) — формат 8.5.x
+                    // (issue #25): новые rac переименовывают ключи блочного вывода.
+                    DbServer = Unquote(GetAny(block, "db-server", "dbServer")),
+                    DbName = Unquote(GetAny(block, "db-name", "dbName")),
                     DbUser = Unquote(Get(block, "db-user")),
                     Locale = Unquote(Get(block, "locale")),
-                    SecurityLevel = ParseInt(Get(block, "security-level")),
+                    SecurityLevel = ParseInt(GetAny(block, "security-level", "securityLevel")),
                     Licensed = ParseBool(Get(block, "licensed"))
                 });
             }

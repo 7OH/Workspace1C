@@ -22,15 +22,18 @@ using Workspace1C.ViewModels;
 namespace Workspace1C
 {
     /// <summary>
-    /// Окно «Импорт из кластера 1С» (0.3.9.174, Avalonia/Linux): импорт информационных
-    /// баз из кластера сервера 1С через утилиту rac — подключение к ragent/RAS
-    /// (адрес/порт/логин/пароль), выбор кластера, чеклист найденных баз с пометкой
-    /// дубликатов, сводка «будет добавлено» и импорт отмеченных баз в список
-    /// приложения. Вся логика — в чистой ViewModel
-    /// <see cref="ClusterImportViewModel"/>; окно — тонкая обёртка (аналогично
-    /// <see cref="ServerMonitorWindow"/> и <see cref="BaseSelectionWindow"/>): префилл
-    /// настроек RAS, пароль передаётся в VM вручную из PasswordBox (на диск не
-    /// сохраняется), адрес/порт/логин сохраняются при успешном подключении.
+    /// Окно «Импорт из кластера 1С» (0.3.9.174, Avalonia/Linux; issue #27): импорт
+    /// информационных баз из кластера сервера 1С через утилиту rac. Параметры
+    /// подключения (адрес/порт/логин/пароль) берутся из выбранной записи справочника
+    /// «Серверы 1С» (вместо четырёх полей — список выбора); пароль живёт только
+    /// в памяти окна (на диск не пишется, см. решения планирования цикла
+    /// 0.3.9.172–0.3.9.175). Выбор кластера, чеклист найденных баз с пометкой
+    /// дубликатов, сводка «будет добавлено» и импорт отмеченных баз. Вся логика —
+    /// в чистой ViewModel <see cref="ClusterImportViewModel"/>; окно — тонкая
+    /// обёртка (аналогично <see cref="ServerMonitorWindow"/> и
+    /// <see cref="BaseSelectionWindow"/>): источник серверов
+    /// (<see cref="IServerListStore"/>), подстановка выбранного сервера и
+    /// автоподключение при открытии из окна «Серверы 1С».
     /// После <c>ShowDialogSync()==true</c> выбранные базы доступны через
     /// <see cref="SelectedBases"/>.
     /// </summary>
@@ -39,6 +42,7 @@ namespace Workspace1C
         private readonly ClusterImportViewModel _vm;
         private readonly IInfobaseRepository _repository;
         private readonly ComboBox _clusterCombo;
+        private readonly ComboBox _serverCombo;
         private readonly TextBlock _summaryText;
         private readonly TextBlock _duplicateSummaryText;
         private readonly ProgressBar _progressBar;
@@ -51,10 +55,18 @@ namespace Workspace1C
         /// <param name="rac">Клиент rac (кластеры, «cluster info», базы кластера).</param>
         /// <param name="repository">Репозиторий настроек (адрес/порт/логин RAS сохраняются при успешном подключении).</param>
         /// <param name="existingInfobases">Базы, уже присутствующие в списке приложения — для пометки дубликатов.</param>
+        /// <param name="initialServer">
+        /// Сервер, открытый из окна «Серверы 1С» (issue #27): подставляется в список
+        /// выбора; при <paramref name="autoConnect"/> подключение выполняется сразу.
+        /// Null — обычное открытие из меню «Утилиты» (без автоподключения).
+        /// </param>
+        /// <param name="autoConnect">Выполнить «Подключиться» сразу после показа.</param>
         public ClusterImportWindow(
             IRacClient rac,
             IInfobaseRepository repository,
-            IReadOnlyList<Infobase> existingInfobases)
+            IReadOnlyList<Infobase> existingInfobases,
+            ManagementServer? initialServer = null,
+            bool autoConnect = false)
         {
             AvaloniaXamlLoader.Load(this);
 
@@ -63,23 +75,36 @@ namespace Workspace1C
             _vm = new ClusterImportViewModel(
                 rac,
                 existingInfobases,
-                action => Dispatcher.UIThread.Post(action));
+                action => Dispatcher.UIThread.Post(action),
+                AppServices.GetRequiredService<IServerListStore>().Load());
 
             Title = LocalizationManager.T("ClusterImport.Title");
             DataContext = _vm;
             _vm.PropertyChanged += OnVmPropertyChanged;
             Closed += (_, _) => _vm.PropertyChanged -= OnVmPropertyChanged;
 
-            // Начальные адрес/порт/логин — из настроек приложения (пароль НЕ сохраняется).
-            LoadSavedConnectionSettings();
-
-            // ---- Поля подключения (двухсторонняя привязка к VM). ----
-            this.FindControl<TextBox>("AddressBox")!
-                .Bind(TextBox.TextProperty, new Binding("ServerAddress", BindingMode.TwoWay));
-            this.FindControl<TextBox>("PortBox")!
-                .Bind(TextBox.TextProperty, new Binding("ServerPort", BindingMode.TwoWay));
-            this.FindControl<TextBox>("UserBox")!
-                .Bind(TextBox.TextProperty, new Binding("UserName", BindingMode.TwoWay));
+            // ---- Выбор сервера из справочника (issue #27): адрес/порт/логин/пароль
+            // заполняются из записи через SelectedServer. ----
+            _serverCombo = this.FindControl<ComboBox>("ServerCombo")!;
+            _serverCombo.ItemsSource = _vm.AvailableServers;
+            _serverCombo.ItemTemplate = new FuncDataTemplate<ManagementServer>((server, _) =>
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children =
+                    {
+                        new TextBlock { Text = server.Description, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center },
+                        new TextBlock { Text = $"{server.Address}:{server.Port}", Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center }
+                    }
+                });
+            _serverCombo.SelectionChanged += (_, _) =>
+            {
+                if (_serverCombo.SelectedItem is ManagementServer server)
+                    _vm.SelectedServer = server;
+            };
+            this.FindControl<TextBlock>("ServersEmptyHint")!
+                .Bind(IsVisibleProperty, new Binding("!HasAvailableServers"));
 
             // ---- Выбор кластера: список из VM, синхронизация выбора в обе стороны. ----
             _clusterCombo = this.FindControl<ComboBox>("ClusterCombo")!;
@@ -126,15 +151,9 @@ namespace Workspace1C
             };
 
             // ---- Кнопки (паттерн BaseSelectionWindow: строятся в коде, хост — в разметке). ----
-            var passwordBox = this.FindControl<PasswordBox>("PasswordInput")!;
-            passwordBox.Styled(ControlThemes.ModernPasswordBox);
+            // Пароль приходит из выбранной записи справочника (issue #27) — PasswordBox нет.
             _connectButton = BuildActionButton(LocalizationManager.T("ClusterImport.Connect"), "🔌",
-                () =>
-                {
-                    // PasswordBox не биндится (пароль живёт только в памяти окна) — вручную.
-                    _vm.Password = passwordBox.Password ?? string.Empty;
-                    _ = ConnectAndSaveAsync();
-                });
+                () => _ = ConnectAndSaveAsync());
             this.FindControl<ContentControl>("ConnectHost")!.Content = _connectButton;
 
             _loadBasesButton = BuildActionButton(LocalizationManager.T("ClusterImport.LoadBases"), "⟳",
@@ -152,6 +171,11 @@ namespace Workspace1C
 
             _importButton = BuildImportButton();
             this.FindControl<ContentControl>("ImportHost")!.Content = _importButton;
+
+            // Открытие из окна «Серверы 1С» (issue #27): выбранный сервер + автоподключение.
+            _connectButton.IsEnabled = _vm.HasAvailableServers;
+            if (initialServer is not null)
+                _ = _vm.InitializeFromServer(initialServer, autoConnect);
         }
 
         /// <summary>
@@ -189,13 +213,18 @@ namespace Workspace1C
             switch (e.PropertyName)
             {
                 case nameof(ClusterImportViewModel.IsBusy):
+                case nameof(ClusterImportViewModel.HasAvailableServers):
+                    // «Подключиться» недоступно при пустом справочнике (issue #27) и во время запроса.
                     var busy = _vm.IsBusy;
-                    _connectButton.IsEnabled = !busy;
+                    _connectButton.IsEnabled = !busy && _vm.HasAvailableServers;
                     _loadBasesButton.IsEnabled = !busy;
                     _selectAllButton.IsEnabled = !busy;
                     _selectNoneButton.IsEnabled = !busy;
                     _importButton.IsEnabled = !busy;
                     _progressBar.IsVisible = busy;
+                    break;
+                case nameof(ClusterImportViewModel.SelectedServer):
+                    SyncSelectedServer();
                     break;
                 case nameof(ClusterImportViewModel.SelectedClusterId):
                     SyncSelectedCluster();
@@ -219,6 +248,19 @@ namespace Workspace1C
             if (_clusterCombo.SelectedItem is RacCluster current && current.Id == id)
                 return;
             _clusterCombo.SelectedItem = _vm.Clusters.FirstOrDefault(c => c.Id == id);
+        }
+
+        /// <summary>
+        /// Подстановка сервера из VM (InitializeFromServer, issue #27) синхронизируется
+        /// с комбобоксом — выбранная запись справочника видна в списке сразу.
+        /// </summary>
+        private void SyncSelectedServer()
+        {
+            if (_vm.SelectedServer is not { } selected)
+                return;
+            if (ReferenceEquals(_serverCombo.SelectedItem, selected))
+                return;
+            _serverCombo.SelectedItem = selected;
         }
 
         private void UpdateSummary()
@@ -290,23 +332,6 @@ namespace Workspace1C
             }
         }
 
-        private void LoadSavedConnectionSettings()
-        {
-            try
-            {
-                var settings = _repository.LoadSettings();
-                _vm.ServerAddress = string.IsNullOrWhiteSpace(settings.RacServerAddress)
-                    ? "localhost"
-                    : settings.RacServerAddress;
-                if (settings.RacServerPort > 0)
-                    _vm.ServerPort = settings.RacServerPort;
-                _vm.UserName = settings.RacUserName ?? string.Empty;
-            }
-            catch
-            {
-                // Без сохранённых настроек остаются дефолты VM.
-            }
-        }
     }
 }
 #endif

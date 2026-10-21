@@ -119,7 +119,10 @@
         <!-- ============ HEX ============ -->
         <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,4,0,0">
             <TextBlock Text="{loc:Loc ColorPicker.HexLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox x:Name="HexBox" Width="110" Padding="4,3" TextChanged="OnHex_TextChanged"/>
+            <!-- Foreground задан явно из темы: в тёмной теме без него текст HEX
+                 оставался чёрным и сливался с тёмным полем (issue #26). -->
+            <TextBox x:Name="HexBox" Width="110" Padding="4,3" TextChanged="OnHex_TextChanged"
+                     Foreground="{DynamicResource TextPrimaryBrush}"/>
         </StackPanel>
     </Grid>
 </UserControl>

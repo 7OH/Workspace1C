@@ -1639,7 +1639,10 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
-        var window = new Workspace1C.ServerMonitorWindow();
+        // Кнопка «Импорт» под списком баз (issue #27) открывает «Импорт из кластера 1С»
+        // с сервером, текущим на момент нажатия, и автоподключением.
+        var window = new Workspace1C.ServerMonitorWindow(
+            server => ExecuteImportClusterInfobases(server, autoConnect: true));
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_serverMonitorWindow, window))
@@ -1762,26 +1765,51 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>
     /// Команда «Импорт из кластера 1С…»: импорт информационных баз из кластера сервера
-    /// 1С через утилиту rac (цикл 0.3.9.172–0.3.9.175) — окно с подключением к ragent/RAS,
-    /// чеклистом баз кластера (дубликаты по строке подключения сняты и помечены), сводкой
-    /// «будет добавлено» и созданием недостающих групп по имени кластера при группировке.
-    /// Активна всегда — кластер не привязан к конкретной базе списка (как ServerMonitorCommand).
+    /// 1С через утилиту rac (цикл 0.3.9.172–0.3.9.175) — окно с выбором сервера из
+    /// справочника «Серверы 1С» (issue #27: адрес/порт/логин/пароль — из записи, вместо
+    /// четырёх полей), чеклистом баз кластера (дубликаты по строке подключения сняты
+    /// и помечены), сводкой «будет добавлено» и созданием недостающих групп по имени
+    /// кластера при группировке. Активна всегда — кластер не привязан к конкретной
+    /// базе списка (как ServerMonitorCommand). Из окна «Серверы 1С» открывается с
+    /// выбранным сервером и автоподключением (issue #27).
     /// </summary>
     public System.Windows.Input.ICommand ImportClusterInfobasesCommand =>
         _importClusterInfobasesCommand ??= new RelayCommand(_ => ExecuteImportClusterInfobases());
 
-    private void ExecuteImportClusterInfobases()
+    /// <summary>
+    /// Открывает окно «Импорт из кластера 1С». Команда меню вызывает без параметров
+    /// (как раньше); из окна «Серверы 1С» передаётся <paramref name="initialServer"/>
+    /// и <paramref name="autoConnect"/> = true (issue #27) — окно подставляет сервер
+    /// и сразу подключается. Логика применения результата — в общем
+    /// <see cref="ApplyClusterImportResult"/> (единая для WPF и Avalonia).
+    /// </summary>
+    private void ExecuteImportClusterInfobases(ManagementServer? initialServer = null, bool autoConnect = false)
     {
         var window = new Workspace1C.ClusterImportWindow(
             AppServices.GetRequiredService<IRacClient>(),
             AppServices.GetRequiredService<IInfobaseRepository>(),
-            _allInfobases.ToList());
-        if (!window.ShowDialogSync(OwnerWindow()) || window.SelectedBases.Count == 0)
+            _allInfobases.ToList(),
+            initialServer,
+            autoConnect);
+        if (!window.ShowDialogSync(OwnerWindow()))
             return;
 
-        // Страховка от дубликатов: окно уже фильтровало по строкам подключения, но
-        // список мог измениться с момента построения чеклиста — лишнее не добавляем.
-        var added = window.SelectedBases
+        ApplyClusterImportResult(window.SelectedBases);
+    }
+
+    /// <summary>
+    /// Применяет результат импорта (общий для WPF и Avalonia, issue #27): добавляет
+    /// новые базы в список, недостающие группы по именам импортируемых баз (имя
+    /// кластера при группировке) — как корневые, сохраняет список/группы, пересобирает
+    /// дерево и показывает сводку. Страховка от дубликатов: окно уже фильтровало по
+    /// строкам подключения, но список мог измениться — лишнее не добавляем.
+    /// </summary>
+    private void ApplyClusterImportResult(IReadOnlyList<Infobase> selected)
+    {
+        if (selected.Count == 0)
+            return;
+
+        var added = selected
             .Where(b => !RacInfobaseMapper.IsDuplicate(_allInfobases, b))
             .ToList();
         if (added.Count == 0)
@@ -1790,8 +1818,6 @@ public partial class MainViewModel : ViewModelBase
         _allInfobases.AddRange(added);
         SyncFavoriteHotkeys();
 
-        // Недостающие группы по именам из импортируемых баз (имя кластера при
-        // группировке) добавляются как корневые — как при добавляющем импорте JSON.
         var existingGroupNames = new HashSet<string>(
             _groups.Select(g => (g.Name ?? "").Trim()), StringComparer.OrdinalIgnoreCase);
         var groupsToAdd = added
@@ -1820,7 +1846,7 @@ public partial class MainViewModel : ViewModelBase
 
         StatusBarInfo = string.Format(LocalizationManager.T("ClusterImport.SuccessFormat"), added.Count);
         _logger.Info($"Импорт из кластера 1С: добавлено {added.Count} баз, " +
-                     $"пропущено дубликатов {window.SelectedBases.Count - added.Count}");
+                     $"пропущено дубликатов {selected.Count - added.Count}");
     }
 
     // ======================= Статистика использования баз (0.3.9.95) =======================

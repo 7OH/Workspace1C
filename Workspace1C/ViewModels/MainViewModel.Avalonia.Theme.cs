@@ -88,9 +88,10 @@ public partial class MainViewModel : ViewModelBase
             _settings.Theme = ThemeManager.CurrentTheme;
             _themeName = _settings.Theme;
         }
-        // Схема темы становится активной, чтобы редактор палитры и предпросмотр
-        // показывали цвета выбранной темы.
-        if (theme is not null && theme.Scheme is not null)
+        // Активная схема перезаписывается схемой темы ТОЛЬКО при подтверждённом выборе
+        // (persist:true). В режиме предпросмотра (persist:false, issue #378) её трогать
+        // нельзя: иначе правки встроенной темы затирались ещё до «ОК» (issue #26).
+        if (persist && theme is not null && theme.Scheme is not null)
         {
             var clone = theme.Scheme.Clone();
             clone.Normalize();

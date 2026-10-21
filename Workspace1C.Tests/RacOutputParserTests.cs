@@ -396,6 +396,41 @@ public sealed class RacOutputParserTests
         Assert.Empty(RacOutputParser.ToClusters(output));
     }
 
+    [Fact]
+    public void ToClusters_ParsesRac851Blocks_WithClusterIdStarter()
+    {
+        // Образец формата 8.5.x (issue #25): стартер блока — «cluster-id» (вместо
+        // «cluster»), имя — «displayName»/«display-name» (вместо «name»). Парсер
+        // должен распознать кластер по алиасам, как для 8.5.4.1878 (issue #324).
+        const string output =
+            "cluster-id : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "host       : SRV-85\n" +
+            "port       : 27541\n" +
+            "displayName: \"Локальный кластер 8.5\"\n";
+
+        var cluster = Assert.Single(RacOutputParser.ToClusters(output));
+
+        Assert.Equal(Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9"), cluster.Id);
+        Assert.Equal("Локальный кластер 8.5", cluster.Name);
+        Assert.Equal(27541, cluster.Port);
+        Assert.Equal("SRV-85", cluster.Host);
+    }
+
+    [Fact]
+    public void ToClusters_ParsesRac851Blocks_WithDisplayNameAlias()
+    {
+        // Имя кластера может приходить как «display-name» (дефисный вариант) —
+        // алиас читается наравне с «displayName»/«fullName» (issue #25).
+        const string output =
+            "cluster-id : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "display-name : \"Кластер с дефисом\"\n" +
+            "port : 1541\n";
+
+        var cluster = Assert.Single(RacOutputParser.ToClusters(output));
+
+        Assert.Equal("Кластер с дефисом", cluster.Name);
+    }
+
     // ---------- ToProcesses ----------
 
     [Fact]
@@ -1007,6 +1042,58 @@ public sealed class RacOutputParserTests
         Assert.Equal("SQL-SRV-01", infobase.DbServer);
         Assert.Equal("base_1c", infobase.DbName);
         Assert.Equal("1c_user", infobase.DbUser);
+    }
+
+    [Fact]
+    public void ToInfobaseSummaries_ParsesRac851Blocks_WithInfobaseSummaryIdStarter()
+    {
+        // Образец формата 8.5.x (issue #25): стартер блока — «infobase-summary-id»
+        // (вместо «infobase»/«infobase-id»), поля — camelCase-алиасы dbServer/dbName/
+        // securityLevel. Парсер должен распознать базу по алиасам.
+        const string output =
+            "infobase-summary-id : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n" +
+            "displayName         : \"Бухгалтерия 8.5\"\n" +
+            "descr               : \"Рабочая база\"\n" +
+            "dbms                : MSSQLServer\n" +
+            "dbServer            : SQL-SRV-85\n" +
+            "dbName              : base_1c_85\n" +
+            "db-user             : 1c_user\n" +
+            "locale              : ru_RU\n" +
+            "securityLevel       : 1\n" +
+            "licensed            : 1\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal(Guid.Parse("99999999-aaaa-bbbb-cccc-ddddeeeeffff"), infobase.InfobaseId);
+        Assert.Equal("Бухгалтерия 8.5", infobase.Name);
+        Assert.Equal("Рабочая база", infobase.Descr);
+        Assert.Equal("MSSQLServer", infobase.Dbms);
+        Assert.Equal("SQL-SRV-85", infobase.DbServer);
+        Assert.Equal("base_1c_85", infobase.DbName);
+        Assert.Equal(1, infobase.SecurityLevel);
+        Assert.True(infobase.Licensed);
+    }
+
+    [Fact]
+    public void ToInfobaseSummaries_ParsesRac851Blocks_WithInfobaseIdStarterAndCamelCase()
+    {
+        // Смешанный образец 8.5.x (issue #25): стартер «infobase-id» (как в 8.5.4.1878),
+        // поля — camelCase-алиасы. Регресс: прежние алиасы 8.5.4 не сломаны.
+        const string output =
+            "infobase-id    : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n" +
+            "name           : \"Бухгалтерия\"\n" +
+            "dbms           : PostgreSQL\n" +
+            "dbServer       : pg-85\n" +
+            "dbName         : buho_85\n" +
+            "securityLevel  : 0\n";
+
+        var infobase = Assert.Single(RacOutputParser.ToInfobaseSummaries(output));
+
+        Assert.Equal("Бухгалтерия", infobase.Name);
+        Assert.Equal("PostgreSQL", infobase.Dbms);
+        Assert.Equal("pg-85", infobase.DbServer);
+        Assert.Equal("buho_85", infobase.DbName);
+        Assert.Equal(0, infobase.SecurityLevel);
     }
 
     [Fact]

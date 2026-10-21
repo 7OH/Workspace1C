@@ -76,7 +76,11 @@ namespace Workspace1C
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(4, 0, 0, 0)
             };
-            ThemeBrushes.Bind(hex, TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            // Цвет HEX-текста контрастен фону редактируемой палитры (issue #26):
+            // в тёмной палитре светлый текст, в светлой — тёмный (иначе текст
+            // чёрный сливается с тёмной формой).
+            hex.Foreground = new SolidColorBrush(Color.Parse(
+                Models.ColorScheme.ContrastTextHex(scheme.PaletteValue(dark, "ContentBackgroundColor"))));
 
             hexText = updated => hex.Text = updated;
 

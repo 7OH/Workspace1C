@@ -1,17 +1,17 @@
-<!-- Окно «Импорт из кластера 1С» (0.3.9.174, Avalonia/Linux).
+<!-- Окно «Импорт из кластера 1С» (0.3.9.174, Avalonia/Linux; issue #27).
      Windows-аналог: Views/ClusterImportWindow.xaml. Раскладка повторяет его:
-     панель подключения к ragent/RAS (адрес/порт/логин/пароль), подсказка про порты
-     1540/1545 и политику пароля, выбор кластера, чеклист баз с флажками (колонки
-     «Имя», «Описание», «Кластер», «Подключение»), сводка «будет добавлено»,
-     переключатель группировки по кластеру и кнопки. Вся логика — в чистой
-     ClusterImportViewModel; кнопки (Подключиться/Получить базы/Выделить все/Снять
-     все/Импортировать/Закрыть) строит код за разметкой в хостах ConnectHost/
-     LoadHost/BulkHost/ImportHost (паттерн BaseSelectionWindow.axaml). -->
+     выбор сервера из справочника «Серверы 1С» (адрес/порт/логин/пароль — из записи,
+     вместо четырёх полей), подсказка про порты 1540/1545 и политику пароля, выбор
+     кластера, чеклист баз с флажками (колонки «Имя», «Описание», «Кластер»,
+     «Подключение»), сводка «будет добавлено», переключатель группировки по кластеру
+     и кнопки. Вся логика — в чистой ClusterImportViewModel; кнопки (Подключиться/
+     Получить базы/Выделить все/Снять все/Импортировать/Закрыть) строит код за
+     разметкой в хостах ConnectHost/LoadHost/BulkHost/ImportHost (паттерн
+     BaseSelectionWindow.axaml). -->
 <local:ModalWindowBase xmlns="https://github.com/avaloniaui"
                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                        xmlns:local="clr-namespace:Workspace1C"
                        xmlns:loc="clr-namespace:Workspace1C.Localization"
-                       xmlns:controls="clr-namespace:Workspace1C.Controls"
                        x:Class="Workspace1C.ClusterImportWindow"
                        Title="{loc:Loc ClusterImport.Title}"
                        Width="1100" Height="640"
@@ -20,24 +20,16 @@
                        CanResize="True">
     <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
 
-        <!-- Параметры подключения к ragent/RAS. -->
+        <!-- Выбор сервера из справочника «Серверы 1С» (issue #27): адрес/порт/логин/
+             пароль — из выбранной записи, вместо четырёх полей; при пустом
+             справочнике — подсказка и недоступное «Подключиться». -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
-            <TextBlock Text="{loc:Loc ClusterImport.Address}" VerticalAlignment="Center"/>
-            <TextBox x:Name="AddressBox" Width="140" Padding="6,3"
-                     VerticalContentAlignment="Center"/>
-            <TextBlock Text="{loc:Loc ClusterImport.Port}" VerticalAlignment="Center"/>
-            <TextBox x:Name="PortBox" Width="60" Padding="6,3"
-                     VerticalContentAlignment="Center"/>
-            <TextBlock Text="{loc:Loc ClusterImport.User}" VerticalAlignment="Center"/>
-            <TextBox x:Name="UserBox" Width="130" Padding="6,3"
-                     VerticalContentAlignment="Center"/>
-            <TextBlock Text="{loc:Loc ClusterImport.Password}" VerticalAlignment="Center"/>
-            <!-- В Avalonia 11 встроенного PasswordBox нет — используем замену проекта
-                 Controls.PasswordBox (как LoginWindow/ServerMonitorWindow). Имя
-                 PasswordInput, а не PasswordBox: x:Name создаёт поле с именем типа,
-                 которое скрывает тип при FindControl<PasswordBox> (member-hides-type). -->
-            <controls:PasswordBox x:Name="PasswordInput" Width="130" Padding="6,3"
-                                  VerticalContentAlignment="Center"/>
+            <TextBlock Text="{loc:Loc ClusterImport.Server}" VerticalAlignment="Center"/>
+            <ComboBox x:Name="ServerCombo" Width="340" VerticalContentAlignment="Center"
+                      Padding="6,2"/>
+            <TextBlock x:Name="ServersEmptyHint" Text="{loc:Loc ClusterImport.ServersEmpty}"
+                       FontSize="12" Opacity="0.65" TextWrapping="Wrap" MaxWidth="320"
+                       VerticalAlignment="Center" IsVisible="False"/>
             <ContentControl x:Name="ConnectHost" VerticalAlignment="Center"/>
         </StackPanel>
 

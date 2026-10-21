@@ -70,6 +70,28 @@ public sealed class ClusterImportViewModelTests
     }
 
     [Fact]
+    public async Task Connect_Success_WhenRacRejectsEqualsClusterFormat_Issue25()
+    {
+        // Регрессионный сценарий issue #25: rac 8.5.x отклоняет «--cluster=<uuid>»
+        // (код -1). Исправленный RacClient перебирает форматы внутри GetInfobasesAsync
+        // (первая попытка отклонена, вторая успешна) — ViewModel видит успех:
+        // подключение и загрузка чеклиста баз проходят без повторного нажатия.
+        var client = new FakeRacClient(rejectEqualsClusterFormat: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+
+        await vm.ConnectAsync();
+
+        Assert.Equal(3, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+        // Клиент действительно «повторил» запрос с альтернативным форматом (как
+        // исправленный RacClient на платформе 8.5.1).
+        Assert.Equal(1, client.InfobaseRetryCount);
+    }
+
+    [Fact]
     public async Task Connect_Failure_ReportsError_AndWindowStaysUsable()
     {
         var client = new FakeRacClient(throwOnClusters: true);
@@ -327,6 +349,116 @@ public sealed class ClusterImportViewModelTests
         Assert.NotEmpty(vm.StatusText);
     }
 
+    // ============= Issue #27: выбор сервера из справочника «Серверы 1С» =============
+
+    [Fact]
+    public void Ctor_WithServers_AvailableServersFilled_DefaultsKept_Issue27()
+    {
+        // Совместимость со старыми вызовами (без серверов) + префилл по умолчанию.
+        var servers = new[] { BuildServer("srv-1"), BuildServer("srv-2") };
+        var client = new FakeRacClient();
+
+        var withServers = new ClusterImportViewModel(client, Array.Empty<Infobase>(), availableServers: servers);
+        Assert.Equal(2, withServers.AvailableServers.Count);
+        Assert.True(withServers.HasAvailableServers);
+        Assert.Null(withServers.SelectedServer);
+        // Пока сервер не выбран — дефолты localhost:1540 сохраняются (регресс).
+        Assert.Equal("localhost", withServers.ServerAddress);
+        Assert.Equal(IRacClient.DefaultPort, withServers.ServerPort);
+        Assert.Equal(string.Empty, withServers.UserName);
+        Assert.Equal(string.Empty, withServers.Password);
+
+        // Старый вызов без серверов работает как раньше.
+        var withoutServers = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        Assert.Empty(withoutServers.AvailableServers);
+        Assert.False(withoutServers.HasAvailableServers);
+        Assert.Equal("localhost", withoutServers.ServerAddress);
+        Assert.Equal(IRacClient.DefaultPort, withoutServers.ServerPort);
+    }
+
+    [Fact]
+    public void SelectingServer_FillsAddressPortUserPassword_Issue27()
+    {
+        var vm = new ClusterImportViewModel(new FakeRacClient(), Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        vm.SelectedServer = server;
+
+        Assert.Same(server, vm.SelectedServer);
+        Assert.Equal("srv-prod", vm.ServerAddress);
+        Assert.Equal(1545, vm.ServerPort);
+        Assert.Equal("admin", vm.UserName);
+        Assert.Equal("secret", vm.Password);
+    }
+
+    [Fact]
+    public async Task InitializeFromServer_AutoConnectTrue_CallsGetClustersWithServerParams_Issue27()
+    {
+        var client = new FakeRacClient();
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        await vm.InitializeFromServer(server, autoConnect: true);
+
+        // Подключение выполнено с параметрами выбранного сервера (а не дефолтов).
+        Assert.Equal(1, client.ClustersCalls);
+        Assert.NotNull(client.LastParams);
+        Assert.Equal("srv-prod", client.LastParams.Address);
+        Assert.Equal(1545, client.LastParams.Port);
+        Assert.Equal("admin", client.LastParams.User);
+        Assert.Equal("secret", client.LastParams.Password);
+        Assert.Equal(3, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task InitializeFromServer_AutoConnectFalse_NoRacCalls_Issue27()
+    {
+        var client = new FakeRacClient();
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+        var server = BuildServer("srv-1");
+
+        await vm.InitializeFromServer(server, autoConnect: false);
+
+        // Без авто-подключения rac не трогается — только префилл параметров.
+        Assert.Equal(0, client.ClustersCalls);
+        Assert.Empty(vm.Clusters);
+        Assert.Equal("srv-prod", vm.ServerAddress);
+        Assert.Equal(1545, vm.ServerPort);
+        Assert.Equal("admin", vm.UserName);
+        Assert.Equal("secret", vm.Password);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public void InitializeFromServer_SelectsMatchingServerFromListById_Issue27()
+    {
+        // Сервер из окна «Серверы 1С» может отличаться по ссылке от записей списка —
+        // VM подставляет запись с тем же Id (чтобы комбобокс показал выбранную строку).
+        var listed = BuildServer("srv-1");
+        var vm = new ClusterImportViewModel(
+            new FakeRacClient(), Array.Empty<Infobase>(),
+            availableServers: new[] { listed });
+        var external = BuildServer("srv-1"); // тот же Id, другой экземпляр
+
+        _ = vm.InitializeFromServer(external, autoConnect: false);
+
+        Assert.Same(listed, vm.SelectedServer);
+        Assert.Equal("srv-prod", vm.ServerAddress);
+    }
+
+    /// <summary>Запись справочника «Серверы 1С» для тестов issue #27.</summary>
+    private static ManagementServer BuildServer(string id) => new()
+    {
+        Id = id,
+        Description = "Продуктивный сервер",
+        Address = "srv-prod",
+        Port = 1545,
+        User = "admin",
+        Password = "secret",
+    };
+
     // ===================== Fakes =====================
 
     /// <summary>
@@ -342,16 +474,19 @@ public sealed class ClusterImportViewModelTests
         private readonly bool _throwOnClusters;
         private readonly bool _throwOnLoad;
         private readonly bool _throwCancel;
+        private readonly bool _rejectEqualsClusterFormat;
         private readonly TimeSpan _clusterDelay;
         private readonly TimeSpan _loadDelay;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnLoad = false, bool throwCancel = false,
-            TimeSpan? clusterDelay = null, TimeSpan? loadDelay = null)
+            TimeSpan? clusterDelay = null, TimeSpan? loadDelay = null,
+            bool rejectEqualsClusterFormat = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnLoad = throwOnLoad;
             _throwCancel = throwCancel;
+            _rejectEqualsClusterFormat = rejectEqualsClusterFormat;
             _clusterDelay = clusterDelay ?? TimeSpan.Zero;
             _loadDelay = loadDelay ?? TimeSpan.Zero;
         }
@@ -410,6 +545,10 @@ public sealed class ClusterImportViewModelTests
             });
         }
 
+        /// <summary>Сколько раз клиент «повторил» запрос баз из-за отклонённого формата
+        /// «--cluster=<uuid>» (имитация перебора форматов исправленного RacClient, issue #25).</summary>
+        public int InfobaseRetryCount { get; private set; }
+
         public async Task<IReadOnlyList<RacInfobaseSummary>> GetInfobasesAsync(
             RacConnectionParams parameters, System.Guid clusterId, CancellationToken cancellationToken = default)
         {
@@ -421,6 +560,25 @@ public sealed class ClusterImportViewModelTests
                 throw new RacClientException("нет прав на просмотр баз");
             if (_throwCancel)
                 throw new OperationCanceledException();
+
+            // issue #25: rac 8.5.x отклоняет «--cluster=<uuid>» (код -1). Исправленный
+            // RacClient перебирает форматы ВНУТРИ одного вызова GetInfobasesAsync:
+            // первая попытка (формат 0) отклоняется rac, вторая (формат 1) возвращает
+            // данные. Fake имитирует это — ViewModel видит успех без повторного
+            // нажатия «Загрузить» (регрессионный сценарий issue #25).
+            if (_rejectEqualsClusterFormat)
+            {
+                InfobaseRetryCount++;
+                try
+                {
+                    throw new RacClientException(
+                        "rac завершился с кодом -1: Ошибка разбора параметра: --cluster=…");
+                }
+                catch (RacClientException)
+                {
+                    // Вторая попытка (альтернативный формат) — успешна: продолжаем.
+                }
+            }
 
             if (clusterId == FirstClusterId)
             {

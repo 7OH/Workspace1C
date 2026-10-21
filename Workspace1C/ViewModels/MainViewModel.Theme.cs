@@ -60,9 +60,12 @@ public partial class MainViewModel : ViewModelBase
             _fullTheme = theme?.Id ?? _fullTheme;
             _savedTheme = Themes.ThemeManager.CurrentTheme;
         }
-        // Схема темы становится активной, чтобы редактор палитры и предпросмотр
-        // показывали цвета выбранной темы.
-        if (theme is not null && theme.Scheme is not null)
+        // Активная схема перезаписывается схемой темы ТОЛЬКО при подтверждённом выборе
+        // (persist:true). В режиме предпросмотра (persist:false, issue #378) её трогать
+        // нельзя: иначе правки встроенной темы затирались ещё до «ОК» (issue #26).
+        // Редактор палитры всё равно показывает схему предпросмотренной темы через
+        // AdoptFullThemeScheme, а подтверждение выбора фиксируется при «ОК»/«Применить».
+        if (persist && theme is not null && theme.Scheme is not null)
         {
             var clone = theme.Scheme.Clone();
             clone.Normalize();
@@ -191,10 +194,14 @@ public partial class MainViewModel : ViewModelBase
         if (active is not null)
         {
             var isLight = !IsDarkTheme(theme);
+            // Сравниваем с каноническими именами («Светлая»/«Тёмная»), а не с
+            // локализованными подписями (issue #26): в не-русской локали активная
+            // встроенная схема не опознавалась и редактор показывал правки ТОЛЬКО
+            // до тех пор, пока они совпадали с активной схемой.
             var activeLight = string.Equals(active.Name,
-                LocalizationManager.T("Theme.Light"), StringComparison.OrdinalIgnoreCase);
+                Models.ColorScheme.CreateLight().Name, StringComparison.OrdinalIgnoreCase);
             var activeDark = string.Equals(active.Name,
-                LocalizationManager.T("Theme.Dark"), StringComparison.OrdinalIgnoreCase);
+                Models.ColorScheme.CreateDark().Name, StringComparison.OrdinalIgnoreCase);
             // Активная схема — та же встроенная базовая тема: возвращаем её правки.
             if ((isLight && activeLight) || (!isLight && activeDark))
                 return active.Clone();

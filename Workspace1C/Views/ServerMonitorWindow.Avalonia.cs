@@ -51,6 +51,12 @@ namespace Workspace1C
         private TextBlock? _infobasesEmptyHint;
         private TextBlock? _infobasesTitle;
 
+        /// <summary>
+        /// Открытие «Импорта из кластера 1С» (issue #27): делегат MainViewModel —
+        /// окно монитора к репозиторию напрямую не обращается.
+        /// </summary>
+        private readonly Action<ManagementServer?>? _openClusterImport;
+
         /// <summary>Заголовки вкладок с количеством строк (обновляются по PropertyChanged).</summary>
         private readonly List<(TabItem Tab, string Property)> _dynamicTabHeaders = new();
 
@@ -59,8 +65,13 @@ namespace Workspace1C
 
         private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
 
-        public ServerMonitorWindow()
+        /// <param name="openClusterImport">
+        /// Открытие окна импорта с сервером, текущим на момент нажатия «Импорт»
+        /// (issue #27); null — кнопка «Импорт» под списком баз не показывает импорт.
+        /// </param>
+        public ServerMonitorWindow(Action<ManagementServer?>? openClusterImport = null)
         {
+            _openClusterImport = openClusterImport;
             Title = LocalizationManager.T("ServerMonitor.Title");
             Width = 1400;
             Height = 760;
@@ -382,7 +393,9 @@ namespace Workspace1C
                 ColumnDefinitions =
                 {
                     new ColumnDefinition(new GridLength(280, GridUnitType.Pixel)),
-                    new ColumnDefinition(new GridLength(230, GridUnitType.Pixel)),
+                    // Колонка «Базы» расширена (issue #27): кнопки шире (MinWidth=40 после
+                    // 1.0.0.25) — 260 px, чтобы все пять кнопок и разделители помещались.
+                    new ColumnDefinition(new GridLength(260, GridUnitType.Pixel)),
                     new ColumnDefinition(new GridLength(1, GridUnitType.Star))
                 },
                 RowDefinitions =
@@ -1057,6 +1070,25 @@ namespace Workspace1C
                 }
             };
 
+            // Кнопка «Импорт» (issue #27): внизу панели баз, по аналогии с «Службы» под
+            // списком серверов; открывает «Импорт из кластера 1С» с текущим сервером.
+            var importButton = new Button
+            {
+                Content = new TextBlock
+                {
+                    Text = LocalizationManager.T("ServerMonitor.Infobase.Import"),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontWeight = FontWeight.SemiBold
+                },
+                Padding = new Thickness(0, 8),
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            importButton.Styled(ControlThemes.ModernButton);
+            ThemeBrushes.Bind(importButton, Button.BackgroundProperty, "ItemHoverBrush");
+            importButton.Click += (_, _) => OpenInfobaseImport();
+            DockPanel.SetDock(importButton, Dock.Bottom);
+
             var dock = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(_infobasesTitle, Dock.Top);
             DockPanel.SetDock(toolbar, Dock.Top);
@@ -1064,8 +1096,30 @@ namespace Workspace1C
             dock.Children.Add(_infobasesTitle);
             dock.Children.Add(toolbar);
             dock.Children.Add(_infobasesEmptyHint);
+            dock.Children.Add(importButton);
             dock.Children.Add(_infobasesList);
             return dock;
+        }
+
+        /// <summary>
+        /// «Импорт» (issue #27): открывает «Импорт из кластера 1С» с текущим сервером —
+        /// выбранный в списке, иначе подключённый, иначе первый из справочника. При
+        /// пустом справочнике — подсказка и выход. Сам импорт выполняет делегат
+        /// MainViewModel (логика добавления баз/групп — там, окно к репозиторию не ходит).
+        /// </summary>
+        private void OpenInfobaseImport()
+        {
+            var server = _vm.SelectedServer ?? _vm.ConnectedServer ?? _vm.Servers.FirstOrDefault();
+            if (server is null)
+            {
+                AppServices.GetRequiredService<IDialogService>()
+                    .ShowInfo(
+                        LocalizationManager.T("ClusterImport.ServersEmpty"),
+                        LocalizationManager.T("ServerMonitor.Title"));
+                return;
+            }
+
+            _openClusterImport?.Invoke(server);
         }
 
         /// <summary>Вертикальный разделитель групп кнопок панели баз (issue #3).</summary>

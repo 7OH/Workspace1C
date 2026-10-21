@@ -610,9 +610,15 @@ namespace Workspace1C
         private void RefreshColorItems()
         {
             _colorItems.Clear();
+            // Кисть HEX-текста контрастна фону редактируемой палитры (issue #26):
+            // тёмная палитра → светлый текст, светлая → тёмный. Фон берём из самой
+            // схемы (ContentBackgroundColor), чтобы текст не сливался ни в одной теме.
+            var backgroundHex = _settings.CurrentColorScheme.PaletteValue(
+                _settings.EditingDarkPalette, "ContentBackgroundColor");
+            var hexForeground = Parse(Models.ColorScheme.ContrastTextHex(backgroundHex));
             foreach (var (key, label, hex) in _settings.GetEditableColors())
             {
-                var item = new ColorItem { Key = key, Label = label, Hex = hex };
+                var item = new ColorItem { Key = key, Label = label, Hex = hex, HexForeground = hexForeground };
                 item.PropertyChanged += OnColorItemPropertyChanged;
                 _colorItems.Add(item);
             }

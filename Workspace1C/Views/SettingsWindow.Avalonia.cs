@@ -1644,6 +1644,16 @@ namespace Workspace1C
                     .FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
                 if (scheme is null)
                     return;
+                // Правки встроенных тем («Светлая»/«Тёмная») хранятся в активной схеме,
+                // а не в EnumerateAllSchemes, которая возвращает «чистые» дефолты
+                // (issue #26): если выбранная тема совпадает с активной, берём её
+                // сохранённые правки, иначе редактор показывает #FDBF00/#E0A800.
+                var active = _viewModel.ActiveColorScheme;
+                if (active is not null
+                    && string.Equals(active.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    scheme = active;
+                }
                 editedScheme = scheme.Clone();
                 RefreshColors();
                 UpdateSchemeButtons();

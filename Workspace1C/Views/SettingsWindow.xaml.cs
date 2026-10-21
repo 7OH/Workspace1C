@@ -751,6 +751,15 @@ namespace Workspace1C
                 private set { _colorBrush = value; OnPropertyChanged(nameof(ColorBrush)); }
             }
 
+            // Кисть HEX-текста: контрастный цвет по фону редактируемой палитры
+            // (issue #26) — в тёмной теме светлый текст, в светлой — тёмный.
+            private SolidColorBrush _hexForeground = new(Colors.Black);
+            public SolidColorBrush HexForeground
+            {
+                get => _hexForeground;
+                set { _hexForeground = value; OnPropertyChanged(nameof(HexForeground)); }
+            }
+
             public event PropertyChangedEventHandler? PropertyChanged;
             private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

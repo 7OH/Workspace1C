@@ -290,7 +290,7 @@ public sealed class RacClientTests
         RacClient.EnsureParsedOrThrow("cluster\tname\n", 1, "process list");
     }
 
-    // ---------- job list: форматы и ключ кэша (issue #324) ----------
+    // ---------- форматы передачи id кластера и ключ кэша (issue #324/#25) ----------
 
     [Fact]
     public void JobListArgs_Format0_UsesEqualsToken()
@@ -322,24 +322,75 @@ public sealed class RacClientTests
     }
 
     [Fact]
-    public void JobListFormatCount_CoversAllFormats()
+    public void ClusterArgs_Format0_UsesEqualsToken()
     {
-        Assert.Equal(3, RacClient.JobListFormatCount);
+        // Обобщённый helper (issue #25): префикс команды произвольный, формат 0 —
+        // «--cluster=<uuid>» (стандарт, поведение rac 8.3/8.4 по умолчанию).
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", $"--cluster={clusterId}" },
+            RacClient.ClusterArgs(new[] { "infobase", "summary", "list" }, 0, clusterId));
+    }
+
+    [Fact]
+    public void ClusterArgs_Format1_UsesTwoTokens()
+    {
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", "--cluster", clusterId.ToString() },
+            RacClient.ClusterArgs(new[] { "infobase", "summary", "list" }, 1, clusterId));
+    }
+
+    [Fact]
+    public void ClusterArgs_Format2_UsesPositionalUuid()
+    {
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", clusterId.ToString() },
+            RacClient.ClusterArgs(new[] { "infobase", "summary", "list" }, 2, clusterId));
+    }
+
+    [Fact]
+    public void InfobaseSummaryListArgs_Formats()
+    {
+        // «infobase summary list» — команда окна «Импорт из кластера 1С» (issue #25):
+        // rac 8.5.x может отклонять «--cluster=<uuid>» и в ней, как в «job list».
+        var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
+
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", $"--cluster={clusterId}" },
+            RacClient.InfobaseSummaryListArgs(0, clusterId));
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", "--cluster", clusterId.ToString() },
+            RacClient.InfobaseSummaryListArgs(1, clusterId));
+        Assert.Equal(
+            new[] { "infobase", "summary", "list", clusterId.ToString() },
+            RacClient.InfobaseSummaryListArgs(2, clusterId));
+    }
+
+    [Fact]
+    public void ClusterFormatCount_CoversAllFormats()
+    {
+        Assert.Equal(3, RacClient.ClusterFormatCount);
         // Имена форматов — для журнала; должны отличаться между собой.
         Assert.Equal(
             new[] { "--cluster=<uuid>", "--cluster <uuid>", "<uuid>" },
             new[]
             {
-                RacClient.JobListFormatName(0),
-                RacClient.JobListFormatName(1),
-                RacClient.JobListFormatName(2)
+                RacClient.ClusterFormatName(0),
+                RacClient.ClusterFormatName(1),
+                RacClient.ClusterFormatName(2)
             });
     }
 
     [Fact]
-    public void JobListFormatKey_IncludesConnectionAndCluster_NotPassword()
+    public void ClusterFormatKey_IncludesConnectionClusterAndCommand_NotPassword()
     {
-        // Ключ кэша формата: точка подключения + учётная запись + кластер; пароль
+        // Ключ кэша формата: точка подключения + учётная запись + кластер + ИМЯ КОМАНДЫ
+        // (issue #25: кэш «job list» и «infobase summary list» не конфликтует); пароль
         // не должен попадать в ключ (секреты не хранятся в словаре/логах).
         var clusterId = Guid.Parse("cbc95ef0-99c9-4b1a-909f-cff4c8de61d9");
         var parameters = new RacConnectionParams
@@ -350,12 +401,136 @@ public sealed class RacClientTests
             Password = "secret-password"
         };
 
-        var key = RacClient.JobListFormatKey(parameters, clusterId);
+        var jobKey = RacClient.ClusterFormatKey(parameters, clusterId, "job list");
+        var infobaseKey = RacClient.ClusterFormatKey(parameters, clusterId, "infobase summary list");
 
-        Assert.Contains("srv1:1545", key);
-        Assert.Contains("Admin", key);
-        Assert.Contains(clusterId.ToString(), key);
-        Assert.DoesNotContain("secret-password", key);
+        Assert.Contains("srv1:1545", jobKey);
+        Assert.Contains("Admin", jobKey);
+        Assert.Contains(clusterId.ToString(), jobKey);
+        Assert.Contains("job list", jobKey);
+        Assert.DoesNotContain("secret-password", jobKey);
+        // Разные команды — разные ключи: кэш форматов не конфликтует (issue #25).
+        Assert.NotEqual(jobKey, infobaseKey);
+        Assert.Contains("infobase summary list", infobaseKey);
+    }
+
+    // ---------- перебор форматов list-команды (issue #25) ----------
+
+    [Fact]
+    public async Task RunListCommandWithFormatFallback_FirstFormatSuccess_IsCached()
+    {
+        // rac 8.3/8.4: формат 0 («--cluster=<uuid>») успешен с первой попытки —
+        // rac запускается один раз, формат запоминается в кэше.
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var attempts = new List<int>();
+        var output = "infobase : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n";
+
+        var result = await RacClient.RunListCommandWithFormatFallbackAsync(
+            index =>
+            {
+                attempts.Add(index);
+                return Task.FromResult(output);
+            },
+            RacClient.LooksLikeUsageHelp,
+            formats, "key|job list", "job list", new CapturingLogger());
+
+        Assert.Equal(output, result);
+        Assert.Equal(new[] { 0 }, attempts);
+        Assert.Equal(0, formats["key|job list"]);
+    }
+
+    [Fact]
+    public async Task RunListCommandWithFormatFallback_SecondFormatSuccess_IsCached()
+    {
+        // rac 8.5.x: формат 0 отклонён (код -1) — пробуется формат 1, успех запоминается.
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var attempts = new List<int>();
+        var output = "infobase : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n";
+
+        var result = await RacClient.RunListCommandWithFormatFallbackAsync(
+            index =>
+            {
+                attempts.Add(index);
+                if (index == 0)
+                    throw new RacClientException("rac завершился с кодом -1: Ошибка разбора параметра: --cluster=…");
+                return Task.FromResult(output);
+            },
+            RacClient.LooksLikeUsageHelp,
+            formats, "key|infobase summary list", "infobase summary list", new CapturingLogger());
+
+        Assert.Equal(output, result);
+        Assert.Equal(new[] { 0, 1 }, attempts);
+        Assert.Equal(1, formats["key|infobase summary list"]);
+    }
+
+    [Fact]
+    public async Task RunListCommandWithFormatFallback_StartsFromCachedFormat()
+    {
+        // Повторный запрос: рабочий формат уже в кэше — rac запускается один раз
+        // с запомненным форматом (без заведомо падающих попыток).
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal) { { "key|job list", 2 } };
+        var attempts = new List<int>();
+
+        await RacClient.RunListCommandWithFormatFallbackAsync(
+            index =>
+            {
+                attempts.Add(index);
+                return Task.FromResult("job : 44444444-5555-6666-7777-88889999aaaa\n");
+            },
+            RacClient.LooksLikeUsageHelp,
+            formats, "key|job list", "job list", new CapturingLogger());
+
+        Assert.Equal(new[] { 2 }, attempts);
+    }
+
+    [Fact]
+    public async Task RunListCommandWithFormatFallback_UsageHelp_NotCached_Retries()
+    {
+        // rac может завершить команду с кодом 0, но вернуть справку вместо данных —
+        // такой вывод НЕ считается успехом формата: пробуется следующий синтаксис.
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var attempts = new List<int>();
+
+        var result = await RacClient.RunListCommandWithFormatFallbackAsync(
+            index =>
+            {
+                attempts.Add(index);
+                return Task.FromResult(index == 0
+                    ? "1C:Enterprise 8.5 Remote Administrative Client Utility\nИспользование: rac [режим] [команда] …\n"
+                    : "infobase : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n");
+            },
+            RacClient.LooksLikeUsageHelp,
+            formats, "key|infobase summary list", "infobase summary list", new CapturingLogger());
+
+        Assert.Equal(new[] { 0, 1 }, attempts);
+        Assert.Equal(1, formats["key|infobase summary list"]);
+        Assert.Contains("99999999", result);
+    }
+
+    [Fact]
+    public async Task RunListCommandWithFormatFallback_AllFormatsFail_ThrowsWithSummary_AndDropsCache()
+    {
+        // Все три формата отклонены — понятная ошибка со сводкой попыток; запись
+        // формата удаляется из кэша (сменилась версия платформы — перепробовать заново).
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal) { { "key|job list", 0 } };
+        var attempts = new List<int>();
+
+        var ex = await Assert.ThrowsAsync<RacClientException>(() =>
+            RacClient.RunListCommandWithFormatFallbackAsync(
+                index =>
+                {
+                    attempts.Add(index);
+                    throw new RacClientException($"rac завершился с кодом -1 (формат {index})");
+                },
+                RacClient.LooksLikeUsageHelp,
+                formats, "key|job list", "job list", new CapturingLogger()));
+
+        Assert.Equal(new[] { 0, 1, 2 }, attempts);
+        Assert.Contains("job list", ex.Message);
+        Assert.Contains("--cluster=<uuid>", ex.Message);
+        Assert.Contains("--cluster <uuid>", ex.Message);
+        Assert.Contains("<uuid>", ex.Message);
+        Assert.DoesNotContain("key|job list", formats);
     }
 
     // ============ cluster info из кэша cluster list (issue #324) ============
@@ -441,6 +616,28 @@ public sealed class RacClientTests
         // Логгер опционален: старые вызовы (3 аргумента) продолжают работать.
         Assert.Throws<RacOutputParseException>(
             () => RacClient.EnsureParsedOrThrow("future format", 0, "process list"));
+    }
+
+    [Fact]
+    public void EnsureParsedOrThrow_IncludesMaskedOutputPrefix()
+    {
+        // issue #25: текст ошибки парсинга содержит префикс вывода rac (первые ~200
+        // символов) с маскированным паролем — при новом формате причина видна сразу
+        // в сообщении окна, без чтения журнала.
+        const string output =
+            "cluster-id : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9\n" +
+            "name : \"Новый формат 8.5.1\"\n" +
+            "--password=super-secret\n";
+
+        var ex = Assert.Throws<RacOutputParseException>(
+            () => RacClient.EnsureParsedOrThrow(output, 0, "cluster list"));
+
+        Assert.Contains("cluster list", ex.Message);
+        Assert.Contains("cluster-id : cbc95ef0-99c9-4b1a-909f-cff4c8de61d9", ex.Message);
+        Assert.Contains("Новый формат 8.5.1", ex.Message);
+        // Пароль в префиксе вывода маскируется (SensitiveDataMasker).
+        Assert.DoesNotContain("super-secret", ex.Message);
+        Assert.Contains("--password=***", ex.Message);
     }
 
     [Fact]

@@ -19,4 +19,20 @@ public sealed class RacOutputParseException : Exception
         : base(message, innerException)
     {
     }
+
+    /// <summary>
+    /// Создаёт исключение с префиксом вывода rac (первые ~200 символов, пароль
+    /// маскируется <see cref="SensitiveDataMasker.MaskRacPassword"/>) — при новом
+    /// формате причина видна сразу в тексте ошибки окна/issue, без чтения журнала
+    /// (issue #25). Префикс строится <see cref="RacClient.Preview"/> (однострочный,
+    /// до 200 символов).
+    /// </summary>
+    public static RacOutputParseException WithOutputPrefix(string commandName, string output)
+    {
+        var preview = RacClient.Preview(output);
+        var masked = SensitiveDataMasker.MaskRacPassword(preview);
+        return new RacOutputParseException(
+            $"Вывод rac «{commandName}» не распознан (возможно, новая версия формата): " +
+            $"код 0, но 0 строк данных при непустом выводе. Начало вывода: «{masked}»");
+    }
 }

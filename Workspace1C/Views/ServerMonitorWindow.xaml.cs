@@ -27,14 +27,25 @@ namespace Workspace1C
     {
         private readonly ServerMonitorViewModel _vm;
 
+        /// <summary>
+        /// Открытие «Импорта из кластера 1С» (issue #27): делегат MainViewModel —
+        /// окно монитора к репозиторию напрямую не обращается.
+        /// </summary>
+        private readonly Action<ManagementServer?>? _openClusterImport;
+
         /// <summary>Фоновое обновление кэша статусов служб (5 с; issue #3, часть 2).</summary>
         private System.Threading.Timer? _servicesStatusTimer;
 
         private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
 
-        public ServerMonitorWindow()
+        /// <param name="openClusterImport">
+        /// Открытие окна импорта с сервером, текущим на момент нажатия «Импорт»
+        /// (issue #27); null — кнопка «Импорт» под списком баз скрыта/не активна.
+        /// </param>
+        public ServerMonitorWindow(Action<ManagementServer?>? openClusterImport = null)
         {
             InitializeComponent();
+            _openClusterImport = openClusterImport;
 
             var rac = AppServices.GetRequiredService<IRacClient>();
             var dialogs = AppServices.GetRequiredService<IDialogService>();
@@ -257,6 +268,27 @@ namespace Workspace1C
             if (dialog.ShowDialog() != true)
                 return;
             await _vm.DropSelectedInfobaseAsync(dialog.DropDatabase);
+        }
+
+        /// <summary>
+        /// «Импорт» (issue #27): открывает «Импорт из кластера 1С» с текущим сервером —
+        /// выбранный в списке, иначе подключённый, иначе первый из справочника. При
+        /// пустом справочнике — подсказка и выход. Сам импорт выполняет делегат
+        /// MainViewModel (логика добавления баз/групп — там, окно к репозиторию не ходит).
+        /// </summary>
+        private void OnImport_Click(object sender, RoutedEventArgs e)
+        {
+            var server = _vm.SelectedServer ?? _vm.ConnectedServer ?? _vm.Servers.FirstOrDefault();
+            if (server is null)
+            {
+                MessageBox.Show(
+                    LocalizationManager.T("ClusterImport.ServersEmpty"),
+                    LocalizationManager.T("ServerMonitor.Title"),
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            _openClusterImport?.Invoke(server);
         }
 
         // ===================== Справочник «Сервера управления» (issue #3) =====================

@@ -1132,8 +1132,9 @@
                                                     <Border Grid.Column="0" Width="28" Height="20" CornerRadius="4"
                                                             BorderBrush="{DynamicResource BorderBrushColor}" BorderThickness="1"
                                                             Background="{Binding ColorBrush}"/>
+                                                    <!-- Цвет HEX-текста контрастен фону редактируемой палитры (issue #26). -->
                                                     <TextBlock Grid.Column="1" Text="{Binding Hex}" VerticalAlignment="Center"
-                                                               Margin="4,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                               Margin="4,0,0,0" Foreground="{Binding HexForeground}"/>
                                                     <Button Grid.Column="2" Tag="{Binding Key}" Click="OnColorPick_Click"
                                                             Margin="12,0,0,0" Padding="0" VerticalAlignment="Center"
                                                             Background="Transparent" BorderThickness="0"

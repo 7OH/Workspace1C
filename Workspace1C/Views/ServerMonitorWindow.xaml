@@ -165,7 +165,9 @@
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="280"/>
-            <ColumnDefinition Width="230"/>
+            <!-- Колонка «Базы» расширена (issue #27): кнопки шире (MinWidth=40 после
+                 1.0.0.25) — 260 px, чтобы все пять кнопок и разделители помещались. -->
+            <ColumnDefinition Width="260"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -343,6 +345,18 @@
                     </Style>
                 </TextBlock.Style>
             </TextBlock>
+            <!-- Кнопка «Импорт» (issue #27): внизу панели баз, по аналогии с «Службы»
+                 под списком серверов; открывает «Импорт из кластера 1С» с текущим
+                 сервером (SelectedServer, иначе ConnectedServer, иначе первый). -->
+            <Button DockPanel.Dock="Bottom" x:Name="InfobasesImportButton"
+                    Style="{StaticResource ModernButton}"
+                    Background="{DynamicResource ItemHoverBrush}"
+                    Margin="0,8,0,0" Padding="0,8"
+                    Click="OnImport_Click">
+                <TextBlock Text="{loc:Loc ServerMonitor.Infobase.Import}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontWeight="SemiBold"/>
+            </Button>
             <!-- Список баз: одна колонка с именем; клик по строке включает фильтр. -->
             <ListBox x:Name="InfobasesList" ItemsSource="{Binding Infobases}"
                      SelectedItem="{Binding SelectedInfobase}"

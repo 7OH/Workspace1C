@@ -133,6 +133,19 @@ public sealed class SettingsViewModel
     }
 
     /// <summary>
+    /// Возвращает сохранённые правки темы из активной схемы, если активная схема —
+    /// та же тема (по каноническому имени), иначе null — тогда нужно загружать
+    /// «чистую» встроенную схему. Чистая функция для юнит-тестов (issue #26):
+    /// правки встроенных «Светлая»/«Тёмная» живут в активной схеме/слоте, а не в
+    /// <see cref="EnumerateAllSchemes"/>, где встроенные возвращаются дефолтными.
+    /// </summary>
+    public static ColorScheme? TryGetActiveEditsFor(Models.ColorScheme? active, string name)
+        => active is not null
+           && string.Equals(active.Name, name, StringComparison.OrdinalIgnoreCase)
+               ? active.Clone()
+               : null;
+
+    /// <summary>
     /// Возвращает рабочую копию схемы для редактирования по идентификатору темы.
     /// Если тема уже открыта в редакторе (есть незаконченные правки) — возвращает её,
     /// иначе загружает сохранённое состояние (слот базовой темы для встроенных,
@@ -143,6 +156,19 @@ public sealed class SettingsViewModel
     {
         if (_editingSchemes.TryGetValue(name, out var cached))
             return cached;
+
+        // Единый источник правок встроенных тем (issue #26): правки живут в активной
+        // схеме/слоте (AppSettings.ActiveColorScheme), а не в EnumerateAllSchemes,
+        // где встроенные «Светлая»/«Тёмная» возвращаются «чистыми». Если активная
+        // схема — та же тема, возвращаем её сохранённые правки (акцент и пр.), иначе
+        // редактор снова показал бы дефолтные #FDBF00/#E0A800.
+        var withEdits = TryGetActiveEditsFor(_viewModel.ActiveColorScheme, name);
+        if (withEdits is not null)
+        {
+            withEdits.Normalize();
+            _editingSchemes[name] = withEdits;
+            return withEdits;
+        }
 
         ColorScheme? source;
         if (IsBuiltInName(name))

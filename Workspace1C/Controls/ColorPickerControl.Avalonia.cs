@@ -115,6 +115,9 @@ namespace Workspace1C.Controls
             Resources["SliderThumbCornerRadius"] = new CornerRadius(SliderThumbSize / 2);
 
             _hexBox = new TextBox { Width = 110, Padding = new Thickness(4, 3) };
+            // Текст HEX следует за темой (issue #26): в тёмной теме без явной кисти
+            // он оставался чёрным и сливался с тёмным полем ввода.
+            ThemeBrushes.Bind(_hexBox, TemplatedControl.ForegroundProperty, "TextPrimaryColorBrush");
             _hexBox.TextChanged += OnHex_TextChanged;
 
             _colorPreview = new Border
