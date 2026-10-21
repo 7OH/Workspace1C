@@ -1049,8 +1049,9 @@ public partial class MainViewModel : ViewModelBase
             // остальных режимов — фильтрация+сортировка на лету.
             var visible = GetVisibleForCurrentMode();
 
-            // Массовое обновление одним событием Reset вместо тысяч CollectionChanged (issue #21).
-            FlatItems.ReplaceAll(visible);
+            // Поштучное обновление (issue #21, Этап A): контейнеры строк, оставшихся
+            // в списке, не пересоздаются; при неизменном составе событий нет вовсе.
+            FlatItems.ReplaceItemWise(visible);
 
             // Постоянный плоский узел (issue #21, Этап C): переиспользуем один узел и
             // обновляем только его содержимое (маркер/имя + Items одним Reset) — контейнер
@@ -1062,12 +1063,13 @@ public partial class MainViewModel : ViewModelBase
                 marker: filterActive ? null : GroupNodeViewModel.AllBasesMarker);
             _flatNode.SetExpandedSilent(true);
 
-            GroupNodes.ReplaceAll(new[] { _flatNode });
+            GroupNodes.ReplaceItemWise(new[] { _flatNode });
         }
         else
         {
-            FlatItems.ReplaceAll(Array.Empty<object>());
-            GroupNodes.ReplaceAll(AllGroupNodes.Where(root => _showEmptyGroups || root.ContainsInfobases));
+            FlatItems.ReplaceItemWise(Array.Empty<object>());
+            GroupNodes.ReplaceItemWise(
+                AllGroupNodes.Where(root => _showEmptyGroups || root.ContainsInfobases).ToList());
         }
 
         // Выбранный узел мог исчезнуть из дерева: поиск и отключение группировки

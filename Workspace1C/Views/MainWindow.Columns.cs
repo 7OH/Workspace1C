@@ -533,6 +533,11 @@ namespace Workspace1C
         private int _headerAlignStabilizeCount;
         // Максимум итераций стабилизации, пока компенсатор не перестанет меняться.
         private const int HeaderAlignMaxStabilize = 8;
+        // Однопроходный режим стабилизации (issue #21, Этап C): ставится при чистом
+        // переключении вкладки списка — цикл «до сходимости» (до 8 итераций) на каждое
+        // переключение давал «паузу» и лишние записи CM_COLUMNS. Финальное положение
+        // добирает MainTree.SizeChanged (AlignHeaderToData) после материализации строк.
+        private bool _headerAlignSinglePass;
 
         /// <summary>
         /// Ставит пересчёт выравнивания заголовка (<see cref="AlignHeaderToData"/>) в очередь
@@ -565,13 +570,21 @@ namespace Workspace1C
         private void HeaderAlignStabilizeStep()
         {
             _headerAlignQueued = false;
+            // Счётчик итераций стабилизации — диагностика переключения вкладок
+            // (issue #21, Этап E; CM_TREESWITCH).
+            _headerAlignStabilizeTotal++;
+            // Однопроходный режим (issue #21, Этап C): при чистом переключении вкладки
+            // цикл не крутится до 8 итераций — финальное выравнивание добирает
+            // MainTree.SizeChanged (AlignHeaderToData) после материализации строк.
+            var singlePass = _headerAlignSinglePass;
+            _headerAlignSinglePass = false;
             var before = HeaderOffsetColumn?.Width.Value ?? 0;
             var hadRows = FindFirstInfobaseItem(MainTree) is not null;
             AlignHeaderToData();
             var after = HeaderOffsetColumn?.Width.Value ?? 0;
 
             var changed = Math.Abs(after - before) > 0.5;
-            if ((changed || !hadRows) && _headerAlignStabilizeCount++ < HeaderAlignMaxStabilize)
+            if ((changed || !hadRows) && !singlePass && _headerAlignStabilizeCount++ < HeaderAlignMaxStabilize)
             {
                 _headerAlignQueued = true;
                 Dispatcher.BeginInvoke(new Action(HeaderAlignStabilizeStep),

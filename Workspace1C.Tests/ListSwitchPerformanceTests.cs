@@ -187,4 +187,23 @@ public sealed class ListSwitchPerformanceTests
         Assert.True(medianLast <= Math.Max(medianFirst * 2 + 5, 15),
             $"Медиана последних 10 циклов {medianLast:F1} мс растёт относительно первых {medianFirst:F1} мс");
     }
+
+    [Fact]
+    public void RepeatedFlatReset_SameContent_EmitsNoItemsEvents()
+    {
+        // issue #21, Этап A: повторный клик на вкладку / переход с тем же составом —
+        // постоянный плоский узел не должен порождать событий Items (контейнеры строк
+        // не пересоздаются). Раньше ResetFlatContent слал Reset на каждое переключение.
+        var bases = CreateBases(600);
+        var favorites = bases.Where(b => b.IsFavorite).ToList();
+        var flat = new GroupNodeViewModel(null);
+        flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null);
+
+        var events = 0;
+        flat.Items.CollectionChanged += (_, _) => events++;
+
+        flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null);
+
+        Assert.Equal(0, events);
+    }
 }

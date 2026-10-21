@@ -37,6 +37,17 @@ namespace Workspace1C
         private Forms.NotifyIcon? _trayIcon;
         private bool _forceClose;
 
+        // ---- Диагностика переключения вкладок списка (issue #21, Этап E; флаг CM_TREESWITCH) ----
+        // Счётчики накапливаются, а при каждой смене вкладки в лог выводится разница
+        // с прошлой сменой: число SizeChanged-событий дерева и итераций стабилизации
+        // выравнивания — контроль каскада пересчётов (CM_COLUMNS) и роста задержки.
+        private long _treeSizeChangedCount;
+        private long _lastTreeSizeChangedCount;
+        private long _headerAlignStabilizeTotal;
+        private long _lastHeaderAlignStabilizeTotal;
+        private long _switchVmStartTicks;
+        private long _lastSwitchVmMs;
+
         /// <summary>
         /// Текущее состояние активности окна, по которому окрашивается шапка
         /// (акцент при активном, цвет карточки при неактивном). Хранится отдельным
@@ -281,7 +292,14 @@ namespace Workspace1C
             // заголовка с данными: контейнеры строк созданы заново (и заново
             // компактизированы обработчиками реализации), поэтому прежний сдвиг заголовка
             // устарел (issue #214).
-            _viewModel.TreeRebuilding += RememberTreeScroll;
+            _viewModel.TreeRebuilding += () =>
+            {
+                RememberTreeScroll();
+                // Замер VM-части чистого переключения вкладки (issue #21, Этап E):
+                // флаг IsListModeSwitchInProgress истинен на время RebuildGroupTreeCore.
+                if (_viewModel.IsListModeSwitchInProgress)
+                    _switchVmStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            };
             // Перед открытием модального окна свойств базы запоминаем позицию прокрутки,
             // а при закрытии без сохранения («Нет») возвращаем её явно: пересборки не было,
             // иначе список «уезжает» после отмены правки (issue #252).
@@ -295,12 +313,41 @@ namespace Workspace1C
                 // проходы до MaxRevealAttempts) давало «паузу» на каждое переключение.
                 // Восстановление оставляем только для пересборок по изменению данных.
                 if (!_viewModel.IsListModeSwitchInProgress)
+                {
                     RestoreTreeKeyboardFocus();
+                    QueueHeaderAlign();
+                    return;
+                }
+
+                // Диагностика переключения вкладки (issue #21, Этап E; флаг CM_TREESWITCH):
+                // число SizeChanged-событий дерева и итераций стабилизации выравнивания
+                // с прошлой смены вкладки + время VM-части. Пишется ТОЛЬКО при включённом
+                // флаге (как CM_COLUMNS, issue #347).
+                if (TraceFlags.IsEnabled(TraceFlags.TreeSwitchFlag))
+                {
+                    var sizeChanged = _treeSizeChangedCount - _lastTreeSizeChangedCount;
+                    var stabilize = _headerAlignStabilizeTotal - _lastHeaderAlignStabilizeTotal;
+                    _lastTreeSizeChangedCount = _treeSizeChangedCount;
+                    _lastHeaderAlignStabilizeTotal = _headerAlignStabilizeTotal;
+                    if (_switchVmStartTicks != 0)
+                    {
+                        _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
+                            * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                        _switchVmStartTicks = 0;
+                    }
+                    AppServices.GetRequiredService<IAppLogger>().Info(
+                        $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}");
+                }
+
                 // Виртуализация создаёт новые контейнеры строк в проходе разметки ПОСЛЕ события
                 // Loaded, поэтому выравнивание на Loaded-приоритете выполняется до их появления —
                 // компактность снова «разъезжается» (issue #214). QueueHeaderAlign ставит
                 // стабилизирующий цикл на ApplicationIdle, который добирает строки после полной
                 // раскладки (тот же приём, что в RevealAndSelectAfterRebuild).
+                // При чистом переключении вкладки — однопроходный режим (issue #21, Этап C):
+                // без цикла «до сходимости» (до 8 итераций), финальное положение добирает
+                // MainTree.SizeChanged после материализации строк.
+                _headerAlignSinglePass = true;
                 QueueHeaderAlign();
             };
             // «Найти в списке» (issue #285): цель выставлена во вьюмодели, и при восстановлении

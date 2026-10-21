@@ -130,4 +130,139 @@ public sealed class ObservableRangeCollectionTests
         Assert.Equal(0, adds);
         Assert.Equal(0, removes);
     }
+
+    // ======================= ReplaceItemWise (issue #21, Этап A) =======================
+
+    private sealed class Item
+    {
+        public Item(string name) => Name = name;
+        public string Name { get; }
+    }
+
+    [Fact]
+    public void ReplaceItemWise_SameContentAndOrder_NoEvents()
+    {
+        // Повторный клик на вкладку / переход с неизменным составом корней: коллекция
+        // не должна порождать НИ ОДНОГО события — контейнеры строк не пересоздаются.
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var collection = new ObservableRangeCollection<Item> { a, b, c };
+        var events = 0;
+        collection.CollectionChanged += (_, _) => events++;
+
+        collection.ReplaceItemWise(new[] { a, b, c });
+
+        Assert.Equal(0, events);
+        Assert.Equal(new[] { a, b, c }, collection);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_PartialOverlap_EmitsOnlyChanges_NoReset()
+    {
+        // Переход с частичным пересечением: события только по реально изменившимся
+        // позициям (Add/Remove), без Reset — контейнеры оставшихся строк сохраняются.
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var d = new Item("d");
+        var collection = new ObservableRangeCollection<Item> { a, b, c };
+        var resets = 0;
+        var adds = 0;
+        var removes = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (e.Action == NotifyCollectionChangedAction.Add) adds++;
+            else if (e.Action == NotifyCollectionChangedAction.Remove) removes++;
+        };
+
+        // «Все» (a,b,c) → «Недавние» (a,b,d): c удаляется, d добавляется.
+        collection.ReplaceItemWise(new[] { a, b, d });
+
+        Assert.Equal(new[] { a, b, d }, collection);
+        Assert.Equal(0, resets);
+        Assert.Equal(1, adds);
+        Assert.Equal(1, removes);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_Reorders_EmitsRemoveAndAdd_NoReset()
+    {
+        // Перестановка порядка: элементы переносятся (Remove + Add), Reset не шлётся.
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var collection = new ObservableRangeCollection<Item> { a, b, c };
+        var resets = 0;
+        var adds = 0;
+        var removes = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (e.Action == NotifyCollectionChangedAction.Add) adds++;
+            else if (e.Action == NotifyCollectionChangedAction.Remove) removes++;
+        };
+
+        collection.ReplaceItemWise(new[] { c, a, b });
+
+        Assert.Equal(new[] { c, a, b }, collection);
+        Assert.Equal(0, resets);
+        Assert.True(adds > 0);
+        Assert.True(removes > 0);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_MajorityChanged_FallsBackToSingleReset()
+    {
+        // Если меняется большинство элементов — один Reset дешевле сотен поштучных
+        // событий (fallback на ReplaceAll), поведение прежнее.
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var d = new Item("d");
+        var e = new Item("e");
+        var collection = new ObservableRangeCollection<Item> { a, b, c };
+        var resets = 0;
+        var adds = 0;
+        collection.CollectionChanged += (_, ev) =>
+        {
+            if (ev.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (ev.Action == NotifyCollectionChangedAction.Add) adds++;
+        };
+
+        collection.ReplaceItemWise(new[] { d, e });
+
+        Assert.Equal(new[] { d, e }, collection);
+        Assert.Equal(1, resets);
+        Assert.Equal(0, adds);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_On600Bases_EmitsFewerEventsThanListSize()
+    {
+        // Переход «Все»(600) → «Недавние»(500 из тех же объектов): сохраняется 500 строк,
+        // пересоздаются только 100 удалённых + 100 добавленных — событий ~200, а не 600.
+        // Это и есть устранение «пересоздания всех контейнеров на каждое переключение».
+        var all = Enumerable.Range(0, 600).Select(i => new Item("b" + i)).ToList();
+        var recent = all.Take(500).ToList();
+        var collection = new ObservableRangeCollection<Item>();
+        collection.ReplaceAll(all);
+
+        var events = 0;
+        var resets = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            events++;
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+                resets++;
+        };
+
+        collection.ReplaceItemWise(recent);
+
+        Assert.Equal(recent, collection);
+        Assert.Equal(0, resets);
+        Assert.True(events < 600,
+            $"Ожидалось меньше 600 событий при частичном пересечении, получено {events}");
+    }
 }

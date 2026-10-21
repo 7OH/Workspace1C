@@ -46,6 +46,105 @@ public class ObservableRangeCollection<T> : ObservableCollection<T>
     }
 
     /// <summary>
+    /// Заменяет содержимое коллекции переданным набором элементов ПОШТУЧНО (issue #21,
+    /// Этап A): вместо одного Reset эмитятся только реально изменившиеся позиции
+    /// (Add/Remove), а элементы, оставшиеся в коллекции, не трогаются — их контейнеры
+    /// в TreeView/ItemsControl не пересоздаются (в Avalonia без виртуализации это
+    /// устраняет пересоздание всех 500+ карточек строк на каждое переключение вкладки).
+    /// Если состав и порядок совпадают по <see cref="object.ReferenceEquals"/> — событий
+    /// не порождается вовсе (повторный клик на вкладку, переход с неизменным составом
+    /// корней). Если изменения затрагивают большинство элементов — дешевле один Reset
+    /// (<see cref="ReplaceAll"/>), как раньше.
+    /// </summary>
+    public void ReplaceItemWise(IReadOnlyList<T> next)
+    {
+        if (next is null)
+            throw new ArgumentNullException(nameof(next));
+
+        // Быстрый путь: состав и порядок совпадают — ничего не делаем.
+        if (Count == next.Count)
+        {
+            var same = true;
+            for (var i = 0; i < Count; i++)
+            {
+                if (!ReferenceEquals(Items[i], next[i]))
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return;
+        }
+
+        // Сколько текущих элементов останется в новом составе (по ReferenceEquals).
+        var nextSet = new HashSet<T>(next, ReferenceComparer<T>.Instance);
+        var kept = 0;
+        for (var i = 0; i < Count; i++)
+        {
+            if (nextSet.Contains(Items[i]))
+                kept++;
+        }
+
+        // Если меняется большинство — один Reset дешевле сотен поштучных событий.
+        var total = Math.Max(Count, next.Count);
+        if (total > 0 && kept * 2 < total)
+        {
+            ReplaceAll(next);
+            return;
+        }
+
+        // 1) Удаляем элементы, которых нет в новом составе (с конца, чтобы индексы не сбивались).
+        for (var i = Count - 1; i >= 0; i--)
+        {
+            if (!nextSet.Contains(Items[i]))
+                RemoveAt(i);
+        }
+
+        // 2) Выравниваем порядок и добавляем недостающие: для каждой позиции next[i]
+        //    элемент должен стоять на i. Уже стоящие на месте не трогаем.
+        for (var i = 0; i < next.Count; i++)
+        {
+            var wanted = next[i];
+            if (i < Count && ReferenceEquals(Items[i], wanted))
+                continue;
+
+            var existing = IndexOfReference(wanted, i);
+            if (existing >= 0)
+            {
+                // Элемент есть, но не на своём месте — переносим (Remove + Add).
+                RemoveAt(existing);
+                Insert(i, wanted);
+            }
+            else
+            {
+                Insert(i, wanted);
+            }
+        }
+    }
+
+    /// <summary>Ищет элемент по <see cref="object.ReferenceEquals"/> начиная с указанной позиции.</summary>
+    private int IndexOfReference(T item, int startIndex)
+    {
+        for (var i = startIndex; i < Count; i++)
+        {
+            if (ReferenceEquals(Items[i], item))
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Компаратор по ссылке для <see cref="HashSet{T}"/> (не зависит от Equals/GetHashCode элемента).</summary>
+    private sealed class ReferenceComparer<TItem> : IEqualityComparer<TItem>
+    {
+        public static readonly ReferenceComparer<TItem> Instance = new();
+
+        public bool Equals(TItem? x, TItem? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(TItem obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+    }
+
+    /// <summary>
     /// Добавляет диапазон элементов одним событием
     /// <see cref="NotifyCollectionChangedAction.Add"/>.
     /// </summary>

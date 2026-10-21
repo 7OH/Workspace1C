@@ -269,7 +269,14 @@ namespace Workspace1C
             // Подписка здесь, а не в построении содержимого: компактный режим
             // пересобирает содержимое, и обработчики копились бы на каждый показ.
             _vm.TraySettingsChanged += ApplyTrayVisibility;
-            _vm.TreeRebuilding += RememberTreeScroll;
+            _vm.TreeRebuilding += () =>
+            {
+                RememberTreeScroll();
+                // Замер VM-части чистого переключения вкладки (issue #21, Этап E):
+                // флаг IsListModeSwitchInProgress истинен на время ApplyFilterCore.
+                if (_vm.IsListModeSwitchInProgress)
+                    _switchVmStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            };
             // Перед открытием модального окна свойств базы запоминаем позицию прокрутки,
             // а при закрытии без сохранения («Нет») возвращаем её явно: пересборки не было,
             // иначе список «уезжает» после отмены правки (issue #252).
@@ -281,7 +288,30 @@ namespace Workspace1C
                 // в новом, как правило, недостижима, а восстановление выбора и прокрутки
                 // к ней только добавляло работу на каждое переключение.
                 if (!_vm.IsListModeSwitchInProgress)
+                {
                     RestoreTreeSelection();
+                    return;
+                }
+
+                // Диагностика переключения вкладки (issue #21, Этап E; флаг CM_TREESWITCH):
+                // число созданных/очищенных контейнеров строк с прошлой смены вкладки и
+                // время VM-части — контроль утечки памяти и роста задержки. Пишется ТОЛЬКО
+                // при включённом флаге (как CM_COLUMNS, issue #347).
+                if (TraceFlags.IsEnabled(TraceFlags.TreeSwitchFlag))
+                {
+                    var created = _containersCreated - _lastContainersCreated;
+                    var cleared = _containersCleared - _lastContainersCleared;
+                    _lastContainersCreated = _containersCreated;
+                    _lastContainersCleared = _containersCleared;
+                    if (_switchVmStartTicks != 0)
+                    {
+                        _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
+                            * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                        _switchVmStartTicks = 0;
+                    }
+                    AppServices.GetRequiredService<Services.IAppLogger>().Info(
+                        $"CM_TREESWITCH: containersCreated={created}, containersCleared={cleared}, vmMs={_lastSwitchVmMs}");
+                }
             };
             // «Найти в списке» (issue #285): цель выставлена и дерево пересобрано — окну
             // нужно показать строку, а не возвращать прежнюю позицию прокрутки.
@@ -449,6 +479,17 @@ namespace Workspace1C
         private NotifyCollectionChangedEventHandler? _flatItemsChanged;
         private EventHandler? _tagFiltersRebuilt;
         private PropertyChangedEventHandler? _vmPropertyChanged;
+
+        // ---- Диагностика переключения вкладок списка (issue #21, Этап E; флаг CM_TREESWITCH) ----
+        // Счётчики созданных/очищенных контейнеров строк накапливаются, а при каждой смене
+        // вкладки в лог выводится разница с прошлой сменой: главный показатель «пересоздаётся
+        // ли всё дерево строк заново» (утечка памяти и рост задержки).
+        private long _containersCreated;
+        private long _containersCleared;
+        private long _lastContainersCreated;
+        private long _lastContainersCleared;
+        private long _switchVmStartTicks;
+        private long _lastSwitchVmMs;
 
         /// <summary>Пункт «Отменить последнюю замену строк подключения» в меню «Утилиты»
         /// (0.3.9.191): IsEnabled синхронизируется с <see cref="MainViewModel.CanUndoConnectionReplace"/>.</summary>
@@ -1396,7 +1437,14 @@ namespace Workspace1C
             // контейнера на любом уровне вложенности. Здесь остаётся только
             // выравнивание заголовка: раскрытие группы добавляет строки, а с ними
             // может измениться и самый левый отступ, по которому выровнен заголовок.
-            _tree.ContainerPrepared += (_, _) => QueueHeaderAlign();
+            // Счётчик созданных контейнеров — диагностика переключения вкладок
+            // (issue #21, Этап E; CM_TREESWITCH): сколько строк реально пересоздано.
+            _tree.ContainerPrepared += (_, _) =>
+            {
+                _containersCreated++;
+                QueueHeaderAlign();
+            };
+            _tree.ContainerClearing += (_, _) => _containersCleared++;
 
             // Ширина шапки приравнивается ширине содержимого списка, а колонка
             // «Название» звёздная: любая разница общей ширины уходит в неё и

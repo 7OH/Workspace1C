@@ -90,14 +90,32 @@ public partial class MainViewModel : ViewModelBase
     /// </summary>
     private void ReplaceGroupNodes(List<GroupNodeViewModel> next)
     {
+        // Ранний выход (issue #21, Этап A): состав корней не изменился (повторный клик
+        // на вкладку, переход с тем же набором корней — например, «Избранное»→«Недавние»
+        // с тем же постоянным плоским узлом) — не трогаем коллекцию и не поднимаем
+        // события: контейнеры строк не пересоздаются, окно не делает лишнюю работу.
+        if (GroupNodes.Count == next.Count)
+        {
+            var same = true;
+            for (var i = 0; i < next.Count; i++)
+            {
+                if (!ReferenceEquals(GroupNodes[i], next[i]))
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return;
+        }
+
         // Пока дерево ещё на месте, даём окну запомнить позицию прокрутки до пересборки.
         TreeRebuilding?.Invoke();
 
-        // Массовое обновление существующей коллекции одним событием Reset (issue #21):
-        // TreeView НЕ сбрасывает ItemsSource и переиспользует контейнеры строк
-        // (виртуализация Recycling), вместо пересоздания всех контейнеров на каждый
-        // корневой узел. OnPropertyChanged(GroupNodes) не нужен — коллекция та же.
-        GroupNodes.ReplaceAll(next);
+        // Поштучное обновление существующей коллекции (issue #21, Этап A): контейнеры
+        // строк, оставшихся в списке, не пересоздаются (вместо Reset на каждое
+        // переключение вкладки). OnPropertyChanged(GroupNodes) не нужен — коллекция та же.
+        GroupNodes.ReplaceItemWise(next);
         TreeRebuilt?.Invoke();
     }
 

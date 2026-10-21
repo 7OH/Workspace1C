@@ -835,6 +835,10 @@ namespace Workspace1C
             // только сдвиг строки деревом, после чего значения стоят ровно под заголовками.
             Grid? rowGrid = null;
             double rowOrigin = 0;
+            // Первая реализованная карточка строки базы (аналог FindFirstInfobaseItem
+            // в WPF): обход останавливается на первом валидном контейнере, а не проходит
+            // всё визуальное дерево (десятки тысяч узлов на списке в сотни баз — источник
+            // «паузы» при каждом выравнивании после переключения вкладки, issue #21, Этап B).
             foreach (var card in _tree.GetVisualDescendants().OfType<InfobaseRowCard>())
             {
                 if (card.Child is not Grid content)
@@ -842,11 +846,9 @@ namespace Workspace1C
                 var origin = content.TranslatePoint(new Point(0, 0), _columnHeaderRow);
                 if (origin is null)
                     continue;
-                if (rowGrid is null || origin.Value.X < rowOrigin)
-                {
-                    rowGrid = content;
-                    rowOrigin = origin.Value.X;
-                }
+                rowGrid = content;
+                rowOrigin = origin.Value.X;
+                break;
             }
 
             double offset = 0;

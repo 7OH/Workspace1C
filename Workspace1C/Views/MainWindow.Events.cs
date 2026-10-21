@@ -289,7 +289,13 @@ namespace Workspace1C
                 // цикл QueueHeaderAlign здесь не запускаем: при пересборке дерева SizeChanged
                 // срабатывает и от пересоздания контейнеров, и вторая стабилизация на каждое
                 // переключение вкладки давала лишний пересчёт колонок (CM_COLUMNS, issue #21).
-                MainTree.SizeChanged += (_, _) => AlignHeaderToData();
+                // Счётчик событий — диагностика переключения вкладок (issue #21, Этап E;
+                // CM_TREESWITCH): сколько раз дерево меняло размер за смену вкладки.
+                MainTree.SizeChanged += (_, _) =>
+                {
+                    _treeSizeChangedCount++;
+                    AlignHeaderToData();
+                };
             }
 
             AlignHeaderToData();

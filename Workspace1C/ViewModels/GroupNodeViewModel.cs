@@ -375,8 +375,11 @@ public class GroupNodeViewModel : ViewModelBase
             // восстановление выбора подсвечивают копию в «Закреплённых» (issue #314).
             foreach (var infobase in Infobases)
                 items.Add(Marker == PinnedMarker ? new PinnedInfobaseItem(infobase) : infobase);
-            // Массовая замена одним событием Reset вместо тысяч CollectionChanged (issue #21).
-            Items.ReplaceAll(items);
+            // Поштучное обновление (issue #21, Этап A): контейнеры строк, оставшихся
+            // в списке, не пересоздаются; при неизменном составе событий нет вовсе.
+            // Для радикальной смены состава (большинство строк меняется) внутри
+            // ReplaceItemWise срабатывает fallback на один Reset.
+            Items.ReplaceItemWise(items);
             _containsInfobasesCache = Infobases.Count > 0 || Children.Any(c => c.ContainsInfobases);
         }
         finally

@@ -50,6 +50,11 @@ public static class TraceFlags
     /// <summary>Флаг INFO-диагностики редиректов/входа портала 1С (CM_REDIRECT).</summary>
     public const string RedirectFlag = "CM_REDIRECT";
 
+    /// <summary>Флаг диагностики переключения вкладок списка баз (CM_TREESWITCH, issue #21):
+    /// число созданных/очищенных контейнеров строк и время VM-части на смену вкладки
+    /// «Все/Избранное/Недавние» — для контроля утечки памяти и роста задержки.</summary>
+    public const string TreeSwitchFlag = "CM_TREESWITCH";
+
     /// <summary>Флаг детальной диагностики проверки обновлений конфигураций (CM_UPDATES):
     /// URL, длина ответа, найденные кандидаты версий с источником, выбранная версия
     /// и решение о повторе с полным каталогом (issue #371).</summary>
