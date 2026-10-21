@@ -215,8 +215,9 @@ public sealed class ObservableRangeCollectionTests
     [Fact]
     public void ReplaceItemWise_MajorityChanged_FallsBackToSingleReset()
     {
-        // Если меняется большинство элементов — один Reset дешевле сотен поштучных
-        // событий (fallback на ReplaceAll), поведение прежнее.
+        // Эксперимент A (1.0.0.34): при малом пересечении составов (kept*4 < total,
+        // в том числе совсем ничего — kept == 0) выполняется ОДИН Reset — дешевле
+        // сотен поштучных событий. Здесь {a,b,c} → {d,e}: пересечения нет → Reset.
         var a = new Item("a");
         var b = new Item("b");
         var c = new Item("c");
@@ -267,28 +268,131 @@ public sealed class ObservableRangeCollectionTests
     }
 
     [Fact]
-    public void ReplaceItemWise_SmallRecentFromLargeAll_NoReset_Issue21()
+    public void ReplaceItemWise_SmallRecentFromLargeAll_FallsBackToSingleReset_ExperimentA()
     {
-        // Регрессия issue #21: переход «Все»(600) → «Недавние»(10 из тех же объектов).
-        // Прежний порог «меняется большинство» (kept*2 < total) уводил в полный Reset —
-        // WPF пересоздавал контейнеры всех 600 строк, а память росла с каждым
-        // переключением. Теперь Reset только при нулевом пересечении: 10 сохранённых
-        // строк переиспользуют свои контейнеры, остальные удаляются поштучно.
+        // Эксперимент A (1.0.0.34): переход «Все»(600) → «Недавние»(10 из тех же
+        // объектов). Сохраняется 10 из 600 (10*4 = 40 < 600) → выполняется ОДИН
+        // Reset вместо ~590 поштучных Remove/Insert («шквала» событий, который WPF
+        // обрабатывал через ItemContainerGenerator по одному). Гипотеза эксперимента:
+        // Reset обрабатывается WPF одним проходом пересоздания контейнеров без
+        // накопления; окончательный порог фиксируется по замерам 1.0.0.33 vs 1.0.0.34.
         var all = Enumerable.Range(0, 600).Select(i => new Item("b" + i)).ToList();
         var recent = all.Take(10).ToList();
         var collection = new ObservableRangeCollection<Item>();
         collection.ReplaceAll(all);
 
         var resets = 0;
+        var adds = 0;
+        var removes = 0;
         collection.CollectionChanged += (_, e) =>
         {
-            if (e.Action == NotifyCollectionChangedAction.Reset)
-                resets++;
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (e.Action == NotifyCollectionChangedAction.Add) adds++;
+            else if (e.Action == NotifyCollectionChangedAction.Remove) removes++;
         };
 
         collection.ReplaceItemWise(recent);
 
         Assert.Equal(recent, collection);
+        Assert.Equal(1, resets);
+        Assert.Equal(0, adds);
+        Assert.Equal(0, removes);
+    }
+
+    // ============ Эксперимент A (1.0.0.34): порог Reset при малом пересечении ============
+
+    [Fact]
+    public void ReplaceItemWise_KeptTimes4EqualsTotal_Itemwise_NoReset()
+    {
+        // Граница порога: kept*4 == total — Reset НЕ выполняется (строгое '<'),
+        // коллекция обновляется поштучно (сохраняется 1 из 4: 1*4 == 4).
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var d = new Item("d");
+        var collection = new ObservableRangeCollection<Item> { a, b, c, d };
+        var resets = 0;
+        var adds = 0;
+        var removes = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else if (e.Action == NotifyCollectionChangedAction.Add) adds++;
+            else if (e.Action == NotifyCollectionChangedAction.Remove) removes++;
+        };
+
+        collection.ReplaceItemWise(new[] { d, new Item("e"), new Item("f"), new Item("g") });
+
+        Assert.Equal(4, collection.Count);
         Assert.Equal(0, resets);
+        Assert.Equal(3, adds);
+        Assert.Equal(3, removes);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_KeptTimes4LessTotal_SingleReset()
+    {
+        // kept*4 < total — один Reset (эксперимент A): сохраняется 1 из 5 (1*4 = 4 < 5).
+        var a = new Item("a");
+        var b = new Item("b");
+        var c = new Item("c");
+        var d = new Item("d");
+        var e = new Item("e");
+        var collection = new ObservableRangeCollection<Item> { a, b, c, d, e };
+        var resets = 0;
+        var otherActions = 0;
+        collection.CollectionChanged += (_, ev) =>
+        {
+            if (ev.Action == NotifyCollectionChangedAction.Reset) resets++;
+            else otherActions++;
+        };
+
+        collection.ReplaceItemWise(new[] { e, new Item("f"), new Item("g"), new Item("h"), new Item("i") });
+
+        Assert.Equal(5, collection.Count);
+        Assert.Equal(1, resets);
+        Assert.Equal(0, otherActions);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_CustomResetThreshold_RespectsParameter()
+    {
+        // Порог конфигурируемый (эксперимент A): с параметром 4 (по умолчанию)
+        // сохраняется 1 из 6 → Reset; с параметром 10 (1*10 >= 6) → поштучно.
+        var all = Enumerable.Range(0, 6).Select(i => new Item("b" + i)).ToList();
+
+        var c1 = new ObservableRangeCollection<Item>();
+        c1.ReplaceAll(all);
+        var resets1 = 0;
+        c1.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets1++;
+        };
+        c1.ReplaceItemWise(new[] { all[0] });
+        Assert.Equal(1, resets1);
+
+        var c2 = new ObservableRangeCollection<Item>();
+        c2.ReplaceAll(all);
+        var resets2 = 0;
+        var otherActions2 = 0;
+        c2.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset) resets2++;
+            else otherActions2++;
+        };
+        c2.ReplaceItemWise(new[] { all[0] }, resetIfKeptTimesLessThanTotal: 10);
+        Assert.Equal(0, resets2);
+        Assert.True(otherActions2 > 0);
+    }
+
+    [Fact]
+    public void ReplaceItemWise_InvalidThreshold_Throws()
+    {
+        var collection = new ObservableRangeCollection<int> { 1 };
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => collection.ReplaceItemWise(new[] { 2 }, resetIfKeptTimesLessThanTotal: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => collection.ReplaceItemWise(new[] { 2 }, resetIfKeptTimesLessThanTotal: -1));
     }
 }

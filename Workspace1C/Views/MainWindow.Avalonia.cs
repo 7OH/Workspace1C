@@ -284,10 +284,20 @@ namespace Workspace1C
             _vm.TreeModalClosed += RestoreTreeScrollAfterCancel;
             _vm.TreeRebuilt += () =>
             {
+                // Целевая навигация «переход к строке» (issue #31): НЕ планируем промежуточное
+                // восстановление выделения, пока идёт серия пересборок команды (Ctrl+T: смена
+                // вкладки + сброс поиска/тегов + повторная пересборка; Ctrl+цифра: пересборка).
+                // Единственный reveal выполнит RevealFindInListRequested по окончании операции
+                // (паритет с WPF).
+                if (_vm.IsRevealNavigationInProgress)
+                    return;
+
                 // Чистое переключение вкладки (issue #21): цель выделения из прежнего режима
                 // в новом, как правило, недостижима, а восстановление выбора и прокрутки
                 // к ней только добавляло работу на каждое переключение.
-                if (!_vm.IsListModeSwitchInProgress)
+                // Исключение — «Найти в списке»/переход к закладке (issue #31): цель выставлена
+                // явно, и строку нужно выделить и прокрутить даже при смене вкладки.
+                if (!_vm.IsListModeSwitchInProgress || _revealFindInListPending)
                 {
                     RestoreTreeSelection();
                     return;
@@ -301,8 +311,10 @@ namespace Workspace1C
                 {
                     var created = _containersCreated - _lastContainersCreated;
                     var cleared = _containersCleared - _lastContainersCleared;
+                    var collReset = _treeCollResetCount - _lastTreeCollResetCount;
                     _lastContainersCreated = _containersCreated;
                     _lastContainersCleared = _containersCleared;
+                    _lastTreeCollResetCount = _treeCollResetCount;
                     if (_switchVmStartTicks != 0)
                     {
                         _lastSwitchVmMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _switchVmStartTicks)
@@ -312,9 +324,13 @@ namespace Workspace1C
                     // Замер кучи после смены вкладки (issue #21): рост с каждым переключением
                     // указывает на утечку в UI-слое (контейнеры/подписки), а не в фильтрации.
                     var heapBytes = System.GC.GetTotalMemory(false);
+                    // Режим замены коллекции за смену вкладки (эксперимент A, 1.0.0.34):
+                    // reset — коллекции заменялись одним Reset (малое пересечение составов),
+                    // itemwise — поштучными событиями.
+                    var resetMode = collReset > 0 ? "reset" : "itemwise";
                     AppServices.GetRequiredService<Services.IAppLogger>().Info(
                         $"CM_TREESWITCH: containersCreated={created}, containersCleared={cleared}, vmMs={_lastSwitchVmMs}, " +
-                        $"heapMb={heapBytes / (1024 * 1024)}");
+                        $"heapMb={heapBytes / (1024 * 1024)}, collReset={collReset}, resetMode={resetMode}");
                 }
             };
             // «Найти в списке» (issue #285): цель выставлена и дерево пересобрано — окну
@@ -492,6 +508,11 @@ namespace Workspace1C
         private long _containersCleared;
         private long _lastContainersCreated;
         private long _lastContainersCleared;
+        // Счётчик Reset коллекций дерева (GroupNodes/FlatItems) за смену вкладки
+        // (эксперимент A, 1.0.0.34): по collReset/resetMode сопоставляются замеры
+        // 1.0.0.33 (шквал поштучных событий) и 1.0.0.34 (Reset при малом пересечении).
+        private long _treeCollResetCount;
+        private long _lastTreeCollResetCount;
         private long _switchVmStartTicks;
         private long _lastSwitchVmMs;
 
@@ -1693,13 +1714,22 @@ namespace Workspace1C
                 // позже — от ContainerPrepared материализованных строк, — чтобы не запускать
                 // повторный цикл выравнивания на каждое переключение. В остальных случаях
                 // (поиск, данные, группировка) ставим, как раньше.
-                _groupNodesChanged = (_, _) =>
+                _groupNodesChanged = (_, e) =>
                 {
+                    // Эксперимент A (1.0.0.34): Reset-событие коллекции означает переход
+                    // в режим Reset (малое пересечение составов при смене вкладки).
+                    if (e.Action == NotifyCollectionChangedAction.Reset)
+                        _treeCollResetCount++;
                     UpdateEmptyState();
                     if (!_vm.IsListModeSwitchInProgress)
                         QueueHeaderAlign();
                 };
-                _flatItemsChanged = (_, _) => UpdateEmptyState();
+                _flatItemsChanged = (_, e) =>
+                {
+                    if (e.Action == NotifyCollectionChangedAction.Reset)
+                        _treeCollResetCount++;
+                    UpdateEmptyState();
+                };
                 _tagFiltersRebuilt = (_, _) => RefreshTagFilterPanel();
                 _vmPropertyChanged = (_, e) =>
                 {

@@ -815,6 +815,14 @@ public partial class MainViewModel : ViewModelBase
         var selectedKey = SelectedGroupNode?.NodeKey;
         var selectedGroupId = SelectedGroupNode?.Group?.Id;
         SelectedGroupNode = null;
+        // Узлы пересборкой уничтожаются (issue #21, эксперимент A 1.0.0.34): отписываем
+        // их от собственных коллекций Infobases/Children, чтобы ставшие мусором узлы
+        // не удерживались обработчиками. Постоянный плоский узел _flatNode не детачится.
+        foreach (var root in AllGroupNodes)
+        {
+            if (!ReferenceEquals(root, _flatNode))
+                root.Detach();
+        }
         AllGroupNodes.Clear();
         GroupNodes.Clear();
         FlatItems.Clear();
@@ -852,6 +860,15 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>Состав списка вот-вот сменится: окну нужно запомнить прокрутку.</summary>
     public event Action? TreeRebuilding;
+
+    /// <summary>
+    /// true, пока выполняется целевая навигация «переход к строке» (issue #31): «Найти в
+    /// списке» (Ctrl+T) или переход к закладке (Ctrl+цифра). Окно в обработчике TreeRebuilt
+    /// видит флаг и не планирует промежуточное восстановление выделения во время серии
+    /// пересборок команды — единственный reveal выполнит запрос RevealFindInListRequested
+    /// по окончании операции (паритет с WPF).
+    /// </summary>
+    public bool IsRevealNavigationInProgress { get; private set; }
 
     /// <summary>
     /// «Найти в списке» (issue #285) завершил переход: цель выставлена и дерево пересобрано.

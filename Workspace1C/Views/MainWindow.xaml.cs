@@ -317,6 +317,21 @@ namespace Workspace1C
             _viewModel.TreeModalClosed += RestoreTreeScrollAfterCancel;
             _viewModel.TreeRebuilt += () =>
             {
+                // Целевая навигация «переход к строке» (issue #31): НЕ планируем промежуточное
+                // восстановление выделения, пока идёт серия пересборок команды (Ctrl+T: смена
+                // вкладки + сброс поиска/тегов + повторная пересборка; Ctrl+цифра: пересборка).
+                // Иначе несколько отложенных RevealAndSelectAfterRebuild на приоритете Render
+                // отработали бы по очереди: первый применил бы запрос (флаг сбрасывается),
+                // а последующие выбрали бы первую копию базы в «Закреплённых» и вернули бы
+                // старую позицию прокрутки — тот самый «переход в Закреплённые», о котором
+                // сообщал пользователь. Единственный reveal планирует OnFindInListRequested
+                // по окончании операции (см. MainWindow.Tree.cs).
+                if (_viewModel.IsRevealNavigationInProgress)
+                {
+                    QueueHeaderAlign();
+                    return;
+                }
+
                 // Чистое переключение вкладки (issue #21): цель выделения из прежнего режима
                 // в новом, как правило, недостижима, а обязанное за ней восстановление
                 // (RevealAndSelectAfterRebuild -> принудительный UpdateLayout + повторные
@@ -342,6 +357,11 @@ namespace Workspace1C
                     var collAdd = _treeCollAddCount - _lastTreeCollAddCount;
                     var collRemove = _treeCollRemoveCount - _lastTreeCollRemoveCount;
                     var collReset = _treeCollResetCount - _lastTreeCollResetCount;
+                    // Режим замены коллекции за смену вкладки (эксперимент A, 1.0.0.34):
+                    // reset — коллекции дерева заменялись одним Reset (малое пересечение),
+                    // itemwise — поштучными событиями. По resetMode сопоставляются замеры
+                    // 1.0.0.33 (всегда itemwise при пересечении) и 1.0.0.34.
+                    var resetMode = collReset > 0 ? "reset" : "itemwise";
                     _lastTreeSizeChangedCount = _treeSizeChangedCount;
                     _lastHeaderAlignStabilizeTotal = _headerAlignStabilizeTotal;
                     _lastTreeCollAddCount = _treeCollAddCount;
@@ -366,6 +386,7 @@ namespace Workspace1C
                         $"CM_TREESWITCH: sizeChanged={sizeChanged}, stabilize={stabilize}, vmMs={_lastSwitchVmMs}, " +
                         $"heapMb={heapBytes / (1024 * 1024)}, heapAfterGcMb={heapAfterGc / (1024 * 1024)}, " +
                         $"collAdd={collAdd}, collRemove={collRemove}, collReset={collReset}, " +
+                        $"resetMode={resetMode}, " +
                         $"gc0={System.GC.CollectionCount(0)}, gc1={System.GC.CollectionCount(1)}, " +
                         $"gc2={System.GC.CollectionCount(2)}");
                 }

@@ -39,6 +39,15 @@ namespace Workspace1C
         /// </summary>
         private bool _revealFindInListPending;
 
+        /// <summary>
+        /// Липкая цель «перехода к строке» (issue #31): база, к которой идёт навигация,
+        /// запоминается в момент RevealFindInListRequested и используется reveal'ом вместо
+        /// SelectedInfobase. Поздняя пересборка (сброс поиска/тегов внутри Ctrl+T) сбрасывает
+        /// выбранный элемент дерева и очищает SelectedInfobase раньше, чем отработает
+        /// отложенный RevealAndSelectAfterRebuild, — цель из override сохраняется.
+        /// </summary>
+        private Infobase? _revealTargetOverride;
+
         /// <summary>Максимум «добирающих» проходов при поиске контейнера цели после пересборки (issue #285).</summary>
         private const int MaxRevealAttempts = 6;
 
@@ -276,11 +285,23 @@ namespace Workspace1C
         }
 
         /// <summary>
-        /// Окно узнало, что выполняется «Найти в списке» (issue #285): цель уже выставлена
-        /// во вьюмодели, и при восстановлении строки прокрутку нужно вести К ЦЕЛИ, а не
-        /// возвращать прежнюю позицию. Флаг сбрасывается в RevealAndSelectAfterRebuild.
+        /// Окно узнало, что выполняется целевая навигация «переход к строке» (issue #31):
+        /// цель уже выставлена во вьюмодели, и при восстановлении строки прокрутку нужно
+        /// вести К ЦЕЛИ, а не возвращать прежнюю позицию. Флаг и липкая цель сбрасываются
+        /// в RevealAndSelectAfterRebuild после применения.
         /// </summary>
-        private void OnFindInListRequested() => _revealFindInListPending = true;
+        private void OnFindInListRequested()
+        {
+            // Липкая цель: запоминаем базу в момент запроса (см. _revealTargetOverride).
+            _revealTargetOverride = _viewModel?.SelectedInfobase;
+            _revealFindInListPending = true;
+            // Reveal планируется здесь явно, а не только из TreeRebuilt через
+            // RestoreTreeKeyboardFocus: во время целевой навигации
+            // (IsRevealNavigationInProgress) промежуточное восстановление в TreeRebuilt
+            // пропускается, и этот отложенный вызов остаётся единственным.
+            Dispatcher.BeginInvoke(new Action(() => RevealAndSelectAfterRebuild()),
+                System.Windows.Threading.DispatcherPriority.Render);
+        }
 
         /// <summary>
         /// Восстанавливает выделение и клавиатурный фокус выбранной строки после пересборки.
@@ -297,7 +318,11 @@ namespace Workspace1C
 
             try
             {
-                var target = (object?)_viewModel.SelectedInfobase ?? _viewModel.SelectedGroupNode;
+                // Пока reveal в работе, цель берём из липкого запроса (issue #31): поздняя
+                // пересборка могла очистить SelectedInfobase (SelectedItemChanged(null)).
+                var target = _revealFindInListPending && _revealTargetOverride is not null
+                    ? (object?)_revealTargetOverride
+                    : (object?)_viewModel.SelectedInfobase ?? _viewModel.SelectedGroupNode;
                 if (target is null)
                     return;
 
@@ -307,7 +332,16 @@ namespace Workspace1C
                 // полными раскладками (UpdateLayout на каждой попытке до MaxRevealAttempts).
                 // Проверка только по ViewModel-данным, визуальное дерево не трогаем.
                 if (!IsRevealTargetReachable(target))
+                {
+                    // Цель недостижима (issue #31): reveal не сможет найти строку — снимаем
+                    // липкий запрос, чтобы он не перехватывал последующие обычные пересборки.
+                    if (_revealFindInListPending)
+                    {
+                        _revealFindInListPending = false;
+                        _revealTargetOverride = null;
+                    }
                     return;
+                }
 
                 // «Найти в списке» (issue #285): строка должна быть во «Все базы» — в настоящей
                 // группе базы или узле «Без группы», а НЕ первой копией в «Закреплённых».
@@ -426,8 +460,10 @@ namespace Workspace1C
                     // «Найти в списке» (issue #285): доводим строку цели до видимой области.
                     // Возврат прежней позиции здесь отменяется: RestoreTreeScrollAfterRebuild
                     // вернул бы позицию предыдущей вкладки («Избранное»/«Закреплённые») и
-                    // «спрятал» целевую базу.
+                    // «спрятал» целевую базу. Липкий запрос (issue #31) снимается вместе
+                    // с флагом: следующая обычная пересборка восстановит выделение штатно.
                     _revealFindInListPending = false;
+                    _revealTargetOverride = null;
                     ScrollSelectedIntoView(item);
                 }
                 else

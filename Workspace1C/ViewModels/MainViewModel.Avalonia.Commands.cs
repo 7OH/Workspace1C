@@ -202,21 +202,33 @@ public partial class MainViewModel : ViewModelBase
         if (ib is null)
             return;
 
-        // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
-        IsListModeAll = true;
-        if (!string.IsNullOrWhiteSpace(SearchText))
-            SearchText = string.Empty;
-        ClearTagFilters();
+        // Целевая навигация (issue #31): окно не планирует промежуточное восстановление
+        // выделения, пока идёт серия пересборок (смена вкладки + сброс поиска/тегов +
+        // повторная пересборка) — единственный reveal выполнит запрос в конце операции
+        // (паритет с WPF).
+        IsRevealNavigationInProgress = true;
+        try
+        {
+            // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
+            IsListModeAll = true;
+            if (!string.IsNullOrWhiteSpace(SearchText))
+                SearchText = string.Empty;
+            ClearTagFilters();
 
-        ExpandPathTo(ib);
+            ExpandPathTo(ib);
 
-        // Цель выставляем ПОСЛЕ пересборки: RebuildTree пересоздаёт узлы, и отложенное
-        // восстановление выделения (TreeRebuilt → RestoreTreeSelection) читает цель
-        // в момент выполнения. Окно по RevealFindInListRequested не вернёт прежнюю
-        // позицию прокрутки, а доведёт строку до видимой области (issue #285).
-        RebuildTree();
-        SelectedInfobase = ib;
-        RevealFindInListRequested?.Invoke();
+            // Цель выставляем ПОСЛЕ пересборки: RebuildTree пересоздаёт узлы, и отложенное
+            // восстановление выделения (TreeRebuilt → RestoreTreeSelection) читает цель
+            // в момент выполнения. Окно по RevealFindInListRequested не вернёт прежнюю
+            // позицию прокрутки, а доведёт строку до видимой области (issue #285).
+            RebuildTree();
+            SelectedInfobase = ib;
+            RevealFindInListRequested?.Invoke();
+        }
+        finally
+        {
+            IsRevealNavigationInProgress = false;
+        }
     }
 
     /// <summary>Раскрывает цепочку групп от корня до родителя базы (принудительно).</summary>

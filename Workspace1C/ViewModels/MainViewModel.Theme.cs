@@ -873,6 +873,14 @@ public partial class MainViewModel : ViewModelBase
         // идёт через RebuildGroupTreeCore), означает изменение данных/фильтров — кэш
         // «Избранное»/«Недавние» И кэш дерева «Все» сбрасываем (issue #21).
         _listFilter.Invalidate();
+        // Узлы кэша «Все» уничтожаются пересборкой (issue #21, эксперимент A 1.0.0.34):
+        // отписываем их от собственных коллекций Infobases/Children, чтобы удаляемые
+        // узлы не удерживались обработчиками. Постоянный _flatNode в кэше не участвует.
+        if (_groupedTreeCacheValid && _groupedTreeCache is { } oldCache)
+        {
+            foreach (var root in oldCache)
+                root.Detach();
+        }
         _groupedTreeCacheValid = false;
         RebuildGroupTreeCore();
     }

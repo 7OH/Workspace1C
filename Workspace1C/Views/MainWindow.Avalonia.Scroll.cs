@@ -20,6 +20,15 @@ namespace Workspace1C
         /// <summary>Позиция прокрутки списка, снятая перед пересборкой дерева.</summary>
         private Avalonia.Vector? _treeScrollOffset;
 
+        /// <summary>
+        /// Идёт целевая навигация «переход к строке» (issue #31): цель уже захвачена, и окну
+        /// нужно придти к ней, а не восстанавливать прежнюю позицию прокрутки. Устанавливается
+        /// обработчиком RevealFindInListRequested и сбрасывается после применения/исчерпания
+        /// попыток. Используется в TreeRebuilt: восстановление выполняется и при чистой смене
+        /// вкладки, если запрошен переход к строке (паритет с WPF).
+        /// </summary>
+        private bool _revealFindInListPending;
+
         /// <summary>Максимум отложенных попыток довести строку до видимой области (issue #285).</summary>
         private const int MaxRevealAttempts = 8;
 
@@ -207,15 +216,19 @@ namespace Workspace1C
         {
             // Возврат прежней позиции прокрутки здесь отменяется (обнуляем offset, запомненный
             // RememberTreeScroll) — цель «Найти в списке» показать строку базы, а не старое место
-            // списка (issue #285; кейс #252 «возврат после „Нет“» не затрагивается — у него свой
+            // списка (issue #285; кейс #252 «возврат после „Нет"» не затрагивается — у него свой
             // путь через RestoreTreeScrollAfterCancel).
             _treeScrollOffset = null;
+            // Липкая цель (issue #31): захватываем базу в момент запроса. Последующая
+            // пересборка (сброс поиска/тегов внутри Ctrl+T) может очистить SelectedInfobase
+            // раньше, чем отработает отложенный reveal, — reveal продолжит искать захваченную цель.
+            var target = (object?)_vm?.SelectedInfobase ?? _vm?.SelectedGroupNode;
+            if (target is null)
+                return;
+            _revealFindInListPending = true;
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (_vm is null || _tree is null)
-                    return;
-                var target = (object?)_vm.SelectedInfobase ?? _vm.SelectedGroupNode;
-                if (target is null)
                     return;
 
                 // Ищем строку во «Все базы»: для базы — внутри её настоящей группы (или узла
@@ -224,6 +237,7 @@ namespace Workspace1C
                 if (FindFindInListRow(target) is { } row)
                 {
                     SelectAndReveal(row);
+                    _revealFindInListPending = false;
                     return;
                 }
 
@@ -275,12 +289,14 @@ namespace Workspace1C
                 if (FindFindInListRow(target) is { } row)
                 {
                     SelectAndReveal(row);
+                    _revealFindInListPending = false;
                     return;
                 }
             }
             catch
             {
                 // Контейнер мог отсоединиться во время пересборки — выходим.
+                _revealFindInListPending = false;
                 return;
             }
 
@@ -303,7 +319,12 @@ namespace Workspace1C
                 Avalonia.Threading.Dispatcher.UIThread.Post(
                     () => RevealFindInListAttempt(target, attempt + 1),
                     Avalonia.Threading.DispatcherPriority.Background);
+                return;
             }
+
+            // Попытки исчерпаны (issue #31): строка так и не стала видимой — снимаем запрос,
+            // чтобы он не перехватывал последующие обычные пересборки.
+            _revealFindInListPending = false;
         }
 
         /// <summary>

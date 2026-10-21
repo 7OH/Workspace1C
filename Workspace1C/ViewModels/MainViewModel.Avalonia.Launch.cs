@@ -633,33 +633,36 @@ public partial class MainViewModel : ViewModelBase
         if (ib is null)
             return;
 
-        if (!string.IsNullOrEmpty(ib.Group))
+        // Целевая навигация (issue #31): окно во время серии пересборок команды не
+        // выполняет промежуточное восстановление выделения — единственный reveal выполнит
+        // запрос RevealFindInListRequested по окончании операции (паритет с WPF).
+        IsRevealNavigationInProgress = true;
+        try
         {
-            foreach (var root in AllGroupNodes)
-            {
-                var node = FindNode(root, ib.Group);
-                if (node is null)
-                    continue;
-                var chain = new List<GroupNodeViewModel>();
-                for (var n = node; n is not null; n = n.Parent)
-                    chain.Add(n);
-                chain.Reverse();
-                foreach (var n in chain)
-                {
-                    n.SetExpandedSilent(true);
-                    n.NotifyIsExpanded();
-                    _collapsedGroups.Remove(n.NodeKey);
-                }
-                break;
-            }
-        }
+            // 1-й проход: раскрываем цепочку групп-предков и снимаем их ключи из набора
+            // свёрнутых (ExpandPathTo). Иначе RebuildTree по _collapsedGroups снова свернул
+            // бы группу-предок и строка цели осталась бы скрытой (issue #31).
+            ExpandPathTo(ib);
 
-        SelectedInfobase = ib;
-        RebuildTree();
-        // Переход к строке (issue #31): сообщаем окну, что нужно выделить строку
-        // и прокрутить к ней. Без этого после оптимизации переключения вкладок
-        // (1.0.0.26+) выделение не восстанавливалось и прокрутки не было.
-        RevealFindInListRequested?.Invoke();
+            // Пересборка дерева, чтобы контейнер строки создался (issue #31).
+            RebuildTree();
+
+            // 2-й проход после пересборки: узлы дерева созданы заново — повторно раскрываем
+            // цепочку и снимаем ключи свёрнутых на новых узлах (параллель с WPF-версией).
+            ExpandPathTo(ib);
+
+            // Цель выставляем ПОСЛЕ пересборки (паритет с WPF): пересборка сбрасывает
+            // выделение дерева, и цель, выставленная до неё, могла бы быть потеряна.
+            SelectedInfobase = ib;
+            // Переход к строке (issue #31): сообщаем окну, что нужно выделить строку
+            // и прокрутить к ней. Без этого после оптимизации переключения вкладок
+            // (1.0.0.26+) выделение не восстанавливалось и прокрутки не было.
+            RevealFindInListRequested?.Invoke();
+        }
+        finally
+        {
+            IsRevealNavigationInProgress = false;
+        }
     }
 
     /// <summary>
@@ -806,6 +809,9 @@ public partial class MainViewModel : ViewModelBase
             return;
         }
 
+        // Узел «Закреплённые» опустел — узел уничтожается: отписываем от коллекций
+        // (issue #21, эксперимент A 1.0.0.34), затем удаляем из обоих списков.
+        pinned.Detach();
         AllGroupNodes.Remove(pinned);
         GroupNodes.Remove(pinned);
     }

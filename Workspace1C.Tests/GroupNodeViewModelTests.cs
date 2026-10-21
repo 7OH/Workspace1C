@@ -382,4 +382,40 @@ public sealed class GroupNodeViewModelTests
         Assert.Contains(nameof(GroupNodeViewModel.Icon), events);
         Assert.Contains(nameof(GroupNodeViewModel.NodeKey), events);
     }
+
+    [Fact]
+    public void Detach_StopsHandlingCollectionChanges_Recursive()
+    {
+        // Эксперимент A (issue #21, 1.0.0.34): Detach() отписывает узел (и его
+        // поддерево) от CollectionChanged коллекций Infobases/Children — после
+        // удаления узла из дерева изменения коллекций больше не поднимают
+        // NotifyCountChanged (ни у самого узла, ни у родителей). Повторный
+        // вызов безопасен (идемпотентен).
+        var (root, child, grandchild, sibling) = BuildDepthThreeTree();
+        var countNotifications = 0;
+        root.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GroupNodeViewModel.GroupCountSuffix))
+                countNotifications++;
+        };
+
+        // До Detach: изменение Infobases дочернего узла доходит до родителя.
+        child.Infobases.Add(CreateBase());
+        Assert.True(countNotifications > 0,
+            "до Detach уведомления о составе должны доходить до родителя");
+
+        root.Detach();
+
+        // После Detach: повторные изменения коллекций узлов поддерева не вызывают
+        // обработчиков — счётчик не растёт; повторный Detach() безопасен.
+        var snapshot = countNotifications;
+        child.Infobases.Add(CreateBase());
+        grandchild.Children.Add(new GroupNodeViewModel(null));
+        root.Infobases.Add(CreateBase());
+        root.Infobases.Clear();
+        Assert.Equal(snapshot, countNotifications);
+
+        root.Detach();
+        child.Detach();
+    }
 }

@@ -1,5 +1,6 @@
 #if LINUX
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using Avalonia.Media;
 using Workspace1C.Collections;
 using Workspace1C.Converters;
@@ -20,6 +21,11 @@ public class GroupNodeViewModel : ViewModelBase
     private string? _fullPathCache;
     private bool? _containsInfobasesCache;
     private bool _suppressNotifications;
+    // Делегаты-обработчики коллекций: поля, чтобы метод Detach() мог отписаться
+    // (issue #21, эксперимент A 1.0.0.34) — иначе анонимные лямбды не отписываемы.
+    private readonly NotifyCollectionChangedEventHandler _onInfobasesChanged;
+    private readonly NotifyCollectionChangedEventHandler _onChildrenChanged;
+    private bool _detached;
 
     private readonly string _color;
     private readonly string _iconColor;
@@ -79,16 +85,42 @@ public class GroupNodeViewModel : ViewModelBase
         HeaderBrush = GroupColorConverter.GetBrush(_color);
         HeaderTextBrush = GroupTextColorConverter.GetBrush(_color);
         IconBrush = GroupColorConverter.GetBrush(_iconColor);
-        Infobases.CollectionChanged += (_, _) =>
+        // Обработчики вынесены в поля-делегаты — Detach() (эксперимент A, 1.0.0.34)
+        // должен иметь возможность отписаться при удалении узла из дерева.
+        _onInfobasesChanged = (_, _) =>
         {
             _containsInfobasesCache = null;
             NotifyCountChanged();
         };
-        Children.CollectionChanged += (_, _) =>
+        _onChildrenChanged = (_, _) =>
         {
             _containsInfobasesCache = null;
             NotifyCountChanged();
         };
+        Infobases.CollectionChanged += _onInfobasesChanged;
+        Children.CollectionChanged += _onChildrenChanged;
+    }
+
+    /// <summary>
+    /// Отписывает узел от коллекций <see cref="Infobases"/> и <see cref="Children"/>
+    /// (issue #21, эксперимент A 1.0.0.34): вызывается перед удалением узла из дерева
+    /// (заменой коллекции GroupNodes), чтобы узел не удерживался собственными
+    /// подписками и при пересборках дерева не накапливались обработчики. Повторный
+    /// вызов безопасен (идемпотентен). Постоянные специальные узлы («Закреплённые»,
+    /// «Все базы», «Без группы», плоский узел) не детачатся — они переживают смены вкладок.
+    /// </summary>
+    public void Detach()
+    {
+        if (_detached)
+            return;
+        _detached = true;
+        // Поддерево узла не переиспользуется (дерево строгое, без общих поддеревьев) —
+        // отписываем и дочерние узлы, чтобы коллекции не удерживали ни одного
+        // обработчика узлов, ставших мусором после удаления корня.
+        foreach (var child in Children)
+            child.Detach();
+        Infobases.CollectionChanged -= _onInfobasesChanged;
+        Children.CollectionChanged -= _onChildrenChanged;
     }
 
     // Цвет обычной папки по умолчанию (равен цвету группы в модели и fallback в конвертерах).

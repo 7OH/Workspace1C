@@ -872,31 +872,39 @@ public partial class MainViewModel : ViewModelBase
         if (ib is null)
             return;
 
-        if (!string.IsNullOrEmpty(ib.Group))
+        // Целевая навигация (issue #31): пока идёт серия пересборок команды, окно не
+        // планирует промежуточное восстановление выделения — единственный reveal выполнит
+        // запрос RevealFindInListRequested по окончании операции (см. OnFindInListRequested).
+        IsRevealNavigationInProgress = true;
+        try
         {
-            var node = FindGroupNodeByPath(ib.Group);
-            if (node is not null)
-            {
-                var chain = new List<GroupNodeViewModel>();
-                for (var n = node; n is not null; n = n.Parent)
-                    chain.Add(n);
-                chain.Reverse();
-                foreach (var n in chain)
-                {
-                    n.SetExpandedSilent(true);
-                    n.NotifyIsExpanded();
-                }
-            }
-        }
+            // Раскрываем группы-предки цели и снимаем их ключи из набора свёрнутых
+            // (тот же приём, что в ExecuteFindInList): без этого ApplyExpandedState внутри
+            // RebuildGroupTree применил бы сохранённую свёрнутость, группа осталась бы
+            // свёрнутой, контейнер базы не создался бы и переход не нашёл бы строку
+            // (issue #31). Первый проход — по текущему дереву; в плоском режиме
+            // (Избранное/Недавние/поиск/теги) цепочка здесь не находится — её снимает
+            // второй проход ниже, уже по пересобранному дереву.
+            ExpandPathTo(ib);
 
-        // Переход к строке (issue #31): пересобираем дерево, чтобы контейнер строки
-        // создался, затем ставим цель и сообщаем окну, что нужно выделить строку
-        // и прокрутить к ней (тот же приём, что в ExecuteFindInList). Без этого
-        // после оптимизации переключения вкладок (1.0.0.26+) выделение не
-        // восстанавливалось и прокрутки к строке не было.
-        RebuildGroupTree();
-        SelectedInfobase = ib;
-        RevealFindInListRequested?.Invoke();
+            // Пересобираем дерево, чтобы контейнер строки создался (issue #31).
+            RebuildGroupTree();
+
+            // Второй проход после пересборки: цепочка групп найдена, ключи свёрнутых
+            // снимаются на новых узлах — иначе ApplyExpandedState снова свернул бы группу
+            // и RevealAndSelectAfterRebuild не нашёл бы строку (параллель с ExecuteFindInList).
+            ExpandPathTo(ib);
+
+            // Цель ставим ПОСЛЕ пересборки: RebuildGroupTree сбрасывает выбранный элемент
+            // дерева (обработчик SelectedItemChanged(null) очищает SelectedInfobase). Окно
+            // по RevealFindInListRequested выделит целевую строку и прокрутит к ней.
+            SelectedInfobase = ib;
+            RevealFindInListRequested?.Invoke();
+        }
+        finally
+        {
+            IsRevealNavigationInProgress = false;
+        }
     }
 
     /// <summary>
@@ -1527,6 +1535,17 @@ public string HotkeyEnterprise
     }
 
     /// <summary>
+    /// true, пока выполняется целевая навигация «переход к строке» (issue #31): «Найти в
+    /// списке» (Ctrl+T) или переход к закладке (Ctrl+цифра). Окно в обработчике TreeRebuilt
+    /// видит флаг и не планирует промежуточное восстановление выделения во время серии
+    /// пересборок команды: иначе несколько отложенных RevealAndSelectAfterRebuild «перехватили»
+    /// бы первую копию базы в «Закреплённых» (она идёт первой в дереве) и вернули бы старую
+    /// позицию прокрутки. Единственный reveal планирует запрос RevealFindInListRequested
+    /// по окончании операции.
+    /// </summary>
+    public bool IsRevealNavigationInProgress { get; private set; }
+
+    /// <summary>
     /// «Найти в списке» (issue #285): команда перешла во «Все базы» и выставила цель —
     /// окну нужно показать строку базы в видимой области, а не возвращать прежнюю позицию
     /// прокрутки (флаг читается в RevealAndSelectAfterRebuild; см. OnFindInListRequested).
@@ -1878,35 +1897,46 @@ public string HotkeyEnterprise
         if (ib is null)
             return;
 
-        // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
-        IsListModeAll = true;
-        if (!string.IsNullOrWhiteSpace(SearchText))
-            ClearSearch(null);
-        if (_activeTagFilters.Count > 0)
-            ClearTagFilters(null);
+        // Целевая навигация (issue #31): окно не планирует промежуточное восстановление
+        // выделения, пока идёт серия пересборок (смена вкладки + сброс поиска/тегов +
+        // повторная пересборка) — единственный reveal выполнит запрос в конце операции.
+        IsRevealNavigationInProgress = true;
+        try
+        {
+            // Переход на вкладку «Все базы» и сброс фильтров, скрывающих базу из списка.
+            IsListModeAll = true;
+            if (!string.IsNullOrWhiteSpace(SearchText))
+                ClearSearch(null);
+            if (_activeTagFilters.Count > 0)
+                ClearTagFilters(null);
 
-        // Раскрываем группы-предки цели (в т.ч. свёрнутые пользователем), чтобы база
-        // гарантированно оказалась видимой в общем списке. В режимах «Избранное»/
-        // «Закреплённые» дерево плоское (одна корневая папка без реальных групп,
-        // см. RebuildGroupTree), поэтому здесь цепочка групп по пути может не найтись —
-        // ключи свёрнутых групп снимает повторный ExpandPathTo ниже, уже по настоящему дереву.
-        ExpandPathTo(ib);
+            // Раскрываем группы-предки цели (в т.ч. свёрнутые пользователем), чтобы база
+            // гарантированно оказалась видимой в общем списке. В режимах «Избранное»/
+            // «Закреплённые» дерево плоское (одна корневая папка без реальных групп,
+            // см. RebuildGroupTree), поэтому здесь цепочка групп по пути может не найтись —
+            // ключи свёрнутых групп снимает повторный ExpandPathTo ниже, уже по настоящему дереву.
+            ExpandPathTo(ib);
 
-        // RebuildGroupTree пересоздаёт узлы и сбрасывает выделение дерева (обработчик
-        // SelectedItemChanged(null) очищает SelectedInfobase), поэтому цель ставим ПОСЛЕ
-        // пересборки: RevealAndSelectAfterRebuild читает её отложенно и выделит/прокрутит
-        // строку (тот же приём, что в EditInfobase).
-        RebuildGroupTree();
+            // RebuildGroupTree пересоздаёт узлы и сбрасывает выделение дерева (обработчик
+            // SelectedItemChanged(null) очищает SelectedInfobase), поэтому цель ставим ПОСЛЕ
+            // пересборки: RevealAndSelectAfterRebuild читает её отложенно и выделит/прокрутит
+            // строку (тот же приём, что в EditInfobase).
+            RebuildGroupTree();
 
-        // Повторный проход после пересборки: теперь дерево настоящее («Все базы»), цепочка
-        // групп находится и ключи свёрнутых групп снимаются. Иначе ApplyExpandedState внутри
-        // RebuildGroupTree применил бы сохранённую свёрнутость, группа осталась бы свёрнутой,
-        // контейнер базы не создался бы и RevealAndSelectAfterRebuild не нашёл бы строку
-        // (issue #285).
-        ExpandPathTo(ib);
+            // Повторный проход после пересборки: теперь дерево настоящее («Все базы»), цепочка
+            // групп находится и ключи свёрнутых групп снимаются. Иначе ApplyExpandedState внутри
+            // RebuildGroupTree применил бы сохранённую свёрнутость, группа осталась бы свёрнутой,
+            // контейнер базы не создался бы и RevealAndSelectAfterRebuild не нашёл бы строку
+            // (issue #285).
+            ExpandPathTo(ib);
 
-        SelectedInfobase = ib;
-        RevealFindInListRequested?.Invoke();
+            SelectedInfobase = ib;
+            RevealFindInListRequested?.Invoke();
+        }
+        finally
+        {
+            IsRevealNavigationInProgress = false;
+        }
     }
 
     /// <summary>
@@ -2029,6 +2059,9 @@ public string HotkeyEnterprise
             pinned.Infobases.Remove(infobase);
             if (pinned.Infobases.Count == 0)
             {
+                // Узел «Закреплённые» опустел (issue #21, эксперимент A 1.0.0.34):
+                // отписываем от коллекций перед удалением из обоих списков.
+                pinned.Detach();
                 GroupNodes.Remove(pinned);
                 _groupNodes.Remove(pinned);
             }
