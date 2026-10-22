@@ -483,8 +483,15 @@ namespace Workspace1C
                 if (_treePoolFlushScheduled)
                     return;
                 _treePoolFlushScheduled = true;
+                // Priority.Background, а не ApplicationIdle (issue #21, 1.0.0.46): отрисовка
+                // новой вкладки (Render) всё равно выполнится раньше, но при быстром
+                // переключении вкладок ApplicationIdle может не наступить — операции уровня
+                // idle обрабатываются, только когда очередь полностью пуста, а клики вкладок
+                // держат её занятой. Background же обрабатывается между событиями ввода,
+                // поэтому сброс успевает отработать до следующей смены вкладки и пул не
+                // копит контейнеры строк прежних вкладок всю серию переключений.
                 Dispatcher.BeginInvoke(new Action(FlushTreeRecycledContainers),
-                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    System.Windows.Threading.DispatcherPriority.Background);
             }
 
             // <summary>
@@ -498,6 +505,9 @@ namespace Workspace1C
             // освобождаются. Два принудительных UpdateLayout — цена полного освобождения
             // один раз на смену вкладки. Эксперимент B 1.0.0.36 ограничивался MainTree,
             // поэтому heapAfterGcMb продолжал расти. При сбое режим возвращается в Recycling.
+            // Плоский режим («Все/Избранное/Недавние» — одиночный плоский узел) не имеет
+            // дочерних контейнеров, но пул самого MainTree в этом случае тоже держит
+            // рециклированные контейнеры строк — сброс выполняется и для одного MainTree.
             // </summary>
             void FlushTreeRecycledContainers()
             {
@@ -508,10 +518,14 @@ namespace Workspace1C
                 {
                     // Собираем контейнеры ДО переключения режима: после Standard генератор
                     // может пересоздать часть контейнеров, и обход по ним станет циклическим.
+                    // В плоском режиме CollectTreeContainers не находит дочерних контейнеров,
+                    // и список содержит только сам MainTree. Ранний return в этом случае
+                    // оставлял очередь Recycler'а корневого дерева неразобранной: контейнеры
+                    // строк прошлой вкладки оставались в пуле ItemContainerGenerator и
+                    // удерживали данные (рост heapAfterGcMb ~5 МБ/смену, flushPanels=0 —
+                    // issue #21). Переключаем режим всегда, хотя бы для MainTree.
                     var containers = new List<System.Windows.Controls.ItemsControl> { MainTree };
                     CollectTreeContainers(MainTree, containers);
-                    if (containers.Count <= 1)
-                        return;
                     // Standard: каждой панели «предлагаем» выбросить контейнеры, которые
                     // не нужны для текущего фрагмента (включая очередь Recycler'а).
                     foreach (var container in containers)
