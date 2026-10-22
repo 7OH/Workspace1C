@@ -1165,7 +1165,9 @@ namespace Workspace1C
 
                 AppTitleBlock.SetResourceReference(
                     TextBlock.ForegroundProperty,
-                    active ? "ButtonTextBrush" : "TextPrimaryBrush");
+                    // Заголовок «на акценте» контрастен фактическому акценту (issue #26):
+                    // при тёмном пользовательском акценте белый, при светлом — чёрный.
+                    active ? "AccentTextBrush" : "TextPrimaryBrush");
 
                 // Кнопки управления окном: на акцентной шапке нужен вариант «на акценте»
                 // (значок ButtonTextBrush), на обычной — стандартный (значок TextSecondaryBrush).

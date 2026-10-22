@@ -540,11 +540,85 @@ public class ColorScheme
 
     /// <summary>
     /// Возвращает цвет текста (#FFFFFF или #000000) с максимальным контрастом на заданном
-    /// фоне (#RRGGBB): для тёмного фона — белый, для светлого — чёрный. Порог выбирается
-    /// по относительной яркости (0.5), как в существующих превью темы.
+    /// фоне (#RRGGBB): для тёмного фона — белый, для светлого — чёрный. Оба варианта
+    /// считаются по WCAG, берётся лучший: для средних оттенков (например зелёный акцент
+    /// #16A34A) чёрный контрастнее белого, хотя его яркость и ниже порога 0.5 (issue #26).
     /// </summary>
     public static string ContrastTextHex(string backgroundHex)
-        => RelativeLuminance(backgroundHex) > 0.5 ? "#000000" : "#FFFFFF";
+    {
+        var bg = RelativeLuminance(backgroundHex);
+        var blackContrast = (bg + 0.05) / 0.05;
+        var whiteContrast = 1.05 / (bg + 0.05);
+        return whiteContrast > blackContrast ? "#FFFFFF" : "#000000";
+    }
+
+    // ---- Точный RGB-HSV (единый источник для пикеров обеих платформ) ----
+    // Раньше WPF и Avalonia конвертировали цвет собственными преобразованиями,
+    // а каналы «усекались» при приведении к байту: из-за потери точности при
+    // масштабировании в HSV и усечении выбранный в настройках цвет (например
+    // #13522C) открывался в диалоге выбора цвета слегка другим (#12512B)
+    // (issue #26). Здесь единый путь с округлением до ближайшего байта:
+    // RGB - HSV - RGB возвращает ровно исходный цвет.
+
+    /// <summary>Преобразует каналы RGB в HSV: H в градусах (0..360), S и V в 0..1.</summary>
+    public static (double H, double S, double V) RgbToHsv(byte r, byte g, byte b)
+    {
+        double rd = r / 255.0, gd = g / 255.0, bd = b / 255.0;
+        double max = Math.Max(rd, Math.Max(gd, bd));
+        double min = Math.Min(rd, Math.Min(gd, bd));
+        double d = max - min;
+
+        double h;
+        if (d < 1e-9)
+            h = 0;
+        else if (Math.Abs(max - rd) < 1e-9)
+            h = 60 * (((gd - bd) / d) % 6);
+        else if (Math.Abs(max - gd) < 1e-9)
+            h = 60 * ((bd - rd) / d + 2);
+        else
+            h = 60 * ((rd - gd) / d + 4);
+        if (h < 0)
+            h += 360;
+
+        double s = max < 1e-9 ? 0 : d / max;
+        return (h, s, max);
+    }
+
+    /// <summary>Преобразует HSV (H в градусах, S и V в 0..1) в каналы RGB.
+    /// Каналы округляются до ближайшего байта (Math.Round), а не усекаются:
+    /// округление делает обход RGB-HSV-RGB точным.</summary>
+    public static (byte R, byte G, byte B) HsvToRgb(double h, double s, double v)
+    {
+        h = ((h % 360.0) + 360.0) % 360.0;
+        var hi = (int)Math.Floor(h / 60.0) % 6;
+        var f = h / 60.0 - Math.Floor(h / 60.0);
+        var p = v * (1 - s);
+        var q = v * (1 - f * s);
+        var t = v * (1 - (1 - f) * s);
+
+        static byte Byte(double x) => (byte)Math.Clamp(Math.Round(x * 255.0), 0.0, 255.0);
+
+        return hi switch
+        {
+            0 => (Byte(v), Byte(t), Byte(p)),
+            1 => (Byte(q), Byte(v), Byte(p)),
+            2 => (Byte(p), Byte(v), Byte(t)),
+            3 => (Byte(p), Byte(q), Byte(v)),
+            4 => (Byte(t), Byte(p), Byte(v)),
+            _ => (Byte(v), Byte(p), Byte(q))
+        };
+    }
+
+    /// <summary>Возвращает #RRGGBB «эталонным» обходом RGB-HSV-RGB с округлением
+    /// каналов. Пикеры (Windows и Linux) построены на нём, поэтому показанный
+    /// в настройках HEX совпадает с тем, что открывается в диалоге выбора цвета.</summary>
+    public static string RoundTripHsvToHex(string hex)
+    {
+        var (r, g, b) = ParseRgb(hex);
+        var (h, s, v) = RgbToHsv(r, g, b);
+        var (rr, gg, bb) = HsvToRgb(h, s, v);
+        return $"#{rr:X2}{gg:X2}{bb:X2}";
+    }
 
     private static void RgbToHsl(byte r, byte g, byte b, out double h, out double s, out double l)
     {

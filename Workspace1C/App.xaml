@@ -250,7 +250,9 @@
                  подложка — полупрозрачный белый, чтобы оставаться читаемой на любой теме.
                  Радиус и размер наследуются из базового стиля (ресурсы темы). -->
             <Style x:Key="WindowControlButtonOnAccent" TargetType="Button" BasedOn="{StaticResource WindowControlButton}">
-                <Setter Property="Foreground" Value="{DynamicResource ButtonTextBrush}"/>
+                <!-- Значок контрастен фактическому акценту (issue #26): при тёмном
+                     пользовательском акценте глиф белый, при светлом (например #FFB300) — чёрный. -->
+                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
                 <Setter Property="local:WindowChromeHelper.HoverBrush" Value="#33FFFFFF"/>
                 <Setter Property="local:WindowChromeHelper.PressedBrush" Value="#4DFFFFFF"/>
                 <Setter Property="local:WindowChromeHelper.FocusBrush" Value="#80FFFFFF"/>
@@ -348,10 +350,10 @@
             </Style>
 
             <!-- Вариант кнопки «закрыть» для акцентной шапки: базовый цвет значка
-                 ButtonTextBrush (читается на акцентном фоне), красная подложка
+                 контрастен фактическому акценту (issue #26), красная подложка
                  при наведении/нажатии наследуется из базового стиля. -->
             <Style x:Key="WindowControlCloseButtonOnAccent" TargetType="Button" BasedOn="{StaticResource WindowControlCloseButton}">
-                <Setter Property="Foreground" Value="{DynamicResource ButtonTextBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
             </Style>
 
             <!-- ===================== Кнопки окна macOS «светофор» (Задача 3) =====================

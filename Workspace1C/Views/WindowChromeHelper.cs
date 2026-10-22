@@ -528,8 +528,10 @@ namespace Workspace1C
                 Margin = new Thickness(14, 0, 0, 0),
                 FontWeight = FontWeights.SemiBold
             };
-            // Текст заголовка читаемым цветом «на акценте» (ButtonTextBrush) поверх акцентной полосы.
-            title.SetResourceReference(TextBlock.ForegroundProperty, "ButtonTextBrush");
+            // Текст заголовка читаемым цветом на акцентной полосе (AccentTextBrush,
+            // выбирается по WCAG-контрасту с фактическим акцентом — issue #26):
+            // при тёмном пользовательском акценте заголовок белый, а не чёрный.
+            title.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextBrush");
 
             var buttons = new StackPanel
             {

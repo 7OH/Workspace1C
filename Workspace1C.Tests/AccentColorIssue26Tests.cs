@@ -271,4 +271,106 @@ public sealed class AccentColorIssue26Tests
         Assert.NotEqual("#FFB300", secondEntry.PaletteValue(true, "AccentColor"));
         Assert.NotEqual("#FDBF00", secondEntry.PaletteValue(false, "AccentColor"));
     }
+
+    // ===================== Согласованность HEX: настройки ⇄ диалог выбора цвета (1.0.0.49) =====================
+    // Жалоба ArtyoZ после 1.0.0.33: в разделе «Цвета» настроек отображается #13522C,
+    // а диалог «Выбор цвета» открывался с #12512B. Причина — пикер выполнял
+    // собственный обход RGB→HSV→RGB с усечением каналов (byte)(x*255) и потерей
+    // точности при масштабировании: значения на границе целого «съедали» до 1 на канал.
+    // Теперь обе платформы используют единый RoundTripHsvToHex с округлением.
+
+    [Fact]
+    public void RoundTripHsv_ReportedAccent_StaysIdentical()
+    {
+        // Значение, показанное в настройках, должно совпадать с тем, что открывается
+        // в диалоге выбора цвета (issue #26): #13522C больше не превращается в #12512B.
+        Assert.Equal("#13522C", ColorScheme.RoundTripHsvToHex("#13522C"));
+        Assert.Equal("#12512B", ColorScheme.RoundTripHsvToHex("#12512B"));
+        Assert.NotEqual("#12512B", ColorScheme.RoundTripHsvToHex("#13522C"));
+    }
+
+    [Theory]
+    [InlineData("#000000")]
+    [InlineData("#FFFFFF")]
+    [InlineData("#FFB300")]
+    [InlineData("#FDBF00")]
+    [InlineData("#2563EB")]
+    [InlineData("#16A34A")]
+    [InlineData("#13522C")]
+    [InlineData("#7C3AED")]
+    [InlineData("#0A84FF")]
+    [InlineData("#0F172A")]
+    [InlineData("#1E293B")]
+    [InlineData("#123456")]
+    public void RoundTripHsv_IsIdentity_ForAnyColor(string hex)
+    {
+        Assert.Equal(hex, ColorScheme.RoundTripHsvToHex(hex));
+    }
+
+    [Fact]
+    public void HsvToRgb_RoundsNearestByte_InsteadOfTruncating()
+    {
+        // Усечение (byte)x*255 оставляло каналам «минус единицу», когда точное
+        // значение плавало у целой границы; округление возвращает исходный байт.
+        var (r, g, b) = ColorScheme.HsvToRgb(0, 0, 1.0);          // белый
+        Assert.Equal((byte)255, r);
+        Assert.Equal((byte)255, g);
+        Assert.Equal((byte)255, b);
+
+        var (h, s, v) = ColorScheme.RgbToHsv(19, 82, 44);
+        var (r2, g2, b2) = ColorScheme.HsvToRgb(h, s, v);
+        Assert.Equal((byte)19, r2);
+        Assert.Equal((byte)82, g2);
+        Assert.Equal((byte)44, b2);
+    }
+
+    [Fact]
+    public void DarkAccentText_IsWhite_AndMeetsWcag()
+    {
+        // Тёмный пользовательский акцент (жалоба #26): заголовок и значки иконок
+        // «на акценте» должны быть белыми (контраст ≥ 4.5:1), а не чёрными.
+        Assert.Equal("#FFFFFF", ColorScheme.ContrastTextHex("#13522C"));
+        Assert.Equal("#FFFFFF", ColorScheme.ContrastTextHex("#12512B"));
+        Assert.True(ColorScheme.ContrastRatio("#FFFFFF", "#13522C") >= 4.5);
+    }
+
+    [Fact]
+    public void LightAccentText_IsBlack_AndMeetsWcag()
+    {
+        // Светлый акцент по умолчанию (янтарный): контрастный текст — чёрный.
+        Assert.Equal("#000000", ColorScheme.ContrastTextHex("#FFB300"));
+        Assert.Equal("#000000", ColorScheme.ContrastTextHex("#FDBF00"));
+        Assert.True(ColorScheme.ContrastRatio("#000000", "#FFB300") >= 4.5);
+    }
+
+    [Fact]
+    public void AccentContrastText_MeetsWcag_ForAllBuiltInAccents()
+    {
+        // Для любого акцента встроенных тем выбранный цвет текста контрастен фону:
+        // шапки окон и кнопки «на акценте» не должны терять читаемость (issue #26).
+        string[] accents =
+        {
+            "#FDBF00", "#FFB300", "#2563EB", "#16A34A",
+            "#7C4DFF", "#0A84FF", "#3B6EA5", "#007AFF"
+        };
+        foreach (var accent in accents)
+        {
+            var text = ColorScheme.ContrastTextHex(accent);
+            Assert.True(ColorScheme.ContrastRatio(text, accent) >= 4.5,
+                $"{text} на фоне {accent} должен давать контраст ≥ 4.5:1");
+        }
+    }
+
+    [Fact]
+    public void SelectedSectionText_InDarkTheme_IsLight_AndMeetsWcag()
+    {
+        // Выбранный раздел настроек (левая панель): фон TreeSelectedBrush тёмной схемы
+        // (#B45309) требует светлый текст — иначе подпись сливается (issue #26).
+        var dark = ColorScheme.CreateDark();
+        var selectedBg = dark.PaletteValue(true, "TreeSelectedColor");
+        var text = ColorScheme.ContrastTextHex(selectedBg);
+
+        Assert.Equal("#FFFFFF", text);
+        Assert.True(ColorScheme.ContrastRatio(text, selectedBg) >= 4.5);
+    }
 }

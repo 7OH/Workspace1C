@@ -101,7 +101,9 @@ namespace Workspace1C
                 Cursor = new Cursor(StandardCursorType.Hand),
                 HorizontalAlignment = HorizontalAlignment.Left
             };
-            ThemeBrushes.Bind(link, TextBlock.ForegroundProperty, "AccentBrush");
+            // Подпись просто контрастная, а не акцентная (issue #26): акцентный цвет
+            // на карточном фоне тёмной темы не читается.
+            ThemeBrushes.Bind(link, TextBlock.ForegroundProperty, "TextPrimaryColorBrush");
             link.PointerReleased += (_, e) =>
             {
                 if (e.InitialPressMouseButton != MouseButton.Left)

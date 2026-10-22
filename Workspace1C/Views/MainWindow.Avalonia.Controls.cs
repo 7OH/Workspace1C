@@ -642,7 +642,9 @@ namespace Workspace1C
                 // на акцентной шапке (App.xaml:116-118).
                 ThemeBrushes.Observe(this, "TextSecondaryColorBrush", b => { _restGlyphBrush = b; ApplyState(); });
                 ThemeBrushes.Observe(this, "TextPrimaryColorBrush", b => { _hoverGlyphBrush = b; ApplyState(); });
-                ThemeBrushes.Observe(this, "ButtonTextBrush", b => { _accentGlyphBrush = b; ApplyState(); });
+                // Глиф «на акценте» контрастен фактическому акценту (issue #26):
+                // при тёмном пользовательском акценте белый, при светлом — чёрный.
+                ThemeBrushes.Observe(this, "AccentTextBrush", b => { _accentGlyphBrush = b; ApplyState(); });
                 // Подложка наведения берётся не из схемы, а из стиля кнопок окна:
                 // WindowButtonHoverBrush кладёт ThemeManager по WindowButtonStyle
                 // (Задача 4), поэтому наблюдение ItemHoverBrush здесь не нужно —

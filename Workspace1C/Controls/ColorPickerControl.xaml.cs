@@ -109,7 +109,12 @@ namespace Workspace1C.Controls
             brush.StartPoint = new Point(0, 0.5);
             brush.EndPoint = new Point(1, 0.5);
             for (var i = 0; i <= 6; i++)
-                brush.GradientStops.Add(new GradientStop(FromHsv(i * 60.0, 1.0, 1.0), i / 6.0));
+            {
+                // Общее RGB-HSV преобразование модели (issue #26): пикер показывает
+                // ровно те же цвета, что и остальной интерфейс, без расхождений.
+                var (r, g, b) = Models.ColorScheme.HsvToRgb(i * 60.0, 1.0, 1.0);
+                brush.GradientStops.Add(new GradientStop(Color.FromRgb(r, g, b), i / 6.0));
+            }
             return brush;
         }
 
@@ -125,7 +130,10 @@ namespace Workspace1C.Controls
 
         private void SetColor(Color color)
         {
-            var (h, s, v) = ToHsv(color);
+            // Единое RGB-HSV преобразование модели (issue #26): раньше обход через
+            // HSV здесь был собственным и с усечением каналов «съедал» у выбранного
+            // в настройках цвета до 1 на канал (например #13522C -> #12512B).
+            var (h, s, v) = Models.ColorScheme.RgbToHsv(color.R, color.G, color.B);
             _hue = h;
             _saturation = s * 100.0;
             _brightness = v * 100.0;
@@ -143,7 +151,14 @@ namespace Workspace1C.Controls
             ApplyFromHsv();
         }
 
-        private Color CurrentColor => FromHsv(_hue, _saturation / 100.0, _brightness / 100.0);
+        private Color CurrentColor
+        {
+            get
+            {
+                var (r, g, b) = Models.ColorScheme.HsvToRgb(_hue, _saturation / 100.0, _brightness / 100.0);
+                return Color.FromRgb(r, g, b);
+            }
+        }
 
         private void ApplyFromHsv()
         {
@@ -267,53 +282,6 @@ namespace Workspace1C.Controls
             {
                 return (Color)ColorConverter.ConvertFromString("#2D6CDF");
             }
-        }
-
-        private static Color FromHsv(double h, double s, double v)
-        {
-            var hi = (int)Math.Floor(h / 60.0) % 6;
-            var f = h / 60.0 - Math.Floor(h / 60.0);
-            var p = v * (1 - s);
-            var q = v * (1 - f * s);
-            var t = v * (1 - (1 - f) * s);
-
-            return hi switch
-            {
-                0 => Rgb(v, t, p),
-                1 => Rgb(q, v, p),
-                2 => Rgb(p, v, t),
-                3 => Rgb(p, q, v),
-                4 => Rgb(t, p, v),
-                _ => Rgb(v, p, q)
-            };
-        }
-
-        private static Color Rgb(double r, double g, double b) =>
-            Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
-
-        private static (double H, double S, double V) ToHsv(Color c)
-        {
-            var r = c.R / 255.0;
-            var g = c.G / 255.0;
-            var b = c.B / 255.0;
-            var max = Math.Max(r, Math.Max(g, b));
-            var min = Math.Min(r, Math.Min(g, b));
-            var d = max - min;
-
-            double h;
-            if (d == 0)
-                h = 0;
-            else if (max == r)
-                h = 60 * (((g - b) / d) % 6);
-            else if (max == g)
-                h = 60 * ((b - r) / d + 2);
-            else
-                h = 60 * ((r - g) / d + 4);
-            if (h < 0)
-                h += 360;
-
-            var s = max == 0 ? 0 : d / max;
-            return (h, s, max);
         }
     }
 }

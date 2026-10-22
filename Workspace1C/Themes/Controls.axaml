@@ -296,8 +296,10 @@
             <Setter Property="Background" Value="{DynamicResource TreeSelectedBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
         </Style>
+        <!-- Текст выбранной вкладки контрастен её фону TreeSelectedBrush (issue #26):
+             в тёмной теме фон тёмный, поэтому подпись светлая, а не чёрная. -->
         <Style Selector="^:selected">
-            <Setter Property="Foreground" Value="{DynamicResource ButtonTextBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TreeSelectedTextBrush}"/>
         </Style>
         <Style Selector="^:disabled">
             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
