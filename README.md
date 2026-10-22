@@ -606,9 +606,14 @@
   `menuclose_trace.json` (0.3.9.306) продолжает дописываться, если уже существует (обе
   платформы).
 
+  [![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2825056/)
+
+> 📌 **Публикация на Infostart:** [страница программы](https://infostart.ru/1c/articles/2825056/)
+
+
 [![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2764888/)
 
-> 📌 **Публикация на Infostart:** [страница программы](https://infostart.ru/1c/articles/2764888/) (опубликована под прежним названием «Управление конфигурациями 1С»)
+> 📌 **Публикация на Infostart:** [страница программы](https://infostart.ru/1c/articles/2764888/) (первая версия программы под другим названием «Управление конфигурациями 1С»)
 
 ---
 
