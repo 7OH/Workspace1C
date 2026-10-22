@@ -73,17 +73,23 @@ namespace Workspace1C
         // за смену): мусор vs живой рост. 0 — старт не зафиксирован (первая запись).
         private long _switchAllocBaseBytes;
         private long _lastSwitchAllocMb;
-        // Демпфер освобождения старых контейнеров (issue #21, 1.0.0.41): рекурсивный
-        // сброс Recycling-панелей всего дерева после смены вкладки планируется не чаще
-        // одного раза за смену (пока отложенный вызов не отработал). Это РАБОЧИЙ фикс
-        // (не эксперимент): эксперимент B 1.0.0.36 флашил только корневую панель
-        // MainTree, тогда как вложенные панели строк-узлов (Recycling на каждом
-        // TreeViewItem) держали рециклированные контейнеры — отсюда постоянный рост
-        // heapAfterGcMb, не устранённый CM_TREESWITCH_FLUSH.
-        private bool _treePoolFlushScheduled;
+        // Синхронный сброс Recycling-пулов (issue #21, 1.0.0.50): рекурсивное
+        // переключение VirtualizationMode.Standard/Recycling всех панелей дерева
+        // выполняется НЕМЕДЛЕННО в обработчике TreeRebuilt (UI-поток). Прежние
+        // отложенные варианты (ApplicationIdle 1.0.0.41–1.0.0.44 и Background 1.0.0.46)
+        // при быстрой серии переключений вкладок голодали: Dispatcher обрабатывает
+        // Background/Idle только при полностью пустой очереди, а клики вкладок с долгим
+        // рендером держат её занятой (в логе 1.0.0.46 flushPanels=0 всю серию, пул копил
+        // контейнеры строк ~4 МБ/смену). Это РАБОЧИЙ фикс (не эксперимент): эксперимент
+        // B 1.0.0.36 флашил только корневую панель MainTree, тогда как вложенные панели
+        // строк-узлов (Recycling на каждом TreeViewItem) держали рециклированные
+        // контейнеры — отсюда постоянный рост heapAfterGcMb.
         // Сколько панелей охвачено последним сбросом Recycling-пулов (диагностика
-        // CM_TREESWITCH: flushPanels). 0 — сброс ещё не отработал (первая смена вкладки).
+        // CM_TREESWITCH: flushPanels). 0 — сброс не выполнялся (первая смена вкладки).
         private int _lastTreePoolFlushPanels;
+        // Время последнего сброса Recycling-пулов, мс (диагностика CM_TREESWITCH:
+        // flushMs — стоимость разбора очередей Recycler'а на смену вкладки).
+        private long _lastTreePoolFlushMs;
         // База счётчика GroupNodeViewModel.TotalDetachCount (диагностика CM_TREESWITCH:
         // detachCount — сколько узлов отписалось за смену вкладки).
         private long _lastDetachCount;
@@ -449,6 +455,7 @@ namespace Workspace1C
                         $"heapMb={heapBytes / (1024 * 1024)}, heapAfterGcMb={heapAfterGc / (1024 * 1024)}, " +
                         $"collAdd={collAdd}, collRemove={collRemove}, collReset={collReset}, " +
                         $"resetMode={resetMode}, detach={detachCount}, flushPanels={_lastTreePoolFlushPanels}, " +
+                        $"flushMs={_lastTreePoolFlushMs}, " +
                         $"gc0={System.GC.CollectionCount(0)}, gc1={System.GC.CollectionCount(1)}, " +
                         $"gc2={System.GC.CollectionCount(2)}");
                 }
@@ -472,26 +479,29 @@ namespace Workspace1C
             };
 
             // <summary>
-            // Планирует принудительный сброс Recycling-пулов всех панелей дерева после
-            // чистого переключения вкладки (issue #21, фикс 1.0.0.41; один отложенный вызов
-            // на смену). Выполняется ВСЕГДА: это рабочий механизм освобождения старых
-            // контейнеров, а не диагностический эксперимент (флаг CM_TREESWITCH_FLUSH
-            // оставлен для лога результата в CM_TREESWITCH — flushPanels).
+            // Выполняет принудительный сброс Recycling-пулов всех панелей дерева после
+            // чистого переключения вкладки. Выполняется ВСЕГДА и СИНХРОННО (issue #21,
+            // фикс 1.0.0.50): это рабочий механизм освобождения старых контейнеров, а не
+            // диагностический эксперимент (флаг CM_TREESWITCH_FLUSH оставлен для лога
+            // результата в CM_TREESWITCH — flushPanels/flushMs).
             // </summary>
             void ScheduleTreePoolFlush()
             {
-                if (_treePoolFlushScheduled)
+                // Синхронно, в обработчике TreeRebuilt (UI-поток). Отложенный запуск на
+                // DispatcherPriority.Background (1.0.0.46) и ApplicationIdle (1.0.0.41–1.0.0.44)
+                // при быстрой серии переключений не гарантирован: при занятой очереди
+                // (рендер, ввод, клики вкладок каждые ~1 сек) операции ниже Render не
+                // доживают до следующей смены вкладки, и пул копил контейнеры строк
+                // прежних вкладок — в логах 1.0.0.46 flushPanels=0 во всех записях,
+                // heapAfterGcMb рос ~4 МБ/смену (29→347 MБ за ~65 переключений) и не
+                // возвращался после GC.Collect(2): рециклированные контейнеры живы в
+                // пуле ItemContainerGenerator (сильный root). Сброс немедленно, тем же
+                // проходом, разбирает очередь Recycler'а каждой панели до следующего
+                // клика вкладки; стоимость при ~20 реализованных строках — единицы-десятки
+                // мс (см. flushMs в CM_TREESWITCH).
+                if (MainTree is null)
                     return;
-                _treePoolFlushScheduled = true;
-                // Priority.Background, а не ApplicationIdle (issue #21, 1.0.0.46): отрисовка
-                // новой вкладки (Render) всё равно выполнится раньше, но при быстром
-                // переключении вкладок ApplicationIdle может не наступить — операции уровня
-                // idle обрабатываются, только когда очередь полностью пуста, а клики вкладок
-                // держат её занятой. Background же обрабатывается между событиями ввода,
-                // поэтому сброс успевает отработать до следующей смены вкладки и пул не
-                // копит контейнеры строк прежних вкладок всю серию переключений.
-                Dispatcher.BeginInvoke(new Action(FlushTreeRecycledContainers),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                FlushTreeRecycledContainers();
             }
 
             // <summary>
@@ -511,15 +521,15 @@ namespace Workspace1C
             // </summary>
             void FlushTreeRecycledContainers()
             {
-                _treePoolFlushScheduled = false;
                 if (MainTree is null)
                     return;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     // Собираем контейнеры ДО переключения режима: после Standard генератор
                     // может пересоздать часть контейнеров, и обход по ним станет циклическим.
                     // В плоском режиме CollectTreeContainers не находит дочерних контейнеров,
-                    // и список содержит только сам MainTree. Ранний return в этом случае
+                    // и список содержит только сам MainTree. Ранний return (удалён в 1.0.0.46)
                     // оставлял очередь Recycler'а корневого дерева неразобранной: контейнеры
                     // строк прошлой вкладки оставались в пуле ItemContainerGenerator и
                     // удерживали данные (рост heapAfterGcMb ~5 МБ/смену, flushPanels=0 —
@@ -536,15 +546,27 @@ namespace Workspace1C
                         VirtualizingPanel.SetVirtualizationMode(container, System.Windows.Controls.VirtualizationMode.Recycling);
                     MainTree.UpdateLayout();
                     _lastTreePoolFlushPanels = containers.Count;
+                    _lastTreePoolFlushMs = sw.ElapsedMilliseconds;
                     if (TraceFlags.IsEnabled(TraceFlags.TreeSwitchFlag))
                         AppServices.GetRequiredService<IAppLogger>().Info(
-                            $"CM_TREESWITCH_FLUSH: освобождены Recycling-панели дерева ({containers.Count} шт.) после смены вкладки");
+                            $"CM_TREESWITCH_FLUSH: освобождены Recycling-панели дерева ({containers.Count} шт., " +
+                            $"{_lastTreePoolFlushMs} мс) после смены вкладки");
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Сброс не должен ломать раскладку: возвращаем режим Recycling.
+                    // Сброс не должен ломать раскладку: возвращаем режим Recycling; сбой
+                    // логируем, чтобы причина была видна (в 1.0.0.46 молчаливый catch
+                    // прятал сбой сброса — flushPanels оставался 0).
+                    _lastTreePoolFlushMs = sw.ElapsedMilliseconds;
                     try { RestoreTreeRecyclingMode(); }
                     catch { /* не мешаем раскладке */ }
+                    try
+                    {
+                        AppServices.GetRequiredService<IAppLogger>().Error(
+                            $"CM_TREESWITCH_FLUSH: сбой сброса Recycling-панелей дерева " +
+                            $"({sw.ElapsedMilliseconds} мс)", ex);
+                    }
+                    catch { /* логирование не должно ронять переключение */ }
                 }
             }
 

@@ -265,6 +265,45 @@ public sealed class ListSwitchPerformanceTests
     }
 
     [Fact]
+    public void FlatNodeSwitch_DisjointComposition_EmitsSingleResetOnItemsAndNoEventsOnRoots()
+    {
+        // 1.0.0.46/1.0.0.50, resetMode=reset в логах CM_TREESWITCH: смена состава плоского
+        // узла («Все»(600) → «Недавние»(10), составы почти не пересекаются) уходит в ОДИН
+        // Reset коллекции Items узла (collReset=1 за смену — как в логах 7OH на 1.0.0.33–46),
+        // а корневая коллекция GroupNodes не порождает событий вовсе (тот же постоянный
+        // узел, ReplaceGroupNodes задетектил идентичный состав). Именно полный Reset строк
+        // заставляет WPF складывать старые контейнеры в Recycling-пул вложенного
+        // ItemsControl — пул обязан разбираться сбросом VirtualizationMode (синхронный
+        // флаш 1.0.0.50), иначе контейнеры копятся и heapAfterGcMb растёт.
+        var bases = CreateBases(600);
+        var recents = bases.Take(10).ToList();
+        var flat = new GroupNodeViewModel(null);
+        flat.ResetFlatContent(bases, displayName: null, marker: GroupNodeViewModel.AllBasesMarker); // «Все»
+
+        var rootEvents = 0;
+        var collection = new ObservableRangeCollection<object> { flat };
+        collection.CollectionChanged += (_, _) => rootEvents++;
+
+        var itemsResets = 0;
+        var itemsPointwise = 0;
+        flat.Items.CollectionChanged += (_, e) =>
+        {
+            // Reset — один счётчик; поштучные Add/Remove — другой.
+            if (e.Action == NotifyCollectionChangedAction.Reset) itemsResets++;
+            else itemsPointwise++;
+        };
+
+        // «Все» (600) → «Недавние» (10): признак Reset по политике ReplaceItemWise
+        // (сохраняется менее 1/4 состава → один Reset вместо сотен поштучных Remove).
+        flat.ResetFlatContent(recents, displayName: null, marker: GroupNodeViewModel.AllBasesMarker);
+
+        Assert.Equal(1, itemsResets);
+        Assert.Equal(0, itemsPointwise);
+        Assert.Equal(0, rootEvents);
+        Assert.Equal(10, flat.Items.Count);
+    }
+
+    [Fact]
     public void RepeatedFlatReset_SameContent_EmitsNoItemsEvents()
     {
         // issue #21, Этап A: повторный клик на вкладку / переход с тем же составом —

@@ -449,6 +449,32 @@ public sealed class GroupNodeViewModelTests
     }
 
     [Fact]
+    public void ResetFlatContent_PersistentFlatNode_IsNeverDetached()
+    {
+        // 1.0.0.50 (диагностика 1.0.0.46): в логах CM_TREESWITCH detach=0 после первой
+        // смены вкладки — постоянный плоский узел переживает смены вкладок и НЕ
+        // отписывается (узел живёт, пока жив MainViewModel). Это контраст с узлами
+        // групп, которые при сбросе кэша детачатся. Тест фиксирует контракт: серия
+        // смен состава плоского узла не увеличивает TotalDetachCount — иначе смены
+        // вкладок накапливали бы «отписанные» узлы (и их обработчики) как мусор.
+        GroupNodeViewModel.ResetDetachCounterForTesting();
+        var node = new GroupNodeViewModel(null);
+        var favorites = new[] { CreateBase("База 1"), CreateBase("База 2"), CreateBase("База 3") };
+        var recents = new[] { CreateBase("База 4"), CreateBase("База 5") };
+
+        node.ResetFlatContent(favorites, displayName: "Найдено", marker: null);           // «Избранное»
+        node.ResetFlatContent(recents, displayName: "Найдено", marker: null);            // «Недавние»
+        node.ResetFlatContent(new[] { favorites[0] }, displayName: "Найдено", marker: null);
+
+        Assert.Equal(0, GroupNodeViewModel.TotalDetachCount);
+        Assert.Single(node.Items);
+        // Состав узла меняется при смене вкладки (это и есть источник Reset строк).
+        Assert.Same(favorites[0], node.Items[0]);
+
+        GroupNodeViewModel.ResetDetachCounterForTesting();
+    }
+
+    [Fact]
     public void Detach_StopsHandlingCollectionChanges_Recursive()
     {
         // Эксперимент A (issue #21, 1.0.0.34): Detach() отписывает узел (и его
