@@ -1,6 +1,6 @@
 ﻿# Workspace 1C
 
-![Версия](https://img.shields.io/badge/Версия-1.0.0.46-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
+![Версия](https://img.shields.io/badge/Версия-1.0.0.47-1F6FEB) ![.NET](https://img.shields.io/badge/.NET-10-512BD4) ![Windows/WPF](https://img.shields.io/badge/Windows-WPF-4B8BBE) ![Linux/Avalonia](https://img.shields.io/badge/Linux-Avalonia%2011-8B5CF6) ![Лицензия](https://img.shields.io/badge/Лицензия-Open%20Source-success) [![Telegram](https://img.shields.io/badge/Telegram-@Workspace1C-26A5E4?logo=telegram&logoColor=white)](https://t.me/Workspace1C)
 
 > **Кроссплатформенное десктопное приложение на .NET для управления информационными базами 1С:Предприятие 8.3**, заменяющее стандартный список баз 1С современным интерфейсом. Одна кодовая база собирается под обе ОС: **WPF** на Windows и **Avalonia 11** на Linux.
 
@@ -8,7 +8,7 @@
 
 **Workspace 1C** — новое название программы «Управление конфигурациями 1С». Возможности
 сохранены полностью, нумерация версий начата заново с **1.0.0.0** (последняя версия под
-прежним названием — 0.3.12.70); актуальная версия — **1.0.0.46**.
+прежним названием — 0.3.12.70); актуальная версия — **1.0.0.47**.
 
 ## 📣 Telegram-канал
 
@@ -54,9 +54,9 @@
 ### Переход с «Управление конфигурациями 1С»
 
 - Просто запустите Workspace 1C: при первом старте список баз, группы, настройки, профили и
-  задания **копируются** из `%APPDATA%\ConfigurationManagement` (Linux —
-  `~/.config/ConfigurationManagement`) в новый каталог `Workspace1C`. Старый каталог не удаляется.
-- Портативная установка продолжает работать с каталогом `ConfigurationManagement-Data` рядом с exe.
+  задания **копируются** из каталога данных прежней версии программы в новый каталог
+  `%APPDATA%\Workspace1C` (Linux — `~/.config/Workspace1C`). Старый каталог не удаляется.
+- Портативная установка продолжает работать с каталогом `Workspace1C-Data` рядом с exe.
 - Автозапуск при старте ОС, если был включён, нужно включить заново в настройках Workspace 1C.
 - Прежняя версия обновлений больше не получает: новые выпуски публикуются только здесь.
 
