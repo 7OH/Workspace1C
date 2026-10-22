@@ -287,6 +287,12 @@ public partial class MainWindow
                 item.Command = _viewModel.ExportBasesJsonCommand; break;
             case UtilitiesMenuCommandKind.ImportBasesJson:
                 item.Command = _viewModel.ImportBasesJsonCommand; break;
+            // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же команды, что
+            // в настройках (вкладка «Базы» → «Список баз»), с теми же диалогами.
+            case UtilitiesMenuCommandKind.ExportBasesV8iFile:
+                item.Command = _viewModel.ExportToIbasesFileCommand; break;
+            case UtilitiesMenuCommandKind.ImportBasesV8iFile:
+                item.Command = _viewModel.ImportFromIbasesFileCommand; break;
             case UtilitiesMenuCommandKind.ImportClusterInfobases:
                 item.Command = _viewModel.ImportClusterInfobasesCommand; break;
             case UtilitiesMenuCommandKind.ProcessInspector:

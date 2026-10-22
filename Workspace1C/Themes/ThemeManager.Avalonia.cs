@@ -522,7 +522,26 @@ namespace Workspace1C.Themes
                 }
             }
 
+            // Контрастный текст на акцентной и на выбранной (TreeSelected) заливке
+            // выбирается по WCAG-контрасту с фактическим фоном (issue #26): у светлого
+            // акцента — чёрный, у тёмного пользовательского акцента — белый. Иначе
+            // шапки окон, кнопки «на акценте» и выбранная вкладка левой панели
+            // настроек теряют читаемость в тёмной теме.
+            SetContrastBrush(app, scheme, dark, "AccentTextBrush", "AccentColor");
+            SetContrastBrush(app, scheme, dark, "TreeSelectedTextBrush", "TreeSelectedColor");
+
             ApplyFluentAccent(app, scheme, dark);
+        }
+
+        /// <summary>Выставляет кисть, контрастную заданному цвету палитры (WCAG 4.5:1).</summary>
+        private static void SetContrastBrush(Application app, ColorScheme scheme, bool dark,
+            string brushKey, string colorKey)
+        {
+            var hex = scheme.PaletteValue(dark, colorKey);
+            if (string.IsNullOrWhiteSpace(hex) || !TryParseColor(hex, out _))
+                return;
+            if (TryParseColor(ColorScheme.ContrastTextHex(hex), out var color))
+                app.Resources[brushKey] = new SolidColorBrush(color);
         }
 
         /// <summary>

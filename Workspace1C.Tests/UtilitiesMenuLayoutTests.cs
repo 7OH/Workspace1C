@@ -77,7 +77,7 @@ public sealed class UtilitiesMenuLayoutTests
         AssertSeparator(layout.Root[13]);
         AssertGroup(layout.Root[14], UtilitiesMenuCatalog.GroupOperations);
         var opsChildren = layout.Root[14].Children;
-        Assert.Equal(21, opsChildren.Count);
+        Assert.Equal(23, opsChildren.Count);
         AssertItem(opsChildren[0], "ConfigDiff");
         AssertItem(opsChildren[1], "MetadataExplorer");
         AssertSeparator(opsChildren[2]);
@@ -88,20 +88,24 @@ public sealed class UtilitiesMenuLayoutTests
         AssertItem(opsChildren[7], "ExportHtml");
         AssertItem(opsChildren[8], "ExportJson");
         AssertItem(opsChildren[9], "ImportJson");
-        AssertItem(opsChildren[10], "ClusterImport");
-        AssertSeparator(opsChildren[11]);
-        AssertItem(opsChildren[12], "ProcessInspector");
-        AssertItem(opsChildren[13], "KillOneCProcesses");
-        AssertSeparator(opsChildren[14]);
-        AssertItem(opsChildren[15], "ConnectionReplace");
-        AssertItem(opsChildren[16], "UndoConnectionReplace");
+        // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же операции,
+        // что в настройках (вкладка «Базы» → «Список баз»).
+        AssertItem(opsChildren[10], "ExportV8iFile");
+        AssertItem(opsChildren[11], "ImportV8iFile");
+        AssertItem(opsChildren[12], "ClusterImport");
+        AssertSeparator(opsChildren[13]);
+        AssertItem(opsChildren[14], "ProcessInspector");
+        AssertItem(opsChildren[15], "KillOneCProcesses");
+        AssertSeparator(opsChildren[16]);
+        AssertItem(opsChildren[17], "ConnectionReplace");
+        AssertItem(opsChildren[18], "UndoConnectionReplace");
         // Пункт «Блокировка сеансов ИБ» есть только в Avalonia/Linux: в стандартной
         // компоновке он присутствует с разделителем (как в статическом меню Linux),
         // а WPF-построитель отфильтрует его по LinuxOnly.
-        AssertSeparator(opsChildren[17]);
-        AssertItem(opsChildren[18], "SessionLock");
         AssertSeparator(opsChildren[19]);
-        AssertItem(opsChildren[20], "RemoveMissingFileBases");
+        AssertItem(opsChildren[20], "SessionLock");
+        AssertSeparator(opsChildren[21]);
+        AssertItem(opsChildren[22], "RemoveMissingFileBases");
 
         // ---- «Проверить обновления» в конце, с разделителем ----
         AssertSeparator(layout.Root[15]);

@@ -2226,26 +2226,15 @@ namespace Workspace1C
 
             // Экспорт/импорт в произвольный файл *.v8i (issue #29): подготовка общего
             // списка информационных баз в отдельном профиле, не затрагивая основной список.
+            // Единые методы ExportToIbasesFileInteractive/ImportFromIbasesFileInteractive
+            // используются и меню «Утилиты» — оба места работают через один диалог и сервис.
             var exportV8iFile = new Button { Content = LocalizationManager.T("Settings.Bases.ExportV8iFile") };
             ToolTip.SetTip(exportV8iFile, LocalizationManager.T("Settings.Bases.ExportV8iFileTooltip"));
-            exportV8iFile.Click += (_, _) =>
-            {
-                var path = _viewModel.PickSaveFile(
-                    LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"), "ibases.v8i");
-                if (!string.IsNullOrWhiteSpace(path))
-                    _viewModel.ExportToIbasesFile(path);
-            };
-
+            exportV8iFile.Click += (_, _) => _viewModel.ExportToIbasesFileInteractive();
+ 
             var importV8iFile = new Button { Content = LocalizationManager.T("Settings.Bases.ImportV8iFile") };
             ToolTip.SetTip(importV8iFile, LocalizationManager.T("Settings.Bases.ImportV8iFileTooltip"));
-            importV8iFile.Click += (_, _) =>
-            {
-                var path = _viewModel.PickFile(
-                    LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
-                    LocalizationManager.T("Main.IbasesFileFilter"));
-                if (!string.IsNullOrWhiteSpace(path))
-                    _viewModel.ImportFromIbasesFile(path);
-            };
+            importV8iFile.Click += (_, _) => _viewModel.ImportFromIbasesFileInteractive();
 
             // Импорт баз и настроек платформы из программы StartManager (issue #163).
             var importStartManager = new Button { Content = LocalizationManager.T("Settings.Bases.ImportStartManager") };

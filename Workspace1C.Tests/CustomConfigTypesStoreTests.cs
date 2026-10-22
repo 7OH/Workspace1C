@@ -338,7 +338,8 @@ public sealed class CustomConfigTypesStoreTests : IDisposable
         var all = store.LoadAll();
         var withCode = all.Where(c => c.Code == "ZUP").ToList();
         Assert.Equal(2, withCode.Count);
-        Assert.Contains(withCode, c => c.IsBuiltIn && c.OverridesBuiltIn == false && c.Editions.Count == 1);
+        // Встроенная ЗУП (PR #43, 1.0.0.52) — редакции 2.x/3.x; пользовательская — не встроенная.
+        Assert.Contains(withCode, c => c.IsBuiltIn && c.OverridesBuiltIn == false && c.Editions.Count == 2);
         Assert.Contains(withCode, c => !c.IsBuiltIn && c.Editions.Count == 1 && c.Editions[0].Red == "3.0");
     }
 
@@ -425,12 +426,17 @@ public sealed class CustomConfigTypesStoreTests : IDisposable
         Assert.All(all, c =>
         {
             Assert.False(string.IsNullOrWhiteSpace(c.Nick), $"Nick пуст у {c.Code}");
-            Assert.NotEmpty(c.Editions);
+            // Редакции не требуются только там, где их действительно нет (PR #43): РМК и ERP
+            // ведут на единый каталог релизов без версионных редакций.
+            if (c.Code is not ("RMK" or "ERP"))
+                Assert.NotEmpty(c.Editions);
         });
 
         // Редакции БП сохраняют собственные каталоги (UrlOverride) — адрес проверки корректен.
+        // После PR #43 UrlOverride хранит конечную часть адреса, полная ссылка собирается
+        // автоматически (OneCUpdatesService.ResolveOverrideUrl).
         var bp = all.First(c => c.Code == "BP");
-        Assert.Contains(bp.Editions, e => e.UrlOverride.EndsWith("/project/Accounting30"));
+        Assert.Contains(bp.Editions, e => e.UrlOverride == "Accounting30");
     }
 
     // ---------- 0.3.9.265 (issue #321): единое правило объединения MergeAll ----------

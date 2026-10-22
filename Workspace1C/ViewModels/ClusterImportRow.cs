@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Workspace1C.Models;
+using Workspace1C.Services;
 
 namespace Workspace1C.ViewModels;
 
@@ -12,6 +13,9 @@ namespace Workspace1C.ViewModels;
 /// пропуска; повторный чек не приводит к импорту (фильтр выполняется на этапе
 /// «Импортировать», см. <see cref="ClusterImportViewModel"/>). Файловых баз в кластере
 /// не бывает (комментарий 7OH от 2026-10-18 20:24).
+/// С версии 1.0.0.51 (issue #41) строка несёт и исходную запись rac
+/// (<see cref="Source"/>) — она нужна миграции баз между кластерами (идентификатор
+/// базы для удаления и параметры создания в новом кластере).
 /// </summary>
 public sealed class ClusterImportRow : INotifyPropertyChanged
 {
@@ -25,7 +29,8 @@ public sealed class ClusterImportRow : INotifyPropertyChanged
         bool isChecked,
         bool isDuplicate,
         string? skipReason,
-        Infobase tag)
+        Infobase tag,
+        RacInfobaseSummary source)
     {
         Name = name;
         Subtitle = subtitle;
@@ -34,6 +39,7 @@ public sealed class ClusterImportRow : INotifyPropertyChanged
         IsDuplicate = isDuplicate;
         SkipReason = skipReason;
         Tag = tag;
+        Source = source;
         _isChecked = isChecked;
     }
 
@@ -63,6 +69,13 @@ public sealed class ClusterImportRow : INotifyPropertyChanged
 
     /// <summary>Смапленная база списка приложения (результат импорта для MainViewModel).</summary>
     public Infobase Tag { get; }
+
+    /// <summary>
+    /// Исходная запись базы кластера («infobase summary list», issue #41): нужна миграции
+    /// — идентификатор базы для удаления из старого кластера и параметры создания
+    /// в новом (см. <see cref="ClusterMigrationService.BuildCreateRequest"/>).
+    /// </summary>
+    public RacInfobaseSummary Source { get; }
 
     /// <summary>Отмечена ли строка для импорта.</summary>
     public bool IsChecked

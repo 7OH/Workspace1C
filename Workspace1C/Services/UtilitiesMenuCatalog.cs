@@ -89,7 +89,13 @@ public enum UtilitiesMenuCommandKind
 
     /// <summary>Импорт списка баз из JSON.</summary>
     ImportBasesJson,
-
+ 
+    /// <summary>Экспорт списка баз в произвольный файл *.v8i (issue #29).</summary>
+    ExportBasesV8iFile,
+ 
+    /// <summary>Импорт списка баз из произвольного файла *.v8i (issue #29).</summary>
+    ImportBasesV8iFile,
+ 
     /// <summary>Импорт баз из кластера сервера 1С.</summary>
     ImportClusterInfobases,
 
@@ -423,7 +429,15 @@ public static class UtilitiesMenuCatalog
                 "FileExport", "IconFileExport", "#06B6D4", UtilitiesMenuCommandKind.ExportBasesJson),
             new("ImportJson", "Utilities.ImportJson", GroupOperations,
                 "DatabaseImport", "IconImport", "#06B6D4", UtilitiesMenuCommandKind.ImportBasesJson),
-            new("ClusterImport", "ClusterImport.Title", GroupOperations,
+            // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же операции, что
+            // в настройках (вкладка «Базы» → «Список баз»), с теми же названиями и сервисами.
+            new("ExportV8iFile", "Settings.Bases.ExportV8iFile", GroupOperations,
+                "FileExport", "IconFileExport", "#22C55E", UtilitiesMenuCommandKind.ExportBasesV8iFile),
+            new("ImportV8iFile", "Settings.Bases.ImportV8iFile", GroupOperations,
+                "DatabaseImport", "IconImport", "#22C55E", UtilitiesMenuCommandKind.ImportBasesV8iFile),
+            // «Импорт \ миграция из кластера 1С…» (1.0.0.51, issue #41): отдельный ключ от
+            // заголовка окна — меню переименовано, а заголовок окна «Импорт из кластера 1С» остался.
+            new("ClusterImport", "ClusterImport.MenuItem", GroupOperations,
                 "DatabaseImport", "IconImport", "#06B6D4", UtilitiesMenuCommandKind.ImportClusterInfobases),
             new("ProcessInspector", "ProcessInspector.Title", GroupOperations,
                 "ApplicationCog", "IconApplicationCog", "#0EA5E9", UtilitiesMenuCommandKind.ProcessInspector),
@@ -509,6 +523,10 @@ public static class UtilitiesMenuLayouts
                 Item("ExportHtml"),
                 Item("ExportJson"),
                 Item("ImportJson"),
+                // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же операции,
+                // что в настройках (вкладка «Базы» → «Список баз»).
+                Item("ExportV8iFile"),
+                Item("ImportV8iFile"),
                 Item("ClusterImport"),
                 Separator(),
                 Item("ProcessInspector"),

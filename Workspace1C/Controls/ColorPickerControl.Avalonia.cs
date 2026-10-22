@@ -250,7 +250,17 @@ namespace Workspace1C.Controls
                 SetColor(ParseColor(change.GetNewValue<string>()));
         }
 
-        private Color CurrentColor => HsvColor.ToRgb(_hue, _saturation / 100.0, _brightness / 100.0);
+        // Единое RGB-HSV преобразование модели (issue #26): браузер и редактор
+        // используют одинаковый расчёт, поэтому показанный в настройках HEX-цвет
+        // совпадает с тем, что открывается в диалоге выбора цвета.
+        private Color CurrentColor
+        {
+            get
+            {
+                var (r, g, b) = Models.ColorScheme.HsvToRgb(_hue, _saturation / 100.0, _brightness / 100.0);
+                return Color.FromRgb(r, g, b);
+            }
+        }
 
         /// <summary>
         /// Подпись секции: второстепенный цвет и поле снизу как в разметке
@@ -331,7 +341,10 @@ namespace Workspace1C.Controls
                 EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
             };
             for (var i = 0; i <= 6; i++)
-                brush.GradientStops.Add(new GradientStop(HsvColor.ToRgb(i * 60.0, 1, 1), i / 6.0));
+            {
+                var (r, g, b) = Models.ColorScheme.HsvToRgb(i * 60.0, 1.0, 1.0);
+                brush.GradientStops.Add(new GradientStop(Color.FromRgb(r, g, b), i / 6.0));
+            }
             return brush;
         }
 
@@ -350,10 +363,13 @@ namespace Workspace1C.Controls
 
         private void SetColor(Color color)
         {
-            var hsv = color.ToHsv();
-            _hue = hsv.H;
-            _saturation = hsv.S * 100.0;
-            _brightness = hsv.V * 100.0;
+            // Единое RGB-HSV преобразование модели (issue #26): собственный обход
+            // через HsvColor с усечением каналов «съедал» у выбранного в настройках
+            // цвета до 1 на канал (например #13522C -> #12512B).
+            var (h, s, v) = Models.ColorScheme.RgbToHsv(color.R, color.G, color.B);
+            _hue = h;
+            _saturation = s * 100.0;
+            _brightness = v * 100.0;
 
             _isUpdating = true;
             try

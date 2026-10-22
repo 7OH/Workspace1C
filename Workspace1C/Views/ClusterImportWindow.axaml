@@ -85,9 +85,11 @@
                        VerticalAlignment="Center"/>
         </StackPanel>
 
-        <!-- Действия: выделить все / снять все (слева), импортировать (справа). -->
+        <!-- Действия: выделить все / снять все (слева), импортировать / мигрировать
+             и закрыть (справа; «Закрыть» — с красной подсветкой, issue #41). -->
         <DockPanel Grid.Row="5" Margin="0,10,0,0">
             <ContentControl x:Name="BulkHost" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+            <ContentControl x:Name="CloseHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
             <ContentControl x:Name="ImportHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
         </DockPanel>
 

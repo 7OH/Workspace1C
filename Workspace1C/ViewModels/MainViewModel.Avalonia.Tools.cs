@@ -49,10 +49,43 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>Диалог выбора файла для окна настроек.</summary>
     public string? PickFile(string title, string filter) => _dialog.OpenFileDialog(title, filter);
-
+ 
     /// <summary>Диалог сохранения файла для окна настроек.</summary>
     public string? PickSaveFile(string title, string defaultFileName) =>
         _dialog.SaveFileDialog(title, defaultFileName);
+ 
+    /// <summary>
+    /// «Экспорт в файл *.v8i…» (issue #29): показывает диалог сохранения и выгружает список
+    /// баз и групп приложения в произвольный файл ibases.v8i. Единая точка входа для
+    /// настроек (вкладка «Базы» → «Список баз») и меню «Утилиты» — оба места используют
+    /// один и тот же диалог, сервис и сообщения о результате.
+    /// </summary>
+    public void ExportToIbasesFileInteractive()
+    {
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"),
+            "ibases.v8i",
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        ExportToIbasesFile(path);
+    }
+ 
+    /// <summary>
+    /// «Импорт из файла *.v8i…» (issue #29): показывает диалог открытия и загружает список
+    /// баз из произвольного файла ibases.v8i. Единая точка входа для настроек (вкладка
+    /// «Базы» → «Список баз») и меню «Утилиты» — оба места используют один и тот же
+    /// диалог, сервис и сообщения о результате.
+    /// </summary>
+    public void ImportFromIbasesFileInteractive()
+    {
+        var path = _dialog.OpenFileDialog(
+            LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        ImportFromIbasesFile(path);
+    }
 
     /// <summary>Диалог выбора каталога для окна настроек.</summary>
     public string? PickFolder(string title, string? initialDirectory = null)
@@ -1802,6 +1835,7 @@ public partial class MainViewModel : ViewModelBase
             return;
 
         ApplyClusterImportResult(window.SelectedBases);
+        ApplyClusterMigrationResult(window.MigrationResult);
     }
 
     /// <summary>
@@ -1854,6 +1888,42 @@ public partial class MainViewModel : ViewModelBase
         StatusBarInfo = string.Format(LocalizationManager.T("ClusterImport.SuccessFormat"), added.Count);
         _logger.Info($"Импорт из кластера 1С: добавлено {added.Count} баз, " +
                      $"пропущено дубликатов {selected.Count - added.Count}");
+    }
+
+    /// <summary>
+    /// Применяет результат миграции баз между кластерами (issue #41): при подтверждении
+    /// пользователем «Хотите заменить строку подключения?» заменяет сервер/порт в базах
+    /// списка приложения, имена которых совпадают с перенесёнными (по Ref, без учёта
+    /// регистра; только клиент-серверные базы). Сохраняет список и показывает сводку
+    /// в статус-строке. Замена выполняется на РЕАЛЬНОМ списке (в окно импорта уходит снимок),
+    /// после закрытия окна импорта.
+    /// </summary>
+    private void ApplyClusterMigrationResult(ClusterMigrationResult? result)
+    {
+        if (result is null || !result.ReplaceConnectionStrings || result.MigratedBaseNames.Count == 0)
+            return;
+
+        var replaced = ClusterMigrationService.ReplaceServerAndPort(
+            _allInfobases, result.MigratedBaseNames, result.NewServer, result.NewPort);
+        if (replaced == 0)
+            return;
+
+        var saved = SaveSilently();
+        saved &= SaveGroupsSilently();
+        RebuildTree();
+
+        if (!saved)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                    LocalizationManager.T("Main.SaveFailedHint")),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        StatusBarInfo = string.Format(LocalizationManager.T("ClusterMigration.ReplacedCountFormat"), replaced);
+        _logger.Info($"Миграция баз между кластерами: заменено строк подключения у {replaced} баз " +
+                     $"(новый сервер: {result.NewServer}:{result.NewPort}, issue #41)");
     }
 
     // ======================= Статистика использования баз (0.3.9.95) =======================

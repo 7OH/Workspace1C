@@ -685,6 +685,10 @@ public partial class MainViewModel : ViewModelBase
         // не требуют выделенной базы; импорт — добавляющий, дубликаты пропускаются.
         ExportBasesJsonCommand = new RelayCommand(ExportBasesJson);
         ImportBasesJsonCommand = new RelayCommand(ImportBasesJson);
+        // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же операции, что
+        // в настройках (вкладка «Базы» → «Список баз»), с теми же диалогами и сервисами.
+        ExportToIbasesFileCommand = new RelayCommand(_ => ExportToIbasesFileInteractive());
+        ImportFromIbasesFileCommand = new RelayCommand(_ => ImportFromIbasesFileInteractive());
         // Команда очистки кеша верхней панели действует на выбранную базу: если база не
         // выделена (например, под курсором папка) — окно открывается без предзаполненных
         // галок, и пользователь сам отмечает нужные базы (issue #196). В колонке

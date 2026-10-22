@@ -1023,7 +1023,9 @@ namespace Workspace1C
                     active ? "AccentBrush" : "CardBackgroundBrush"));
             _titleForegroundSub = _appTitleText.Bind(TextBlock.ForegroundProperty,
                 new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(
-                    active ? "ButtonTextBrush" : "TextPrimaryColorBrush"));
+                    // Заголовок «на акценте» контрастен фактическому акценту (issue #26):
+                    // при тёмном пользовательском акценте белый, при светлом — чёрный.
+                    active ? "AccentTextBrush" : "TextPrimaryColorBrush"));
 
             foreach (var button in _windowControlButtons)
                 button.SetOnAccent(active);

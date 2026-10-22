@@ -8,6 +8,9 @@ namespace Workspace1C.Services;
 /// «Актуальные релизы» и окном настройки связи ИБ ↔ конфигурация как стартовый список.
 /// Пользователь может добавлять собственные конфигурации (хранятся в
 /// <c>AppSettings.CustomConfigTypes</c>) — они объединяются со встроенными при показе.
+/// Встроенный список дополнен по PR #43 (7OH): Бухгалтерия КОРП, Документооборот
+/// ПРОФ/КОРП, Зарплата и управление персоналом КОРП, рабочее место кассира, УНФ, УПП;
+/// редакции и каталоги релизов приведены к актуальным (issue #321, 1.0.0.52).
 /// </summary>
 public static class BuiltInConfigTypes
 {
@@ -19,9 +22,10 @@ public static class BuiltInConfigTypes
         var list = new List<OneCConfigType>
         {
             // Бухгалтерия предприятия — наиболее распространённая типовая конфигурация.
-            // Ники конфигураций/редакций — по списку 7OH (issue #321, комментарий 5952509522):
-            // база каталога Accounting; редакции 2.0/3.0 имеют собственные каталоги
-            // Accounting20_82/Accounting30 (UrlOverride — releases.1c.ru/project/<ник>).
+            // Ники конфигураций/редакций — по списку 7OH (issue #321, комментарий 5952509522;
+            // PR #43, 1.0.0.52): база каталога Accounting; редакции 2.x/3.x имеют собственные
+            // каталоги Accounting20_82/Accounting30 (UrlOverride — конечная часть адреса
+            // releases.1c.ru/project/<код>, полная ссылка собирается автоматически).
             new OneCConfigType
             {
                 Code = "BP",
@@ -238,7 +242,7 @@ public static class BuiltInConfigTypes
                 Nick = "EnterpriseERP20",
                 IsBuiltIn = true,
             },
-            // Розница: каталог Retail, редакции 2.3/3.0 — Retail23/Retail30.
+            // Розница: каталог Retail, редакции 2.3/3.х — Retail23/Retail30.
             new OneCConfigType
             {
                 Code = "Retail",
@@ -332,6 +336,9 @@ public static class BuiltInConfigTypes
 
         // Сегменты URL принято кодировать латиницей/цифрами; имя с пробелами и кириллицей
         // дополнительно экранируется при формировании адреса (Uri.EscapeDataString).
+        // UrlOverride редакций содержит конечную часть адреса после releases.1c.ru/project/
+        // (семантика «полная ссылка или хвост», issue #369/#322) — полная ссылка
+        // собирается автоматически в OneCUpdatesService.ResolveOverrideUrl.
         return list;
     }
 }

@@ -304,7 +304,7 @@ public partial class MainViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             return false;
-
+ 
         try
         {
             _ibasesSync.Import(filePath, Infobases, Groups, _deletedGroupPaths.Load());
@@ -317,6 +317,63 @@ public partial class MainViewModel : ViewModelBase
         catch
         {
             return false;
+        }
+    }
+ 
+    /// <summary>
+    /// «Экспорт в файл *.v8i…» (issue #29): показывает диалог сохранения и выгружает список
+    /// баз и групп приложения в произвольный файл ibases.v8i. Единая точка входа для
+    /// настроек (вкладка «Базы» → «Список баз») и меню «Утилиты» — оба места используют
+    /// один и тот же диалог, сервис и сообщения о результате.
+    /// </summary>
+    private void ExportToIbasesFileInteractive()
+    {
+        var path = _dialogs.SaveFileDialog(
+            LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"),
+            "ibases.v8i",
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+ 
+        if (ExportToIbasesFile(path))
+        {
+            _dialogs.ShowInfo(
+                string.Format(LocalizationManager.T("Settings.Bases.ExportV8iFileDone"), path),
+                LocalizationManager.T("Settings.Bases.ExportV8iFileTitle"));
+        }
+        else
+        {
+            _dialogs.ShowError(
+                LocalizationManager.T("Settings.Bases.ExportV8iFileFailed"),
+                LocalizationManager.T("Settings.Bases.ExportV8iFileTitle"));
+        }
+    }
+ 
+    /// <summary>
+    /// «Импорт из файла *.v8i…» (issue #29): показывает диалог открытия и загружает список
+    /// баз из произвольного файла ibases.v8i. Единая точка входа для настроек (вкладка
+    /// «Базы» → «Список баз») и меню «Утилиты» — оба места используют один и тот же
+    /// диалог, сервис и сообщения о результате.
+    /// </summary>
+    private void ImportFromIbasesFileInteractive()
+    {
+        var path = _dialogs.OpenFileDialog(
+            LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+ 
+        if (ImportFromIbasesFile(path))
+        {
+            _dialogs.ShowInfo(
+                string.Format(LocalizationManager.T("Settings.Bases.ImportV8iFileDone"), path),
+                LocalizationManager.T("Settings.Bases.ImportV8iFileTitle"));
+        }
+        else
+        {
+            _dialogs.ShowError(
+                LocalizationManager.T("Settings.Bases.ImportV8iFileFailed"),
+                LocalizationManager.T("Settings.Bases.ImportV8iFileTitle"));
         }
     }
 

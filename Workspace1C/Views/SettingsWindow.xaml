@@ -220,7 +220,9 @@
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TreeSelectedBrush}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource ButtonTextBrush}"/>
+                                <!-- Текст выбранного раздела контрастен его фону (issue #26):
+                                     тёмная подложка TreeSelectedBrush требует светлый текст. -->
+                                <Setter Property="Foreground" Value="{DynamicResource TreeSelectedTextBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
@@ -1208,7 +1210,7 @@
                                                             ToolTip="{loc:Loc Settings.ChooseColorTooltip}">
                                                         <TextBlock Text="{Binding Label}" VerticalAlignment="Center"
                                                                    TextDecorations="Underline"
-                                                                   Foreground="{DynamicResource AccentBrush}"/>
+                                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
                                                     </Button>
                                                 </Grid>
                                             </DataTemplate>

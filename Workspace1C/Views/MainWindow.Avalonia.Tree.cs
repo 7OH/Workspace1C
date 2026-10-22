@@ -1280,12 +1280,13 @@ namespace Workspace1C
                 Margin = new Thickness(0, 0, 0, 8)
             };
             clientOptions.Children.Add(
-                SessionOption(LocalizationManager.T("Main.SessionClientAuto"), "SessionClient", "IsSessionClientAuto"));
+                SessionOption(LocalizationManager.T("Main.SessionClientAutoFull"), "SessionClient", "IsSessionClientAuto"));
             clientOptions.Children.Add(
                 SessionOption(LocalizationManager.T("Main.SessionClientOrdinary"), "SessionClient", "IsSessionClientOrdinary"));
+            // Тултипа «Полный клиент…» нет (issue #45, 1.0.0.52) — детали режима клиента
+            // вынесены прямо в подписи радиокнопок и в подсказку «?» (Main.CurrentSessionHelp).
             clientOptions.Children.Add(
-                SessionOption(LocalizationManager.T("Main.SessionClientThickManaged"), "SessionClient", "IsSessionClientThick",
-                    LocalizationManager.T("Main.SessionThickManagedTooltip")));
+                SessionOption(LocalizationManager.T("Main.SessionClientThickManaged"), "SessionClient", "IsSessionClientThick"));
             clientOptions.Children.Add(
                 SessionOption(LocalizationManager.T("Main.SessionClientThin"), "SessionClient", "IsSessionClientThin"));
 
@@ -1935,6 +1936,12 @@ namespace Workspace1C
                     item.Command = _vm!.ExportBasesJsonCommand; break;
                 case UtilitiesMenuCommandKind.ImportBasesJson:
                     item.Command = _vm!.ImportBasesJsonCommand; break;
+                // Экспорт/импорт в произвольный файл *.v8i (issue #29): те же методы, что
+                // в настройках (вкладка «Базы» → «Список баз»), с теми же диалогами.
+                case UtilitiesMenuCommandKind.ExportBasesV8iFile:
+                    item.Click += (_, _) => _vm!.ExportToIbasesFileInteractive(); break;
+                case UtilitiesMenuCommandKind.ImportBasesV8iFile:
+                    item.Click += (_, _) => _vm!.ImportFromIbasesFileInteractive(); break;
                 case UtilitiesMenuCommandKind.ImportClusterInfobases:
                     item.Command = _vm!.ImportClusterInfobasesCommand; break;
                 case UtilitiesMenuCommandKind.ProcessInspector:

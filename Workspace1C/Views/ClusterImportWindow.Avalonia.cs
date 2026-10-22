@@ -39,6 +39,7 @@ namespace Workspace1C
     /// </summary>
     public partial class ClusterImportWindow : ModalWindowBase
     {
+        private readonly IRacClient _rac;
         private readonly ClusterImportViewModel _vm;
         private readonly IInfobaseRepository _repository;
         private readonly ComboBox _clusterCombo;
@@ -51,6 +52,12 @@ namespace Workspace1C
         private readonly Button _selectAllButton;
         private readonly Button _selectNoneButton;
         private readonly Button _importButton;
+        private readonly Button _migrateButton;
+        private readonly Button _closeButton;
+
+        /// <summary>Результат миграции (issue #41): применяет MainViewModel после закрытия
+        /// окна (замена сервера/порта в списке приложения). Null — миграция не выполнялась.</summary>
+        private ClusterMigrationResult? _migrationResult;
 
         /// <param name="rac">Клиент rac (кластеры, «cluster info», базы кластера).</param>
         /// <param name="repository">Репозиторий настроек (адрес/порт/логин RAS сохраняются при успешном подключении).</param>
@@ -76,6 +83,7 @@ namespace Workspace1C
         {
             AvaloniaXamlLoader.Load(this);
 
+            _rac = rac;
             _repository = repository;
 
             _vm = new ClusterImportViewModel(
@@ -175,8 +183,19 @@ namespace Workspace1C
             bulk.Children.Add(_selectNoneButton);
             this.FindControl<ContentControl>("BulkHost")!.Content = bulk;
 
+            // «Импортировать» + «Мигрировать» (issue #41): рядом, как «Выделить все» и
+            // «Снять все»; «Мигрировать» — тот же цвет, стрелка вправо.
             _importButton = BuildImportButton();
-            this.FindControl<ContentControl>("ImportHost")!.Content = _importButton;
+            _migrateButton = BuildMigrateButton();
+            var importPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            importPanel.Children.Add(_importButton);
+            importPanel.Children.Add(_migrateButton);
+            this.FindControl<ContentControl>("ImportHost")!.Content = importPanel;
+
+            // «Закрыть» (issue #41): отодвинута дальше, красный шрифт и иконка — по образцу
+            // Windows-версии (окно не обязан закрывать только системной кнопкой).
+            _closeButton = BuildCloseButton();
+            this.FindControl<ContentControl>("CloseHost")!.Content = _closeButton;
 
             // Открытие из окна «Серверы 1С» (issue #27): выбранный сервер + автоподключение.
             _connectButton.IsEnabled = _vm.HasAvailableServers;
@@ -189,6 +208,13 @@ namespace Workspace1C
         /// Читается после <c>ShowDialogSync() == true</c>.
         /// </summary>
         public IReadOnlyList<Infobase> SelectedBases => _vm.SelectedBases;
+
+        /// <summary>
+        /// Результат миграции (issue #41): применяет MainViewModel после закрытия окна —
+        /// при подтверждении «заменить строку подключения» заменятся сервер/порт в базах
+        /// списка приложения. Null — миграция не выполнялась или не завершилась успешно.
+        /// </summary>
+        public ClusterMigrationResult? MigrationResult => _migrationResult;
 
         /// <summary>Показывает окно модально (синхронно) — обёртка над <see cref="ModalWindowBase.ShowDialogSync(Window?)"/>.</summary>
         public bool ShowSync(Window? owner = null) => ShowDialogSync(owner);
@@ -214,6 +240,38 @@ namespace Workspace1C
             Close();
         }
 
+        /// <summary>
+        /// «Мигрировать» (issue #41): открывает диалог миграции для отмеченных баз —
+        /// допускается, если выбрана хотя бы одна. После успешного переноса диалог
+        /// закрывается, а здесь обновляется список баз кластера (перенесённые базы могли
+        /// исчезнуть из старого кластера). Результат миграции (замена строки подключения)
+        /// применяет MainViewModel после закрытия окна импорта (см. <see cref="MigrationResult"/>).
+        /// </summary>
+        private void OnMigrateClick()
+        {
+            var rows = _vm.SelectedRowsForMigration();
+            if (rows.Count == 0)
+            {
+                AppServices.GetRequiredService<IDialogService>()
+                    .ShowInfo(LocalizationManager.T("Selection.NothingSelected"), Title);
+                return;
+            }
+
+            var dialog = new ClusterMigrationWindow(
+                _rac,
+                _vm.BuildSourceParams(),
+                _vm.SelectedClusterId ?? Guid.Empty,
+                rows,
+                _vm.AvailableServers,
+                _vm.SelectedServer);
+            if (!dialog.ShowDialogSync(this))
+                return;
+
+            _migrationResult = dialog.Result;
+            // Список баз кластера-источника после миграции: перечитаем его заново.
+            _vm.LoadBases();
+        }
+
         private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             switch (e.PropertyName)
@@ -233,6 +291,7 @@ namespace Workspace1C
                     SyncSelectedCluster();
                     break;
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
+                case nameof(ClusterImportViewModel.CheckedCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
                     UpdateCommandStates();
@@ -254,6 +313,10 @@ namespace Workspace1C
             _selectAllButton.IsEnabled = !busy;
             _selectNoneButton.IsEnabled = !busy;
             _importButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
+            // «Мигрировать» (issue #41, 1.0.0.52): доступна при ЛЮБОЙ отмеченной базе
+            // (без фильтра дубликатов/пропусков — для переноса это не помеха);
+            // проверка «база уже есть в приёмнике» выполняется в диалоге миграции.
+            _migrateButton.IsEnabled = !busy && _vm.CheckedCount > 0;
             _progressBar.IsVisible = busy;
         }
 
@@ -300,6 +363,26 @@ namespace Workspace1C
             var button = BuildActionButton(LocalizationManager.T("ClusterImport.ImportButton"), "⇩", OnImportClick);
             button.Background = new SolidColorBrush(Color.Parse("#06B6D4"));
             button.Foreground = Brushes.White;
+            return button;
+        }
+
+        /// <summary>«Мигрировать» (issue #41): тот же цвет, что у «Импортировать», со
+        /// стрелкой вправо; рядом с «Импортировать» (панель ImportHost).</summary>
+        private Button BuildMigrateButton()
+        {
+            var button = BuildActionButton(LocalizationManager.T("ClusterImport.MigrateButton"), "➜", OnMigrateClick);
+            button.Background = new SolidColorBrush(Color.Parse("#06B6D4"));
+            button.Foreground = Brushes.White;
+            return button;
+        }
+
+        /// <summary>«Закрыть» (issue #41): отодвинута дальше (хост CloseHost справа),
+        /// красный шрифт и иконка — по образцу Windows-версии.</summary>
+        private Button BuildCloseButton()
+        {
+            var button = BuildActionButton(LocalizationManager.T("Common.Close"), "✖", () => Close());
+            ThemeBrushes.Bind(button, Button.BackgroundProperty, "ItemHoverBrush");
+            button.Foreground = new SolidColorBrush(Color.Parse("#DC2626"));
             return button;
         }
 

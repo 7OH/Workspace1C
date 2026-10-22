@@ -275,6 +275,32 @@ public sealed class ClusterImportViewModelTests
     }
 
     [Fact]
+    public async Task CheckedAndMigrationRows_IncludeDuplicatesMarkedByUser()
+    {
+        // Дубликат «Бухгалтерия» не готов к импорту, но для «Мигрировать» (issue #41,
+        // 1.0.0.52) важен общий счётчик отмеченных строк: перенос не проверяет наличие
+        // базы в списке приложения — проверка «уже есть в приёмнике» живёт в диалоге
+        // миграции после выбора кластера назначения.
+        var existing = RacInfobaseMapper.ToInfobase(
+            new RacInfobaseSummary { Name = "Бухгалтерия", Dbms = "MSSQLServer" },
+            "srv1", 1541, null, "Группа");
+        var vm = new ClusterImportViewModel(new FakeRacClient(singleCluster: true), new[] { existing });
+        await vm.ConnectAsync();
+
+        var dup = vm.Rows.Single(r => r.Name == "Бухгалтерия");
+        Assert.True(dup.IsDuplicate);
+        dup.IsChecked = true; // пользователь вручную отмечает и существующую базу
+
+        // ReadyToImportCount не учитывает дубликат, CheckedCount — учитывает.
+        Assert.Equal(2, vm.ReadyToImportCount);
+        Assert.Equal(3, vm.CheckedCount);
+
+        // Строки для миграции включают отмеченные дубликаты (если есть исходная запись rac).
+        var migrationRows = vm.SelectedRowsForMigration();
+        Assert.Contains("Бухгалтерия", migrationRows.Select(r => r.Name));
+    }
+
+    [Fact]
     public async Task Import_ReturnsOnlyCheckedNewBases_WithMappedFields()
     {
         var client = new FakeRacClient(singleCluster: true);
