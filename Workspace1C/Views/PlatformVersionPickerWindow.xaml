@@ -230,12 +230,17 @@
                                     </Style>
                                 </materialDesign:PackIcon.Style>
                             </materialDesign:PackIcon>
-                            <TextBlock Text="{Binding Name}" FontSize="12"
+                            <!-- Имя узла, включая локализованный суффикс «(тонкий клиент)»
+                                 (DisplayName — единый форматтер, issue #33). Оба стилевых
+                                 свойства заданы через Setter (НЕ локально): в WPF локальное
+                                 значение имеет приоритет над DataTrigger, из-за чего суффикс
+                                 и оранжевая подсветка в 1.0.0.32 не показывались. -->
+                            <TextBlock Text="{Binding DisplayName}" FontSize="12"
                                        VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"
                                        TextTrimming="CharacterEllipsis">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                                         <Setter Property="FontWeight" Value="Normal"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsLeaf}" Value="False">
@@ -248,20 +253,6 @@
                                                  видно, что полные возможности недоступны. -->
                                             <DataTrigger Binding="{Binding IsThinClient}" Value="True">
                                                 <Setter Property="Foreground" Value="#F59E0B"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                            <!-- Суффикс «(тонкий клиент)» — только у листьев-тонких клиентов. -->
-                            <TextBlock Text="{loc:Loc PlatformVersionPicker.ThinClientSuffix}" FontSize="12"
-                                       VerticalAlignment="Center" Margin="4,0,0,0"
-                                       Foreground="#F59E0B" Visibility="Collapsed">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsThinClient}" Value="True">
-                                                <Setter Property="Visibility" Value="Visible"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>

@@ -370,7 +370,8 @@ public sealed class ClusterImportViewModelTests
 
         await vm.ConnectAsync(); // автовыбор единственного → загрузка баз падает внутри LoadBasesAsync
 
-        Assert.Equal(1, client.InfobaseCalls);
+        // Первая попытка + один повтор (issue #25): клиент падает ВСЕГДА — ошибка показывается.
+        Assert.Equal(2, client.InfobaseCalls);
         Assert.NotEmpty(vm.ErrorMessage);
         Assert.False(vm.IsBusy);
         Assert.Empty(vm.Rows);
@@ -387,6 +388,97 @@ public sealed class ClusterImportViewModelTests
         Assert.Empty(vm.ErrorMessage);
         Assert.False(vm.IsBusy);
         Assert.NotEmpty(vm.StatusText);
+    }
+
+    // ============= Issue #25: «первая непрогретая» попытка повторяется без показа ошибки =============
+
+    [Fact]
+    public async Task LoadBases_FirstAttemptFails_RetrySucceeds_NoError_Issue25()
+    {
+        // Жалоба 7OH (2026-10-21): «при попытке подключения опять ошибка…, но после выбора
+        // список баз показывает» — первая в сессии загрузка падает (непрогретый формат rac
+        // 8.5.1), повторный ручной выбор уже успешен. Теперь первая упавшая попытка
+        // «infobase summary list» повторяется ВНУТРИ LoadBasesAsync ДО установки ErrorMessage:
+        // успех повтора оставляет окно чистым («Загружено N», без «Подключиться»).
+        var client = new FakeRacClient(singleCluster: true, throwOnLoadFirstAttempt: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+
+        await vm.ConnectAsync(); // автовыбор единственного → LoadBasesAsync → первая попытка падает
+        await AwaitBackgroundLoadBases(vm);
+
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        // Первая попытка + повтор — обе внутри одной операции, ошибка не показывается.
+        Assert.Equal(2, client.InfobaseCalls);
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.Equal(
+            string.Format(LocalizationManager.T("ClusterImport.Status.LoadedFormat"), vm.Rows.Count),
+            vm.StatusText);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task LoadBases_SuccessAfterPreviousFailure_ClearsErrorMessage_Issue25()
+    {
+        // Остаточная ошибка (Г3): после сбоя загрузки ErrorMessage висит в окне; успешный
+        // повтор (ручной выбор кластера / повторное «Загрузить») гарантированно её очищает.
+        var client = new FakeRacClient(throwOnLoad: true, singleCluster: true);
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>());
+
+        await vm.ConnectAsync(); // автовыбор → загрузка падает (две попытки) → ошибка показана
+        Assert.NotEmpty(vm.ErrorMessage);
+        Assert.Empty(vm.Rows);
+
+        // «Вылечиваем» клиента и повторно загружаем базы того же кластера.
+        client.SetLoadFailure(enabled: false);
+        await vm.LoadBasesAsync(FakeRacClient.FirstClusterId);
+
+        Assert.Empty(vm.ErrorMessage);
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.Equal(
+            string.Format(LocalizationManager.T("ClusterImport.Status.LoadedFormat"), vm.Rows.Count),
+            vm.StatusText);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Connect_SingleCluster_AutoSelectsWithDeferredDispatch_Issue25()
+    {
+        // Имитация WPF Dispatcher.BeginInvoke / Avalonia Dispatcher.Post: результат
+        // подключения доставляется в UI-поток ОТЛОЖЕННО (через очередь). Автовыбор должен
+        // выполняться в ТОМ ЖЕ диспетчеризованном блоке, что и применение списка кластеров —
+        // иначе (прежний код) автовыбор читал ещё пустой Clusters и не срабатывал,
+        // кластер оставалось выбирать вручную, а первая ошибка оставалась в окне.
+        var client = new FakeRacClient(singleCluster: true);
+        var queue = new System.Collections.Generic.Queue<System.Action>();
+        var vm = new ClusterImportViewModel(client, Array.Empty<Infobase>(),
+            dispatchToUi: action => queue.Enqueue(action));
+
+        await vm.ConnectAsync();
+
+        // Применение отложено — окно ещё пусто; действия применит «UI-поток».
+        Assert.Empty(vm.Clusters);
+        DrainDispatchQueue(queue);
+
+        await AwaitBackgroundLoadBases(vm);
+
+        Assert.Equal(1, vm.Clusters.Count);
+        Assert.Equal(FakeRacClient.FirstClusterId, vm.SelectedClusterId);
+        Assert.Equal(3, vm.Rows.Count);
+        Assert.Empty(vm.ErrorMessage);
+        Assert.False(vm.IsBusy);
+    }
+
+    /// <summary>Выполняет накопленные действия «UI-потока» до опустошения очереди (вложенные
+    /// dispatch-вызовы NotifyIsBusy обрабатываются тем же циклом, issue #25).</summary>
+    private static void DrainDispatchQueue(System.Collections.Generic.Queue<System.Action> queue)
+    {
+        var guard = 0;
+        while (queue.Count > 0 && guard++ < 64)
+        {
+            var action = queue.Dequeue();
+            action();
+        }
     }
 
     // ============= Issue #27: выбор сервера из справочника «Серверы 1С» =============
@@ -724,19 +816,21 @@ public sealed class ClusterImportViewModelTests
         public static readonly System.Guid ThirdClusterId = System.Guid.Parse("33333333-3333-3333-3333-333333333333");
 
         private readonly bool _throwOnClusters;
-        private readonly bool _throwOnLoad;
+        private bool _throwOnLoad;
         private readonly bool _throwCancel;
         private readonly bool _rejectEqualsClusterFormat;
         private readonly bool _singleCluster;
         private readonly bool _throwOnClusterInfo;
         private readonly TimeSpan _clusterDelay;
         private readonly TimeSpan _loadDelay;
+        private readonly bool _throwOnLoadFirstAttempt;
+        private bool _firstLoadAttemptDone;
 
         public FakeRacClient(
             bool throwOnClusters = false, bool throwOnLoad = false, bool throwCancel = false,
             TimeSpan? clusterDelay = null, TimeSpan? loadDelay = null,
             bool rejectEqualsClusterFormat = false, bool singleCluster = false,
-            bool throwOnClusterInfo = false)
+            bool throwOnClusterInfo = false, bool throwOnLoadFirstAttempt = false)
         {
             _throwOnClusters = throwOnClusters;
             _throwOnLoad = throwOnLoad;
@@ -746,7 +840,12 @@ public sealed class ClusterImportViewModelTests
             _throwOnClusterInfo = throwOnClusterInfo;
             _clusterDelay = clusterDelay ?? TimeSpan.Zero;
             _loadDelay = loadDelay ?? TimeSpan.Zero;
+            _throwOnLoadFirstAttempt = throwOnLoadFirstAttempt;
         }
+
+        /// <summary>Включает/выключает имитацию сбоя загрузки баз (первый этап теста падает,
+        /// затем «клиент вылечивается» — проверка очистки остаточной ошибки, issue #25).</summary>
+        public void SetLoadFailure(bool enabled) => _throwOnLoad = enabled;
 
         /// <summary>Текст последней ошибки действия (как в реальном клиенте).</summary>
         public string LastActionError { get; } = string.Empty;
@@ -822,6 +921,16 @@ public sealed class ClusterImportViewModelTests
             InfobaseClusterIds.Add(clusterId);
             if (_loadDelay > TimeSpan.Zero)
                 await Task.Delay(_loadDelay, cancellationToken).ConfigureAwait(false);
+
+            // issue #25: первая в сессии попытка загрузки может упасть (непрогретый формат
+            // rac 8.5.1 / холодный старт). ViewModel повторяет запрос ОДИН раз без показа
+            // ошибки — успех повтора оставляет окно чистым (тест LoadBases_FirstAttemptFails…).
+            if (_throwOnLoadFirstAttempt && !_firstLoadAttemptDone)
+            {
+                _firstLoadAttemptDone = true;
+                throw new RacClientException("нет прав на просмотр баз");
+            }
+
             if (_throwOnLoad)
                 throw new RacClientException("нет прав на просмотр баз");
             if (_throwCancel)

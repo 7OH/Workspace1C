@@ -31,7 +31,13 @@ public enum CliCommandKind
     Export,
 
     /// <summary>Справка по командам (--help, этап 0.3.9.218).</summary>
-    Help
+    Help,
+
+    /// <summary>Dev-уведомление в Telegram (--telegram-send, выпуск 1.0.0.36).</summary>
+    TelegramSend,
+
+    /// <summary>Подтверждение через inline-кнопки Telegram (--telegram-confirm, выпуск 1.0.0.36).</summary>
+    TelegramConfirm
 }
 
 /// <summary>Общие параметры любой команды CLI.</summary>
@@ -45,6 +51,24 @@ public sealed class CliOptions
 
     /// <summary>Модификатор режима запуска (--designer) — только для --run.</summary>
     public bool Designer { get; set; }
+
+    /// <summary>Текст dev-уведомления (--text; обязателен для --telegram-send).</summary>
+    public string? Text { get; set; }
+
+    /// <summary>Заголовок dev-уведомления (--title; по умолчанию «Workspace 1C»).</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Вид dev-уведомления (--kind: info/success/warning/error).</summary>
+    public string? Kind { get; set; }
+
+    /// <summary>Вопрос подтверждения (--prompt; обязателен для --telegram-confirm).</summary>
+    public string? Prompt { get; set; }
+
+    /// <summary>Тексты кнопок подтверждения (--button, повторяемый): 1-я — «Да», 2-я — «Нет».</summary>
+    public System.Collections.Generic.List<string> Buttons { get; } = new();
+
+    /// <summary>Таймаут ожидания подтверждения, секунд (--timeout; по умолчанию 300).</summary>
+    public int TimeoutSeconds { get; set; }
 }
 
 /// <summary>Результат разбора аргументов командной строки.</summary>
@@ -114,6 +138,58 @@ public static class CliArgs
                 continue;
             }
 
+            if (string.Equals(key, "--telegram-send", StringComparison.OrdinalIgnoreCase))
+            {
+                action = CliCommandKind.TelegramSend;
+                continue;
+            }
+
+            if (string.Equals(key, "--telegram-confirm", StringComparison.OrdinalIgnoreCase))
+            {
+                action = CliCommandKind.TelegramConfirm;
+                continue;
+            }
+
+            if (string.Equals(key, "--text", StringComparison.OrdinalIgnoreCase))
+            {
+                options.Text = value ?? ReadNextValue(args, ref i);
+                continue;
+            }
+
+            if (string.Equals(key, "--title", StringComparison.OrdinalIgnoreCase))
+            {
+                options.Title = value ?? ReadNextValue(args, ref i);
+                continue;
+            }
+
+            if (string.Equals(key, "--kind", StringComparison.OrdinalIgnoreCase))
+            {
+                options.Kind = value ?? ReadNextValue(args, ref i);
+                continue;
+            }
+
+            if (string.Equals(key, "--prompt", StringComparison.OrdinalIgnoreCase))
+            {
+                options.Prompt = value ?? ReadNextValue(args, ref i);
+                continue;
+            }
+
+            if (string.Equals(key, "--button", StringComparison.OrdinalIgnoreCase))
+            {
+                var button = value ?? ReadNextValue(args, ref i);
+                if (!string.IsNullOrWhiteSpace(button))
+                    options.Buttons.Add(button.Trim());
+                continue;
+            }
+
+            if (string.Equals(key, "--timeout", StringComparison.OrdinalIgnoreCase))
+            {
+                var seconds = value ?? ReadNextValue(args, ref i);
+                int.TryParse(seconds, out var parsedTimeout);
+                options.TimeoutSeconds = parsedTimeout;
+                continue;
+            }
+
             var isRun = string.Equals(key, "--run", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(key, "--base", StringComparison.OrdinalIgnoreCase);
             if (!isRun)
@@ -148,6 +224,22 @@ public static class CliArgs
 
         if (action == CliCommandKind.Run && string.IsNullOrWhiteSpace(target))
             return null;
+
+        if (action == CliCommandKind.TelegramSend && string.IsNullOrWhiteSpace(options.Text))
+            return new CliParseResult
+            {
+                Kind = action,
+                Options = options,
+                Error = "Команда --telegram-send требует текст уведомления (--text <сообщение>)"
+            };
+
+        if (action == CliCommandKind.TelegramConfirm && string.IsNullOrWhiteSpace(options.Prompt))
+            return new CliParseResult
+            {
+                Kind = action,
+                Options = options,
+                Error = "Команда --telegram-confirm требует вопрос (--prompt <что подтвердить?>)"
+            };
 
         return new CliParseResult { Kind = action, Target = target, Options = options };
     }

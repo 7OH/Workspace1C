@@ -112,19 +112,13 @@ namespace Workspace1C
                 _viewModel.SelectedGroup = GroupHierarchyHelper.FindByFullPath(defaultGroupPath, _viewModel.Groups);
             }
             DataContext = _viewModel;
-            _viewModel.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(ConnectionSettingsViewModel.Password))
-                    SyncPasswordBoxFromViewModel();
-                else if (e.PropertyName == nameof(ConnectionSettingsViewModel.RepositoryPassword))
-                    SyncRepositoryPasswordBoxFromViewModel();
-                else if (e.PropertyName == nameof(ConnectionSettingsViewModel.ConfiguratorPassword))
-                    SyncConfiguratorPasswordBoxFromViewModel();
-                else if (e.PropertyName == nameof(ConnectionSettingsViewModel.IsOs64Bit))
-                    UpdateOsArchitectureHint();
-            };
-            LocalizationManager.Instance.LanguageChanged += (_, _) => UpdateOsArchitectureHint();
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            LocalizationManager.Instance.LanguageChanged += OnLanguageChanged;
             UpdateOsArchitectureHint();
+            UpdateTitleFromName();
+            // Отписка обработчиков при закрытии — не держать окно через статические
+            // события локализации и VM (issue #36).
+            Closed += OnWindowClosed;
             // #268: две настройки запуска («Режим запуска по умолчанию» и «Действие по двойному
             // клику») сведены к одной — «Действие по двойному клику». Режим запуска по умолчанию
             // на запуск не влиял (двойной клик использует ResolveDoubleClickAction), поэтому его
@@ -135,6 +129,55 @@ namespace Workspace1C
             // двойным кликом по колонкам «Конфигурация»/«№ релиза» списка баз).
             if (initialTab != InfobasePropertiesTab.Default)
                 SectionTabs.SelectedIndex = InfobasePropertiesTabs.GetTabIndex(initialTab);
+        }
+
+        /// <summary>
+        /// Обработчик изменения свойств VM: пароли, подсказка о разрядности и
+        /// заголовок окна «…: Имя базы» (issue #36).
+        /// </summary>
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ConnectionSettingsViewModel.Password))
+                SyncPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.RepositoryPassword))
+                SyncRepositoryPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.ConfiguratorPassword))
+                SyncConfiguratorPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.IsOs64Bit))
+                UpdateOsArchitectureHint();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.Name))
+                UpdateTitleFromName();
+        }
+
+        /// <summary>Обработчик смены языка: подсказка о разрядности и заголовок окна (issue #36).</summary>
+        private void OnLanguageChanged(object? sender, EventArgs e)
+        {
+            UpdateOsArchitectureHint();
+            UpdateTitleFromName();
+        }
+
+        /// <summary>
+        /// Заголовок окна «Настройка информационной базы: Имя» — при открытии и при
+        /// правке поля «Наименование» (issue #36). У новой базы имя ещё пустое —
+        /// показываем заголовок без суффикса «: ».
+        /// </summary>
+        private void UpdateTitleFromName()
+        {
+            if (_viewModel is null) return;
+            var name = _viewModel.Name?.Trim();
+            Title = string.IsNullOrEmpty(name)
+                ? LocalizationManager.T("ConnectionSettings.Title")
+                : string.Format(
+                    LocalizationManager.T("ConnectionSettings.TitleFormat"),
+                    _viewModel.Name);
+        }
+
+        /// <summary>Отписка от событий при закрытии окна — не держать ссылки (issue #36).</summary>
+        private void OnWindowClosed(object? sender, EventArgs e)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            LocalizationManager.Instance.LanguageChanged -= OnLanguageChanged;
+            Closed -= OnWindowClosed;
         }
 
         /// <summary>Добавляет тег из поля ввода (кнопка «Добавить») — issue #283.</summary>

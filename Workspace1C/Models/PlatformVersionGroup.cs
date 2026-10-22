@@ -57,5 +57,14 @@ public class PlatformVersionGroup
     /// </summary>
     public bool IsThinClient { get; set; }
 
+    /// <summary>
+    /// Полное отображаемое имя для списков: «8.3.27.2214 (x64)» или с локализованным
+    /// суффиксом «(тонкий клиент)» для листьев-тонких клиентов (issue #33). Используется
+    /// во всех списках платформ (диалог выбора версии и настройки, WPF и Avalonia)
+    /// через <see cref="Services.PlatformDisplayFormatter"/>, чтобы суффикс и оранжевая
+    /// подсветка гарантированно попадали в UI.
+    /// </summary>
+    public string DisplayName => Services.PlatformDisplayFormatter.Format(this);
+
     public override string ToString() => Name;
 }

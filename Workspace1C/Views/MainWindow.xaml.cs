@@ -73,10 +73,20 @@ namespace Workspace1C
         // за смену): мусор vs живой рост. 0 — старт не зафиксирован (первая запись).
         private long _switchAllocBaseBytes;
         private long _lastSwitchAllocMb;
-        // Демпфер эксперимента B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH):
-        // принудительный сброс Recycling-пула контейнеров планируется не чаще одного
-        // раза за смену вкладки (пока отложенный вызов не отработал).
+        // Демпфер освобождения старых контейнеров (issue #21, 1.0.0.41): рекурсивный
+        // сброс Recycling-панелей всего дерева после смены вкладки планируется не чаще
+        // одного раза за смену (пока отложенный вызов не отработал). Это РАБОЧИЙ фикс
+        // (не эксперимент): эксперимент B 1.0.0.36 флашил только корневую панель
+        // MainTree, тогда как вложенные панели строк-узлов (Recycling на каждом
+        // TreeViewItem) держали рециклированные контейнеры — отсюда постоянный рост
+        // heapAfterGcMb, не устранённый CM_TREESWITCH_FLUSH.
         private bool _treePoolFlushScheduled;
+        // Сколько панелей охвачено последним сбросом Recycling-пулов (диагностика
+        // CM_TREESWITCH: flushPanels). 0 — сброс ещё не отработал (первая смена вкладки).
+        private int _lastTreePoolFlushPanels;
+        // База счётчика GroupNodeViewModel.TotalDetachCount (диагностика CM_TREESWITCH:
+        // detachCount — сколько узлов отписалось за смену вкладки).
+        private long _lastDetachCount;
 
         /// <summary>
         /// Текущее состояние активности окна, по которому окрашивается шапка
@@ -403,6 +413,11 @@ namespace Workspace1C
                     var allocMb = _switchAllocBaseBytes != 0
                         ? (allocNow - _switchAllocBaseBytes) / (1024 * 1024)
                         : 0;
+                    // Сколько узлов дерева отписалось от коллекций за смену вкладки
+                    // (issue #21, 1.0.0.41): детаchCount стабильно ~0 в плоских режимах
+                    // (кэш «Все» и постоянный _flatNode переиспользуются), >0 — когда
+                    // пересборка выбрасывает старые узлы (изменение данных/фильтров).
+                    var detachCount = GroupNodeViewModel.TotalDetachCount - _lastDetachCount;
                     _lastTreeSizeChangedCount = _treeSizeChangedCount;
                     _lastHeaderAlignStabilizeTotal = _headerAlignStabilizeTotal;
                     _lastTreeCollAddCount = _treeCollAddCount;
@@ -410,6 +425,7 @@ namespace Workspace1C
                     _lastTreeCollResetCount = _treeCollResetCount;
                     _lastTreeRowRealizeCount = _treeRowRealizeCount;
                     _lastTreeRowUnrealizeCount = _treeRowUnrealizeCount;
+                    _lastDetachCount = GroupNodeViewModel.TotalDetachCount;
                     _switchAllocBaseBytes = 0;
                     _lastSwitchAllocMb = allocMb;
                     if (_switchVmStartTicks != 0)
@@ -432,7 +448,7 @@ namespace Workspace1C
                         $"allocMb={_lastSwitchAllocMb}, rowsRealized={rowsRealized}, rowsCleared={rowsCleared}, " +
                         $"heapMb={heapBytes / (1024 * 1024)}, heapAfterGcMb={heapAfterGc / (1024 * 1024)}, " +
                         $"collAdd={collAdd}, collRemove={collRemove}, collReset={collReset}, " +
-                        $"resetMode={resetMode}, " +
+                        $"resetMode={resetMode}, detach={detachCount}, flushPanels={_lastTreePoolFlushPanels}, " +
                         $"gc0={System.GC.CollectionCount(0)}, gc1={System.GC.CollectionCount(1)}, " +
                         $"gc2={System.GC.CollectionCount(2)}");
                 }
@@ -447,37 +463,41 @@ namespace Workspace1C
                 // MainTree.SizeChanged после материализации строк.
                 _headerAlignSinglePass = true;
                 QueueHeaderAlign();
-                // Эксперимент B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH): после
-                // чистого переключения вкладки управляемо сбрасываем Recycling-пул
-                // контейнеров (H2) — по замеру heapAfterGcMb с флагом и без координатор
-                // определит, отдаёт ли WPF старые контейнеры или они удерживаются.
+                // Освобождение старых контейнеров (issue #21, 1.0.0.41): после чистого
+                // переключения вкладки рекурсивно сбрасываем Recycling-пулы ВСЕХ панелей
+                // дерева (не только корневой, как эксперимент B 1.0.0.36) — старые строки
+                // прошлой вкладки освобождаются, heapAfterGcMb не растёт. Выполняется
+                // всегда, не под флагом диагностики (флаг лишь логирует результат).
                 ScheduleTreePoolFlush();
             };
 
             // <summary>
-            // Эксперимент B (issue #21, итерация B; флаг CM_TREESWITCH_FLUSH): планирует
-            // принудительный сброс Recycling-пула контейнеров дерева после чистого
-            // переключения вкладки. Работает ТОЛЬКО при включённом флаге (как CM_TREESWITCH);
-            // по умолчанию поведение вкладок не меняется. Один отложенный вызов на смену.
+            // Планирует принудительный сброс Recycling-пулов всех панелей дерева после
+            // чистого переключения вкладки (issue #21, фикс 1.0.0.41; один отложенный вызов
+            // на смену). Выполняется ВСЕГДА: это рабочий механизм освобождения старых
+            // контейнеров, а не диагностический эксперимент (флаг CM_TREESWITCH_FLUSH
+            // оставлен для лога результата в CM_TREESWITCH — flushPanels).
             // </summary>
             void ScheduleTreePoolFlush()
             {
-                if (!TraceFlags.IsEnabled(TraceFlags.TreeSwitchPoolFlushFlag))
-                    return;
                 if (_treePoolFlushScheduled)
                     return;
                 _treePoolFlushScheduled = true;
                 Dispatcher.BeginInvoke(new Action(FlushTreeRecycledContainers),
-                    System.Windows.Threading.DispatcherPriority.ContextIdle);
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             }
 
             // <summary>
-            // Эксперимент B (issue #21, итерация B): кратковременно переключает
-            // VirtualizingPanel.StandardMode="Standard" (контейнеры выбрасываются, а не
-            // рециклируются) и возвращает Recycling — панель при этом разбирает очередь
-            // переработанных контейнеров и освобождает старые строки прежней вкладки.
-            // Два принудительных UpdateLayout — цена эксперимента, поэтому путь активен
-            // только при CM_TREESWITCH_FLUSH=1. При сбое режим возвращается в Recycling.
+            // Рекурсивно собирает MainTree и все реализованные контейнеры-узлы дерева:
+            // каждая строка-узел (GroupNodeViewModel) несёт собственную панель со списком
+            // строк (Recycling, см. стиль TreeViewItem), и именно ВЛОЖЕННАЯ панель плоского
+            // узла/группы держала рециклированные контейнеры строк прошлой вкладки.
+            // Кратковременное переключение VirtualizationMode.Standard (контейнеры
+            // выбрасываются, а не рециклируются) и возврат Recycling разбирают очередь
+            // переработанных контейнеров каждой панели — старые строки прежней вкладки
+            // освобождаются. Два принудительных UpdateLayout — цена полного освобождения
+            // один раз на смену вкладки. Эксперимент B 1.0.0.36 ограничивался MainTree,
+            // поэтому heapAfterGcMb продолжал расти. При сбое режим возвращается в Recycling.
             // </summary>
             void FlushTreeRecycledContainers()
             {
@@ -486,19 +506,57 @@ namespace Workspace1C
                     return;
                 try
                 {
-                    VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Standard);
+                    // Собираем контейнеры ДО переключения режима: после Standard генератор
+                    // может пересоздать часть контейнеров, и обход по ним станет циклическим.
+                    var containers = new List<System.Windows.Controls.ItemsControl> { MainTree };
+                    CollectTreeContainers(MainTree, containers);
+                    if (containers.Count <= 1)
+                        return;
+                    // Standard: каждой панели «предлагаем» выбросить контейнеры, которые
+                    // не нужны для текущего фрагмента (включая очередь Recycler'а).
+                    foreach (var container in containers)
+                        VirtualizingPanel.SetVirtualizationMode(container, System.Windows.Controls.VirtualizationMode.Standard);
                     MainTree.UpdateLayout();
-                    VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Recycling);
+                    // Возвращаем Recycling: панели работают как раньше, но без мусора.
+                    foreach (var container in containers)
+                        VirtualizingPanel.SetVirtualizationMode(container, System.Windows.Controls.VirtualizationMode.Recycling);
                     MainTree.UpdateLayout();
+                    _lastTreePoolFlushPanels = containers.Count;
                     if (TraceFlags.IsEnabled(TraceFlags.TreeSwitchFlag))
                         AppServices.GetRequiredService<IAppLogger>().Info(
-                            "CM_TREESWITCH_FLUSH: Recycling-пул контейнеров сброшен после смены вкладки");
+                            $"CM_TREESWITCH_FLUSH: освобождены Recycling-панели дерева ({containers.Count} шт.) после смены вкладки");
                 }
                 catch
                 {
-                    // Эксперимент не должен ломать раскладку: возвращаем режим Recycling.
-                    try { VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Recycling); }
+                    // Сброс не должен ломать раскладку: возвращаем режим Recycling.
+                    try { RestoreTreeRecyclingMode(); }
                     catch { /* не мешаем раскладке */ }
+                }
+            }
+
+            // Возвращает всем собранным контейнерам режим Recycling (на случай сбоя флаша).
+            void RestoreTreeRecyclingMode()
+            {
+                if (MainTree is null)
+                    return;
+                VirtualizingPanel.SetVirtualizationMode(MainTree, System.Windows.Controls.VirtualizationMode.Recycling);
+                for (var i = 0; i < MainTree.Items.Count; i++)
+                {
+                    if (MainTree.ItemContainerGenerator.ContainerFromIndex(i) is System.Windows.Controls.TreeViewItem tvi)
+                        VirtualizingPanel.SetVirtualizationMode(tvi, System.Windows.Controls.VirtualizationMode.Recycling);
+                }
+            }
+
+            // Собирает реализованные контейнеры поддерева ItemsControl (рекурсивно).
+            void CollectTreeContainers(System.Windows.Controls.ItemsControl parent, List<System.Windows.Controls.ItemsControl> result)
+            {
+                for (var i = 0; i < parent.Items.Count; i++)
+                {
+                    if (parent.ItemContainerGenerator.ContainerFromIndex(i) is not System.Windows.Controls.TreeViewItem tvi)
+                        continue;
+                    result.Add(tvi);
+                    if (tvi.Items.Count > 0)
+                        CollectTreeContainers(tvi, result);
                 }
             }
             // «Найти в списке» (issue #285): цель выставлена во вьюмодели, и при восстановлении
@@ -703,7 +761,11 @@ namespace Workspace1C
                     or nameof(MainViewModel.HotkeyFindInList)
                     or nameof(MainViewModel.HotkeySwitchUser)
                     // Меню служб (issue #11, пункт 6): настраиваемый хоткей.
-                    or nameof(MainViewModel.HotkeyServicesMenu))
+                    or nameof(MainViewModel.HotkeyServicesMenu)
+                    // Автообновление платформы 1С (функция 9, этап 0.3.9.214):
+                    // сочетание применяется сразу после «ОК», а не после перезапуска
+                    // (issue #38).
+                    or nameof(MainViewModel.HotkeyPlatformUpdate))
                 {
                     try { RegisterLaunchHotkeys(); } catch { /* ignore */ }
                     // RegisterLaunchHotkeys снимает и системные биндинги закладок (все

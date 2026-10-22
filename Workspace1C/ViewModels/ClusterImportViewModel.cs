@@ -307,6 +307,9 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// «Подключиться»: получить список кластеров (rac «cluster list»); при успехе — выбрать
     /// первый кластер автоматически (он же запускает загрузку баз). Пустой адрес отклоняется
     /// валидацией без обращения к rac. Ошибки не роняют окно — пишутся в ErrorMessage/StatusText.
+    /// Первая упавшая попытка (непрогретый формат вывода rac / холодный старт, issue #25)
+    /// повторяется один раз БЕЗ показа ошибки — повторный вызов использует уже известный
+    /// формат, и видимая «ошибка при успехе» не появляется.
     /// </summary>
     public async Task ConnectAsync()
     {
@@ -320,27 +323,29 @@ public sealed class ClusterImportViewModel : ViewModelBase
         if (!TryEnterBusy())
             return;
 
+        IReadOnlyList<RacCluster> clusters;
         try
         {
             ErrorMessage = string.Empty;
             StatusText = LocalizationManager.T("ClusterImport.Progress.Connect");
+            TraceClusterImport("ConnectAsync: фаза «Подключение» начата (cluster list, issue #25).");
 
-            var clusters = await _rac.GetClustersAsync(BuildParams()).ConfigureAwait(false);
+            clusters = await GetClustersWithRetryAsync(default).ConfigureAwait(false);
 
-            ApplyClusters(clusters);
-
-            StatusText = clusters.Count == 0
-                ? LocalizationManager.T("ClusterImport.Status.NoClusters")
-                : string.Format(LocalizationManager.T("ClusterImport.Status.ConnectedFormat"), clusters.Count);
+            TraceClusterImport($"ConnectAsync: «cluster list» успешен, кластеров: {clusters.Count} (issue #25).");
         }
         catch (RacClientException ex)
         {
             ErrorMessage = ex.Message;
             StatusText = LocalizationManager.T("ClusterImport.Status.ConnectFailed");
+            TraceClusterImport($"ConnectAsync: RacClientException: {ex.Message} (issue #25).");
+            return;
         }
         catch (OperationCanceledException)
         {
             StatusText = LocalizationManager.T("ClusterImport.Status.Cancelled");
+            TraceClusterImport("ConnectAsync: OperationCanceledException — подключение отменено (issue #25).");
+            return;
         }
         catch (Exception ex)
         {
@@ -349,32 +354,134 @@ public sealed class ClusterImportViewModel : ViewModelBase
             ErrorMessage = ex.Message;
             StatusText = LocalizationManager.T("ClusterImport.Status.ConnectFailed");
             _logger?.Error("Ошибка подключения к кластеру 1С", ex);
+            TraceClusterImport($"ConnectAsync: Exception ({ex.GetType().Name}): {ex.Message} (issue #25).");
+            return;
         }
         finally
         {
             ExitBusy();
         }
 
-        // Автовыбор кластера — уже вне флага занятости: сеттер запустит загрузку баз.
-        // Приоритет (issue #25): (1) кластер, переданный из окна «Серверы 1С»;
-        // (2) единственный кластер; (3) при нескольких и без переданного — выбор за
-        // пользователем, прогресс завершён, ошибок нет (подсказка в статусе).
+        // Применение результата и автовыбор — ЕДИНЫМ блоком в UI-потоке (issue #25):
+        // окна доставляют действия асинхронным диспетчером (WPF Dispatcher.BeginInvoke,
+        // Avalonia Dispatcher.Post), поэтому автовыбор ПОСЛЕ «применения кластеров»
+        // читал устаревший (ещё не применённый) пустой Clusters и не срабатывал —
+        // кластер приходилось выбирать вручную, а «первая ошибка» оставалась в окне.
+        // ExitBusy уже выполнен (finally): сеттер SelectedClusterId свободно запустит
+        // загрузку баз (TryEnterBusy) сразу после автовыбора.
+        if (_dispatchToUi is null)
+        {
+            CompleteConnect(clusters);
+        }
+        else
+        {
+            try
+            {
+                _dispatchToUi(() => CompleteConnect(clusters));
+            }
+            catch
+            {
+                // Диспетчер может быть недоступен (закрывающееся окно) — применяем напрямую.
+                CompleteConnect(clusters);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Применяет результаты подключения в UI-потоке ЕДИНЫМ блоком (issue #25): наполнение
+    /// списка кластеров, сброс прежнего выбора, статус подключения и автовыбор — заполнение
+    /// <see cref="Clusters"/> и выбор <see cref="SelectedClusterId"/> не должны разделяться
+    /// асинхронной доставкой диспетчера (иначе автовыбор видит пустой список и не срабатывает).
+    /// Автовыбор: переданный из окна «Серверы 1С» кластер → единственный кластер → подсказка
+    /// «выберите кластер» (при нескольких и без переданного). Вызывается синхронно
+    /// (dispatch=null, тесты) либо из dispatch-действия (реальные окна).
+    /// </summary>
+    private void CompleteConnect(IReadOnlyList<RacCluster> clusters)
+    {
+        Clusters = clusters;
+        OnPropertyChanged(nameof(Clusters));
+        // Сброс выбора: подключение к другому серверу — чужие базы не показываем.
+        SelectedClusterId = null;
+        ClearRows();
+
+        StatusText = clusters.Count == 0
+            ? LocalizationManager.T("ClusterImport.Status.NoClusters")
+            : string.Format(LocalizationManager.T("ClusterImport.Status.ConnectedFormat"), clusters.Count);
+
         if (SelectedClusterId is null)
         {
             if (_requestedClusterId is Guid requested
-                && Clusters.Any(c => c.Id == requested))
+                && clusters.Any(c => c.Id == requested))
             {
                 SelectedClusterId = requested;
+                TraceClusterImport($"ConnectAsync: автовыбор — переданный кластер {requested} (issue #25).");
             }
-            else if (Clusters.Count == 1)
+            else if (clusters.Count == 1)
             {
-                SelectedClusterId = Clusters[0].Id;
+                SelectedClusterId = clusters[0].Id;
+                TraceClusterImport($"ConnectAsync: автовыбор — единственный кластер {clusters[0].Id} (issue #25).");
             }
-            else if (Clusters.Count > 1)
+            else if (clusters.Count > 1)
             {
                 StatusText = LocalizationManager.T("ClusterImport.Status.SelectCluster");
+                TraceClusterImport(
+                    $"ConnectAsync: автовыбор — несколько кластеров ({clusters.Count}), ожидается выбор пользователя (issue #25).");
             }
         }
+    }
+
+    /// <summary>
+    /// Запрос «cluster list» с ОДНИМ повтором первой упавшей попытки (issue #25): первый
+    /// в сессии запуск rac / непрогретый формат вывода может упасть — до показа ошибки
+    /// пользователю запрос выполняется повторно. Повторная неудача — исключение уходит
+    /// в catch ConnectAsync (ErrorMessage/StatusText, «Подключение не удалось»).
+    /// </summary>
+    private async Task<IReadOnlyList<RacCluster>> GetClustersWithRetryAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _rac.GetClustersAsync(BuildParams(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (RacClientException ex)
+        {
+            TraceClusterImport($"ConnectAsync: первая попытка «cluster list» упала " +
+                               $"(RacClientException: {ex.Message}); выполняется повтор без показа ошибки (issue #25).");
+            return await _rac.GetClustersAsync(BuildParams(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Запрос «infobase summary list» с ОДНИМ повтором первой упавшей попытки (issue #25):
+    /// первая команда для холодного rac может упасть (старт процесса/формат вывода 8.5.1) —
+    /// повтор БЕЗ установки ErrorMessage; успех повтора оставляет окно чистым.
+    /// </summary>
+    private async Task<IReadOnlyList<RacInfobaseSummary>> GetInfobasesWithRetryAsync(
+        RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _rac.GetInfobasesAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RacClientException ex)
+        {
+            TraceClusterImport($"LoadBasesAsync({clusterId}): первая попытка «infobase summary list» упала " +
+                               $"(RacClientException: {ex.Message}); выполняется повтор без показа ошибки (issue #25).");
+            return await _rac.GetInfobasesAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Диагностика импорта из кластера (CM_CLUSTERIMPORT, issue #25): фазы подключения и
+    /// загрузки баз, автовыбор, повторные попытки и ошибки с типом исключения. Флаг
+    /// включается в trace.json («CM_CLUSTERIMPORT": true) либо env CM_CLUSTERIMPORT=1; лог —
+    /// через обычный журнал приложения, ТОЛЬКО без пароля и секретов.
+    /// </summary>
+    private void TraceClusterImport(string message)
+    {
+        if (_logger is null || !TraceFlags.IsEnabled(TraceFlags.ClusterImportFlag))
+            return;
+        _logger.Info($"[CM_CLUSTERIMPORT] {message}");
     }
 
     /// <summary>«Загрузить»: перечитать базы выбранного кластера (без подключения — no-op).</summary>
@@ -389,6 +496,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
     /// и «cluster info» для хоста строки подключения (кэшируется по clusterId). После await —
     /// сверка актуальности <see cref="SelectedClusterId"/>: устаревший результат быстрой смены
     /// кластера не применяется, вместо этого запускается загрузка актуального кластера.
+    /// Первая упавшая попытка «infobase summary list» повторяется БЕЗ показа ошибки (issue #25);
+    /// успешное завершение гарантированно очищает <see cref="ErrorMessage"/>.
     /// </summary>
     public async Task LoadBasesAsync(Guid clusterId, CancellationToken cancellationToken = default)
     {
@@ -400,10 +509,14 @@ public sealed class ClusterImportViewModel : ViewModelBase
         {
             ErrorMessage = string.Empty;
             StatusText = LocalizationManager.T("ClusterImport.Progress.LoadBases");
+            TraceClusterImport($"LoadBasesAsync({clusterId}): фаза «Загрузка баз» начата (issue #25).");
 
             var cluster = Clusters.FirstOrDefault(c => c.Id == clusterId);
             if (cluster is null)
+            {
+                TraceClusterImport($"LoadBasesAsync({clusterId}): кластер не найден в Clusters — выход (issue #25).");
                 return;
+            }
 
             var parameters = BuildParams();
 
@@ -415,17 +528,21 @@ public sealed class ClusterImportViewModel : ViewModelBase
                 try
                 {
                     info = await _rac.GetClusterInfoAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+                    TraceClusterImport($"LoadBasesAsync({clusterId}): «cluster info» получен (issue #25).");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger?.Error($"RAC: cluster info для кластера {clusterId} завершился ошибкой " +
                                    "(пропущен, загрузка баз продолжается, issue #25)", ex);
+                    TraceClusterImport($"LoadBasesAsync({clusterId}): «cluster info» пропущен " +
+                                       $"({ex.GetType().Name}: {ex.Message}) — загрузка баз продолжается (issue #25).");
                     info = null;
                 }
                 _clusterInfoCache[clusterId] = info;
             }
 
-            var summaries = await _rac.GetInfobasesAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+            var summaries = await GetInfobasesWithRetryAsync(parameters, clusterId, cancellationToken).ConfigureAwait(false);
+            TraceClusterImport($"LoadBasesAsync({clusterId}): «infobase summary list» успешен, баз: {summaries.Count} (issue #25).");
 
             // Кластер сменился, пока шла загрузка — результаты устаревшего запроса не применяем.
             if (SelectedClusterId != clusterId)
@@ -436,18 +553,24 @@ public sealed class ClusterImportViewModel : ViewModelBase
 
             ApplyRows(summaries, cluster.Port, cluster.Name, info?.HostName);
 
+            // Гарантия очистки (issue #25): успех любой ветки стирает остаточную ошибку.
+            ErrorMessage = string.Empty;
             StatusText = summaries.Count == 0
                 ? LocalizationManager.T("ClusterImport.Error.NoBases")
                 : string.Format(LocalizationManager.T("ClusterImport.Status.LoadedFormat"), summaries.Count);
+            TraceClusterImport($"LoadBasesAsync({clusterId}): загрузка завершена успешно, " +
+                               $"ErrorMessage='{ErrorMessage}', StatusText='{StatusText}' (issue #25).");
         }
         catch (RacClientException ex)
         {
             ErrorMessage = ex.Message;
             StatusText = LocalizationManager.T("ClusterImport.Status.LoadFailed");
+            TraceClusterImport($"LoadBasesAsync({clusterId}): RacClientException: {ex.Message} (issue #25).");
         }
         catch (OperationCanceledException)
         {
             StatusText = LocalizationManager.T("ClusterImport.Status.Cancelled");
+            TraceClusterImport($"LoadBasesAsync({clusterId}): OperationCanceledException — отменено (issue #25).");
         }
         catch (Exception ex)
         {
@@ -456,6 +579,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
             ErrorMessage = ex.Message;
             StatusText = LocalizationManager.T("ClusterImport.Status.LoadFailed");
             _logger?.Error("Ошибка загрузки баз кластера 1С", ex);
+            TraceClusterImport($"LoadBasesAsync({clusterId}): Exception ({ex.GetType().Name}): {ex.Message} (issue #25).");
         }
         finally
         {
@@ -553,23 +677,6 @@ public sealed class ClusterImportViewModel : ViewModelBase
             User = UserName?.Trim() ?? string.Empty,
             Password = Password ?? string.Empty
         };
-    }
-
-    private void ApplyClusters(IReadOnlyList<RacCluster> clusters)
-    {
-        void Apply()
-        {
-            Clusters = clusters;
-            OnPropertyChanged(nameof(Clusters));
-            // Сброс выбора: подключение к другому серверу — чужие базы не показываем.
-            SelectedClusterId = null;
-            ClearRows();
-        }
-
-        if (_dispatchToUi is null)
-            Apply();
-        else
-            _dispatchToUi(Apply);
     }
 
     private void ApplyRows(

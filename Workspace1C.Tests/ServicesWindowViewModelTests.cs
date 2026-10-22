@@ -199,6 +199,118 @@ public sealed class ServicesWindowViewModelTests
         Assert.Equal("c", ((ServiceInfoRow)env.Vm.Rows[1]).ServiceName);
     }
 
+    // ===================== Временное отключение (issue #37) =====================
+
+    [Fact]
+    public async Task LoadAsync_AppliesTemporarilyDisabledFlagsToRows()
+    {
+        var env = Create();
+        env.Fake.Services["enabled"] = Info("enabled", "A", ServiceStatus.Running);
+        env.Fake.Services["hidden"] = Info("hidden", "B", ServiceStatus.Stopped);
+        env.Fake.Services["mem"] = Info("mem", "M", ServiceStatus.Running);
+        var data = new ServiceStoreData
+        {
+            Groups = { new ServiceGroup { Name = "grp", Services = { "mem" } } },
+            Order = { "enabled", "hidden", ServiceStoreData.GroupKey("grp") }
+        };
+        data.Services.Add("enabled");
+        data.Services.Add("hidden");
+        data.TemporarilyDisabledServices.AddRange(new[] { "hidden", "mem" });
+        data.TemporarilyDisabledGroups.Add("grp");
+        env.Store.Stored = data;
+
+        await env.Vm.LoadAsync();
+
+        // Галочки восстанавливаются из хранилища для служб и папок (и членов групп).
+        Assert.False(env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "enabled").IsTemporarilyDisabled);
+        Assert.True(env.Vm.Rows.OfType<ServiceInfoRow>().Single(r => r.ServiceName == "hidden").IsTemporarilyDisabled);
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+        Assert.True(group.IsTemporarilyDisabled);
+        Assert.True(group.Children.Single().IsTemporarilyDisabled);
+    }
+
+    [Fact]
+    public void ToggleTemporarilyDisabledForService_SavesFlagsToStore()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        Seed(env, "a");
+        env.Vm.LoadAsync().GetAwaiter().GetResult();
+        var row = env.Vm.Rows.OfType<ServiceInfoRow>().Single();
+
+        row.IsTemporarilyDisabled = true;
+
+        Assert.NotNull(env.Store.Stored.TemporarilyDisabledServices);
+        Assert.Contains("a", env.Store.Stored.TemporarilyDisabledServices);
+    }
+
+    [Fact]
+    public void ToggleTemporarilyDisabledForGroup_SavesFlagsToStoreAndKeepsServices()
+    {
+        var env = Create();
+        env.Fake.Services["m"] = Info("m", "M", ServiceStatus.Running);
+        env.Store.Stored = new ServiceStoreData
+        {
+            Groups = { new ServiceGroup { Name = "grp", Services = { "m" } } },
+            Order = { ServiceStoreData.GroupKey("grp") }
+        };
+        env.Vm.LoadAsync().GetAwaiter().GetResult();
+        var group = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+
+        group.IsTemporarilyDisabled = true;
+
+        Assert.NotNull(env.Store.Stored.TemporarilyDisabledGroups);
+        Assert.Contains("grp", env.Store.Stored.TemporarilyDisabledGroups);
+        // Список служб/групп не меняется от галочки — «Временно отключить» фильтрует
+        // только подменю (ServiceTrayMenuBuilder), сами строки остаются в окне.
+        Assert.Single(env.Store.Stored.Groups);
+    }
+
+    [Fact]
+    public void MoveRoot_PreservesTemporarilyDisabledFlags()
+    {
+        var env = Create();
+        env.Fake.Services["a"] = Info("a", "A", ServiceStatus.Running);
+        env.Fake.Services["b"] = Info("b", "B", ServiceStatus.Running);
+        env.Fake.Services["c"] = Info("c", "C", ServiceStatus.Running);
+        var data = new ServiceStoreData { Services = { "a", "b", "c" } };
+        data.TemporarilyDisabledServices.Add("b");
+        env.Store.Stored = data;
+        env.Vm.LoadAsync().GetAwaiter().GetResult();
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceInfoRow>().First(r => r.ServiceName == "a");
+
+        env.Vm.MoveDownCommand.Execute(null);
+
+        // Порядок обновлён, но флаг «временно отключить» при перестроении не потерялся.
+        Assert.NotNull(env.Store.Stored.TemporarilyDisabledServices);
+        Assert.Contains("b", env.Store.Stored.TemporarilyDisabledServices);
+    }
+
+    [Fact]
+    public async Task EditGroup_Rename_MovesTemporarilyDisabledGroupFlag()
+    {
+        var env = Create();
+        env.Fake.Services["m"] = Info("m", "M", ServiceStatus.Running);
+        var data = new ServiceStoreData
+        {
+            Groups = { new ServiceGroup { Name = "old", Services = { "m" } } },
+            Order = { ServiceStoreData.GroupKey("old") }
+        };
+        data.TemporarilyDisabledGroups.Add("old");
+        env.Store.Stored = data;
+        await env.Vm.LoadAsync();
+        env.Vm.GroupEditorProvider = (_, _) => new ServiceGroup { Name = "new", Services = { "m" } };
+        env.Vm.SelectedRow = env.Vm.Rows.OfType<ServiceGroupRow>().Single();
+
+        await env.Vm.EditGroupAsync();
+
+        // Флаг следует за переименованием, а не считается «мёртвым» (иначе галочка
+        // молча сбросилась бы после сохранения и перечитывания хранилища).
+        Assert.NotNull(env.Store.Stored.TemporarilyDisabledGroups);
+        Assert.Contains("new", env.Store.Stored.TemporarilyDisabledGroups);
+        Assert.DoesNotContain("old", env.Store.Stored.TemporarilyDisabledGroups);
+    }
+
     // ===================== Вспомогательное =====================
 
     private static ServiceInfo Info(string name, string display, ServiceStatus status, bool canPause = false, bool canStop = true) => new()

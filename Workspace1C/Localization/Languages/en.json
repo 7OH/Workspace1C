@@ -1594,6 +1594,7 @@
     "CreateInfobase.GroupTooltip": "The group into which the base will be added after creation",
 
     "ConnectionSettings.Title": "Infobase settings",
+    "ConnectionSettings.TitleFormat": "Infobase settings: {0}",
     "ConnectionSettings.IdLabel": "ID:",
     "ConnectionSettings.ConnectionStringLabel": "Connection string:",
     "ConnectionSettings.PasteButton": "Paste…",
@@ -2307,6 +2308,7 @@
     "Services.GroupName": "Description",
     "Services.Save": "Save",
     "Services.Cancel": "Cancel",
+    "Services.TemporarilyDisable": "Temporarily disable — hide from service control menus",
 
     "ClusterImport.Title": "Import from 1C cluster…",
     "ClusterImport.Server": "1C server:",

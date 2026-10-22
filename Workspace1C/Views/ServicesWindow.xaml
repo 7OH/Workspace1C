@@ -242,6 +242,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <!-- Галочка «Временно отключить» (issue #37). -->
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,8,0"
                                  VerticalAlignment="Center"
@@ -254,6 +256,9 @@
                                    VerticalAlignment="Center" FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    Margin="12,0,0,0"/>
+                        <CheckBox Grid.Column="4" Margin="14,0,0,0" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsTemporarilyDisabled, Mode=TwoWay}"
+                                  ToolTip="{loc:Loc Services.TemporarilyDisable}"/>
                     </Grid>
                 </HierarchicalDataTemplate>
                 <!-- Служба (корневая или внутри группы). -->
@@ -262,6 +267,8 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- Галочка «Временно отключить» (issue #37). -->
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,0,8,0"
@@ -273,6 +280,9 @@
                                    VerticalAlignment="Center" FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    Margin="12,0,0,0"/>
+                        <CheckBox Grid.Column="3" Margin="14,0,0,0" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsTemporarilyDisabled, Mode=TwoWay}"
+                                  ToolTip="{loc:Loc Services.TemporarilyDisable}"/>
                     </Grid>
                 </DataTemplate>
             </TreeView.Resources>

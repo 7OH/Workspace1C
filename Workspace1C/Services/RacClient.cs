@@ -54,10 +54,11 @@ public sealed class RacClient : IRacClient
     /// 1 = "--cluster <uuid>", 2 = "<uuid>" (см. <see cref="ClusterArgs"/>).
     /// Ключ дополнен ИМЕНЕМ КОМАНДЫ (issue #25): у одного сервера форматы разных
     /// команд могут отличаться, поэтому кэш «job list» и «infobase summary list»
-    /// не должен конфликтовать. Карта восстанавливается с диска
-    /// (<see cref="RacJobListFormatStore"/>), чтобы после перезапуска приложения
-    /// не тратить время на заведомо падающие попытки («подключение локально
-    /// занимает почти 5 секунд», issue #324).
+    /// не должен конфликтовать. Кэш живёт ТОЛЬКО в памяти процесса (issue #39):
+    /// на диск он не пишется, файл rac_joblist_formats.json больше не создаётся.
+    /// После перезапуска приложения формат перепробуется заново — для rac 8.3/8.4
+    /// это успех с первой попытки, для rac 8.5.x одна падающая попытка при первой
+    /// в сессии загрузке данных допустима (вкладка заданий rac удалена, issue #39).
     /// </summary>
     private readonly Dictionary<string, int> _clusterFormats;
 
@@ -77,7 +78,9 @@ public sealed class RacClient : IRacClient
     public RacClient(IAppLogger logger)
     {
         _logger = logger;
-        _clusterFormats = RacJobListFormatStore.Load();
+        // Кэш форматов — только в памяти (issue #39): с диска не загружается,
+        // файл rac_joblist_formats.json не читается и не создаётся.
+        _clusterFormats = new Dictionary<string, int>(StringComparer.Ordinal);
     }
 
     /// <inheritdoc />
@@ -141,7 +144,7 @@ public sealed class RacClient : IRacClient
         // issue #25: rac 8.5.x может отклонять «--cluster=<uuid>» (код -1) и в команде
         // «cluster info» (как в «job list»/«infobase summary list») — перебираем форматы
         // передачи идентификатора кластера (0/1/2) с запоминанием рабочего формата по
-        // ключу подключения + имени команды (RacJobListFormatStore). Для rac 8.3/8.4
+        // ключу подключения + имени команды (кэш в памяти, issue #39). Для rac 8.3/8.4
         // формат 0 (--cluster=<uuid>) успешен с первой попытки — поведение не меняется.
         var formatKey = ClusterFormatKey(parameters, clusterId, "cluster info");
         var output = await RunListCommandWithFormatFallbackAsync(
@@ -256,7 +259,7 @@ public sealed class RacClient : IRacClient
         // issue #25: rac 8.5.x может отклонять «--cluster=<uuid>» (код -1) не только
         // в «job list» (issue #324), но и в «infobase summary list» — перебираем
         // форматы передачи идентификатора кластера (0/1/2) с запоминанием рабочего
-        // формата по ключу подключения + имени команды (RacJobListFormatStore).
+        // формата по ключу подключения + имени команды (кэш в памяти, issue #39).
         // Для rac 8.3/8.4 формат 0 (--cluster=<uuid>) успешен с первой попытки —
         // поведение не меняется.
         var formatKey = ClusterFormatKey(parameters, clusterId, "infobase summary list");
@@ -296,7 +299,6 @@ public sealed class RacClient : IRacClient
                 "RAC: job list — rac вернул справку об использовании вместо данных " +
                 $"(exit=0, stdout={output.Length} симв., 0 записей); кэш формата сброшен.");
             _clusterFormats.Remove(formatKey);
-            RacJobListFormatStore.Save(_clusterFormats);
         }
         EnsureParsedOrThrow(output, jobs.Count, "job list", _logger);
         return jobs;
@@ -434,7 +436,7 @@ public sealed class RacClient : IRacClient
     /// или возвращать справку вместо данных. Форматы: 0 — «--cluster=<uuid>»,
     /// 1 — «--cluster <uuid>», 2 — позиционный «<uuid>». Первый успешный формат
     /// запоминается в <paramref name="formats"/> по <paramref name="formatKey"/>
-    /// (сохранение на диск — обязанность вызывающего кода); если все форматы
+    /// (кэш в памяти, на диск не пишется — issue #39); если все форматы
     /// отклонены — ключ удаляется и бросается <see cref="RacClientException"/>
     /// со сводкой попыток. Internal — для юнит-тестов без запуска процесса rac.
     /// </summary>
@@ -514,8 +516,8 @@ public sealed class RacClient : IRacClient
 
     /// <summary>
     /// Экземплярная обёртка над <see cref="RunListCommandWithFormatFallbackAsync"/>:
-    /// запускает rac через <see cref="RunAsync"/> и сохраняет карту форматов на диск
-    /// после перебора (успех или отказ всех форматов).
+    /// запускает rac через <see cref="RunAsync"/> и ведёт карту форматов в памяти
+    /// (на диск она не пишется, issue #39).
     /// </summary>
     private async Task<string> RunListCommandWithFormatFallbackAsync(
         RacConnectionParams parameters,
@@ -524,13 +526,11 @@ public sealed class RacClient : IRacClient
         string formatKey,
         Func<int, string[]> argsBuilder)
     {
-        var output = await RunListCommandWithFormatFallbackAsync(
+        return await RunListCommandWithFormatFallbackAsync(
                 index => RunAsync(parameters, cancellationToken, argsBuilder(index)),
                 RacClient.LooksLikeUsageHelp,
                 _clusterFormats, formatKey, commandName, _logger)
             .ConfigureAwait(false);
-        RacJobListFormatStore.Save(_clusterFormats);
-        return output;
     }
 
     /// <summary>

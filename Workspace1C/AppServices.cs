@@ -146,6 +146,19 @@ public static class AppServices
         services.AddSingleton<INotificationChannel>(sp => sp.GetRequiredService<TelegramNotificationChannel>());
         services.AddSingleton<INotificationChannel>(sp => sp.GetRequiredService<EmailNotificationChannel>());
         services.AddSingleton<INotificationService, NotificationDispatcher>();
+        // Интерактивные подтверждения Telegram (выпуск 1.0.0.36+): HTTP-клиент Bot API
+        // с long polling (TelegramBotApiClient) и реестр обработанных update_id
+        // (telegram.offset в каталоге профиля). Используются headless CLI-командами
+        // --telegram-send / --telegram-confirm (рабочий процесс разработки, агент Roo Code).
+        services.AddSingleton<TelegramBotApiClient>(sp => new TelegramBotApiClient(sp.GetService<IAppLogger>()));
+        services.AddSingleton<TelegramOffsetStore>(sp => new TelegramOffsetStore(
+            sp.GetService<IProfileService>(), null, sp.GetService<IAppLogger>()));
+        services.AddSingleton<TelegramConfirmationService>(sp => new TelegramConfirmationService(
+            sp.GetRequiredService<INotificationSettingsStore>(),
+            sp.GetRequiredService<TelegramBotApiClient>(),
+            sp.GetRequiredService<TelegramOffsetStore>(),
+            null,
+            sp.GetService<IAppLogger>()));
         // Маркер «запланировано уведомление об успешном обновлении» (issue #10):
         // pending_update.json в каталоге данных профиля. Пишется перед перезапуском
         // приложения для применения обновления, читается и очищается при следующем

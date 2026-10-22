@@ -404,9 +404,23 @@
                                                 </materialDesign:PackIcon.Style>
                                             </materialDesign:PackIcon>
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
-                                                           Foreground="{DynamicResource TextPrimaryBrush}"
-                                                           TextTrimming="CharacterEllipsis"/>
+                                                <!-- DisplayName включает локализованный суффикс «(тонкий клиент)»
+                                                     (единый форматтер, issue #33); подсветка оранжевым задаётся
+                                                     DataTrigger-ом из Style — не локальным Foreground, иначе
+                                                     триггер в WPF не сработает (см. фикс диалога выбора). -->
+                                                <TextBlock Text="{Binding DisplayName}" FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsThinClient}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#F59E0B"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
                                                 <TextBlock Text="{Binding Path}" FontSize="11"
                                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                                            TextTrimming="CharacterEllipsis"

@@ -384,6 +384,71 @@ public sealed class GroupNodeViewModelTests
     }
 
     [Fact]
+    public void ResetFlatContent_SameContentSecondCall_DoesNotMutate()
+    {
+        // 1.0.0.41 (ранний выход): повторный переход на плоскую вкладку с тем же
+        // составом не мутирует Infobases (иначе Clear+Add на каждую базу — лавина
+        // CollectionChanged) и не пересоздаёт Items (контейнеры строк на месте).
+        var node = new GroupNodeViewModel(null);
+        var bases = new[] { CreateBase("База 1"), CreateBase("База 2") };
+        node.ResetFlatContent(bases, displayName: "Найдено", marker: null);
+
+        var itemsBefore = node.Items.ToList();
+        var infobaseEvents = 0;
+        var itemsEvents = 0;
+        node.Infobases.CollectionChanged += (_, _) => infobaseEvents++;
+        node.Items.CollectionChanged += (_, _) => itemsEvents++;
+
+        node.ResetFlatContent(bases, displayName: "Найдено", marker: null);
+
+        Assert.Equal(0, infobaseEvents);
+        Assert.Equal(0, itemsEvents);
+        Assert.Equal(itemsBefore.Count, node.Items.Count);
+        for (var i = 0; i < itemsBefore.Count; i++)
+            Assert.Same(itemsBefore[i], node.Items[i]);
+    }
+
+    [Fact]
+    public void ResetFlatContent_DifferentMarkerWithSameBases_StillRebuilds()
+    {
+        // Смена режима (поиск → «Все базы») с тем же составом баз: маркер другой —
+        // ранний выход не срабатывает, узел обновляется.
+        var node = new GroupNodeViewModel(null);
+        var baseToShow = CreateBase();
+        node.ResetFlatContent(new[] { baseToShow }, displayName: "Найдено", marker: null);
+
+        node.ResetFlatContent(new[] { baseToShow }, displayName: null, marker: GroupNodeViewModel.AllBasesMarker);
+
+        Assert.Equal(GroupNodeViewModel.AllBasesMarker, node.Marker);
+        Assert.Same(baseToShow, Assert.Single(node.Items));
+    }
+
+    [Fact]
+    public void Detach_IncrementsCumulativeCounter_AndIsIdempotent()
+    {
+        // 1.0.0.41: диагностика CM_TREESWITCH считает detachCount через совокупный
+        // счётчик — это контроль, что старые узлы реально отписываются при сбросе
+        // кэша дерева (пересборки по изменению данных), а не накапливаются.
+        GroupNodeViewModel.ResetDetachCounterForTesting();
+        var (root, child, grandchild, sibling) = BuildDepthThreeTree();
+
+        // Рекурсивный Detach: root + child + grandchild + sibling = все 4 узла поддерева.
+        root.Detach();
+
+        Assert.Equal(4, GroupNodeViewModel.TotalDetachCount);
+
+        // Повторные вызовы безопасны (идемпотентны) и счётчик не увеличивают.
+        root.Detach();
+        child.Detach();
+        grandchild.Detach();
+        sibling.Detach();
+        Assert.Equal(4, GroupNodeViewModel.TotalDetachCount);
+
+        GroupNodeViewModel.ResetDetachCounterForTesting();
+        Assert.Equal(0, GroupNodeViewModel.TotalDetachCount);
+    }
+
+    [Fact]
     public void Detach_StopsHandlingCollectionChanges_Recursive()
     {
         // Эксперимент A (issue #21, 1.0.0.34): Detach() отписывает узел (и его

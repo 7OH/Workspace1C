@@ -1594,6 +1594,7 @@
     "CreateInfobase.GroupTooltip": "Группа, в которую будет добавлена база после создания",
 
     "ConnectionSettings.Title": "Настройка информационной базы",
+    "ConnectionSettings.TitleFormat": "Настройка информационной базы: {0}",
     "ConnectionSettings.IdLabel": "Идентификатор:",
     "ConnectionSettings.ConnectionStringLabel": "Строка подключения:",
     "ConnectionSettings.PasteButton": "Вставить…",
@@ -2307,6 +2308,7 @@
     "Services.GroupName": "Описание",
     "Services.Save": "Сохранить",
     "Services.Cancel": "Отмена",
+    "Services.TemporarilyDisable": "Временно отключить — не показывать в меню управления службами",
 
     "ClusterImport.Title": "Импорт из кластера 1С…",
     "ClusterImport.Server": "Сервер 1С:",

@@ -26,12 +26,25 @@ namespace Workspace1C
 {
     public partial class MainWindow
     {
+        /// <summary>
+        /// Настроенные хоткеи действий (источник — свойства Hotkey* вьюмодели) для
+        /// надёжного матчинга по имени физической клавиши (issue #32): «Shift+клавиша»
+        /// перестаёт полагаться на нюансы платформенного KeyBinding/KeyGesture.
+        /// Список заполняется в <see cref="RegisterLaunchHotkeys"/> — вместе с
+        /// регистрацией биндингов, поэтому строка жеста и команда с биндингами
+        /// никогда не расходятся; перерегистрация по HotkeysChanged/PropertyChanged
+        /// обновляет его целиком.
+        /// </summary>
+        private readonly List<(string? Gesture, ICommand Command)> _launchHotkeys = new();
 
         /// <summary>
         /// Регистрирует настраиваемые горячие клавиши действий (запуск, правка, удаление и т.д.).
         /// </summary>
         private void RegisterLaunchHotkeys()
         {
+            // Список для матчинга по физической клавише пересобирается вместе с биндингами.
+            _launchHotkeys.Clear();
+
             // Удаляем ранее зарегистрированные «пользовательские» биндинги (кроме Alt+1…9).
             var toRemove = InputBindings
                 .OfType<KeyBinding>()
@@ -44,6 +57,8 @@ namespace Workspace1C
             void Add(string? gesture, ICommand? command)
             {
                 if (command is null) return;
+                if (!string.IsNullOrWhiteSpace(gesture))
+                    _launchHotkeys.Add((gesture, command));
                 if (!TryParseKeyGesture(gesture, out var key, out var mods)) return;
                 try
                 {
@@ -224,6 +239,60 @@ namespace Workspace1C
             (key >= Key.F1 && key <= Key.F24)
             || key == Key.Delete
             || key == Key.Insert;
+
+        /// <summary>
+        /// Переводит WPF-модификаторы в платформонезависимые флаги
+        /// <see cref="Workspace1C.Services.HotkeyModifiers"/> (для чистого матчинга).
+        /// </summary>
+        private static Services.HotkeyModifiers ToHotkeyModifiers(ModifierKeys m)
+        {
+            var result = Services.HotkeyModifiers.None;
+            if ((m & ModifierKeys.Control) != 0) result |= Services.HotkeyModifiers.Control;
+            if ((m & ModifierKeys.Shift) != 0) result |= Services.HotkeyModifiers.Shift;
+            if ((m & ModifierKeys.Alt) != 0) result |= Services.HotkeyModifiers.Alt;
+            if ((m & ModifierKeys.Windows) != 0) result |= Services.HotkeyModifiers.Windows;
+            return result;
+        }
+
+        /// <summary>
+        /// Надёжный матчинг настраиваемых хоткеев действий (issue #32): сравнивает
+        /// сохранённое сочетание с фактическим нажатием по имени физической клавиши
+        /// (Key.ToString()) и наборам модификаторов, не полагаясь на KeyBinding, у
+        /// которого сочетание Shift+печатная клавиша на части раскладок/систем не
+        /// срабатывает. Работает ТОЛЬКО для сочетаний, содержащих Shift (без Shift
+        /// хоткеи продолжают работать через InputBindings, как и раньше). Печатные
+        /// клавиши при фокусе в текстовом вводе не перехватываются — как в
+        /// <see cref="HandleCustomActionHotkey(Key)"/>.
+        /// </summary>
+        private bool TryHandleUserHotkey(Key key)
+        {
+            if (_viewModel is null || _viewModel.IsCustomActionRunning)
+                return false;
+
+            var keyName = key.ToString();
+            var mods = ToHotkeyModifiers(Keyboard.Modifiers);
+            if ((mods & Services.HotkeyModifiers.Shift) == 0)
+                return false;
+
+            // Не отбираем печатные клавиши у полей ввода (поиск, пароль, инлайн-правка
+            // тега): там Shift+буква/цифра печатает символ. F-клавиши и прочие
+            // непечатающие работают и при фокусе в тексте, как и через InputBindings.
+            if (Keyboard.FocusedElement is TextBox or PasswordBox || IsFocusInsideTagEditor())
+            {
+                if (Services.HotkeyMatcher.IsTextProducingKey(keyName))
+                    return false;
+            }
+
+            foreach (var (gesture, command) in _launchHotkeys)
+            {
+                if (!Services.HotkeyMatcher.Matches(gesture, keyName, mods))
+                    continue;
+                command.Execute(null);
+                return true;
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Регистрирует системные биндинги закладок: Alt+1…Alt+9 (запуск Предприятия),
@@ -832,6 +901,16 @@ namespace Workspace1C
                 return;
             }
 
+            // Хоткеи действий с Shift (issue #32): надёжный матчинг по имени физической
+            // клавиши на фазе Preview (раньше оценки InputBindings), чтобы Shift+клавиша
+            // срабатывала независимо от раскладки и верхнего регистра. Системные
+            // сочетания закладок и текст в полях ввода обрабатываются выше — приоритет
+            // сохранён. Сочетания без Shift работают по-прежнему через InputBindings.
+            if (TryHandleUserHotkey(key))
+            {
+                e.Handled = true;
+            }
+
             // Пользовательские действия по горячей клавише (0.3.9.198): в самом конце
             // цепочки — системные хоткеи (InputBindings) и закладки имеют приоритет.
             // Не срабатываем, пока вводится текст (поле поиска, инлайн-правка тега).
@@ -858,12 +937,10 @@ namespace Workspace1C
             if (Keyboard.FocusedElement is TextBox or PasswordBox || IsFocusInsideTagEditor())
                 return false;
 
-            var mods = Keyboard.Modifiers;
+            var mods = ToHotkeyModifiers(Keyboard.Modifiers);
             foreach (var pair in _viewModel.HotkeyCustomActions)
             {
-                if (!TryParseKeyGesture(pair.Key, out var parsedKey, out var parsedMods))
-                    continue;
-                if (parsedKey != key || parsedMods != mods)
+                if (!Services.HotkeyMatcher.Matches(pair.Key, key.ToString(), mods))
                     continue;
 
                 var context = CustomActionExecutionPlan.DetermineMenuContext(

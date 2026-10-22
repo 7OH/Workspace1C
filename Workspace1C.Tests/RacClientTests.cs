@@ -552,6 +552,59 @@ public sealed class RacClientTests
         Assert.DoesNotContain("key|job list", formats);
     }
 
+    // ---------- кэш форматов только в памяти, без файла на диске (issue #39) ----------
+
+    [Fact]
+    public async Task FormatCache_StaysInMemory_NoLegacyFileCreated()
+    {
+        // issue #39: раньше перебор форматов читал (в конструкторе) и писал (после команд)
+        // файл rac_joblist_formats.json в каталоге данных. С 1.0.0.40 кэш — ТОЛЬКО в памяти:
+        // выполнение list-команд не касается диска. Тест использует отдельный временный
+        // каталог «данных»: устаревший файл прежней версии удаляется при «первом старте»
+        // (RacJobListFormatCleaner), после чего цикл перебора форматов НЕ создаёт его заново.
+        using var temp = new TempDirectory();
+        Directory.CreateDirectory(temp.Path);
+
+        var legacyPath = Path.Combine(temp.Path, RacJobListFormatCleaner.LegacyFileName);
+        File.WriteAllText(legacyPath, "{\"key|job list\": 2}");
+
+        // «Запуск приложения»: одноразовая чистка исторического файла (аналог вызова
+        // RacJobListFormatCleaner.Clean() при старте WPF/Avalonia).
+        RacJobListFormatCleaner.Clean(temp.Path);
+        Assert.False(File.Exists(legacyPath));
+
+        // «Работа с кластером»: перебор форматов в памяти (0 отклонён → 1 успешен → запомнен).
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        var attempts = new List<int>();
+        const string output = "infobase : 99999999-aaaa-bbbb-cccc-ddddeeeeffff\n";
+
+        Func<int, Task<string>> run = index =>
+        {
+            attempts.Add(index);
+            if (index == 0)
+                throw new RacClientException("rac завершился с кодом -1: Ошибка разбора параметра: --cluster=…");
+            return Task.FromResult(output);
+        };
+
+        // Первый вызов: формат 0 отклонён — успешен формат 1, запомнен в памяти.
+        await RacClient.RunListCommandWithFormatFallbackAsync(
+            run, RacClient.LooksLikeUsageHelp, formats, "key|infobase summary list",
+            "infobase summary list", new CapturingLogger());
+        Assert.Equal(new[] { 0, 1 }, attempts);
+        Assert.Equal(1, formats["key|infobase summary list"]);
+
+        // Повторный вызов: rac стартует сразу с запомненного формата 1 (без дисковых обращений).
+        attempts.Clear();
+        await RacClient.RunListCommandWithFormatFallbackAsync(
+            run, RacClient.LooksLikeUsageHelp, formats, "key|infobase summary list",
+            "infobase summary list", new CapturingLogger());
+        Assert.Equal(new[] { 1 }, attempts);
+
+        // Файл так и не создан в каталоге данных после всех команд (дискового кэша нет).
+        Assert.False(File.Exists(legacyPath));
+        Assert.Empty(Directory.GetFiles(temp.Path, RacJobListFormatCleaner.LegacyFileName));
+    }
+
     // ============ cluster info из кэша cluster list (issue #324) ============
 
     private const string TwoClustersKvOutput = """
@@ -1168,5 +1221,16 @@ public sealed class RacClientTests
         Assert.DoesNotContain("secret", masked);
         Assert.DoesNotContain("top", masked);
         Assert.Contains("--infobase-user=adm", masked);
+    }
+
+    /// <summary>Временный каталог для изоляции проверки «файл кэша не создаётся» (issue #39).</summary>
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"cm_rac_tests_{Guid.NewGuid():N}");
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Path, recursive: true); } catch { /* не критично */ }
+        }
     }
 }

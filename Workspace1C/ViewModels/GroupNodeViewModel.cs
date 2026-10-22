@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Threading;
 using System.Windows.Media;
 using Workspace1C.Collections;
 using Workspace1C.Converters;
@@ -26,6 +27,20 @@ public class GroupNodeViewModel : ViewModelBase
     private readonly NotifyCollectionChangedEventHandler _onInfobasesChanged;
     private readonly NotifyCollectionChangedEventHandler _onChildrenChanged;
     private bool _detached;
+
+    // Совокупный счётчик вызовов Detach по всем узлам (диагностика issue #21, 1.0.0.41):
+    // лог CM_TREESWITCH печатает прирост за смену вкладки (detachCount) — контроль, что
+    // старые узлы дерева реально отписываются от коллекций при перестройке, а не
+    // накапливаются обработчиками. Атомарный: Detach вызывается с UI-потока, но счётчик
+    // читается и тестами, и диагностикой окна без дополнительной синхронизации.
+    private static long s_totalDetachCount;
+
+    /// <summary>Совокупное число вызовов <see cref="Detach"/> по всем созданным узлам.</summary>
+    public static long TotalDetachCount => Volatile.Read(ref s_totalDetachCount);
+
+    /// <summary>Сбрасывает счётчик <see cref="TotalDetachCount"/> (юнит-тесты). Возвращает старое значение.</summary>
+    internal static long ResetDetachCounterForTesting() =>
+        Interlocked.Exchange(ref s_totalDetachCount, 0);
 
     /// <summary>Внутренний маркер специального узла «Закреплённые».</summary>
     public const string PinnedMarker = "Pinned";
@@ -127,6 +142,7 @@ public class GroupNodeViewModel : ViewModelBase
         if (_detached)
             return;
         _detached = true;
+        Interlocked.Increment(ref s_totalDetachCount);
         // Поддерево узла не переиспользуется (дерево строгое, без общих поддеревьев) —
         // отписываем и дочерние узлы, чтобы коллекции не удерживали ни одного
         // обработчика узлов, ставших мусором после удаления корня.
@@ -440,6 +456,30 @@ public class GroupNodeViewModel : ViewModelBase
         string? displayName = null,
         string? marker = null)
     {
+        // Ранний выход (issue #21, 1.0.0.41): узел УЖЕ показывает ровно этот состав
+        // (тот же маркер/имя и те же экземпляры баз в том же порядке) — ничего не мутируем:
+        // ни Infobases (иначе на повторном переходе на вкладку идут Clear+Add на каждую
+        // базу), ни Items (контейнеры строк не пересоздаются). Ключевой случай —
+        // повторные переходы на плоскую вкладку с неизменным составом; раньше
+        // RebuildGroupTreeCore дёргал ResetFlatContent ДО раннего выхода ReplaceGroupNodes.
+        var sameMarker = string.Equals(_marker, marker, StringComparison.Ordinal);
+        var sameName = marker is not null
+            || string.Equals(_displayName, displayName, StringComparison.Ordinal);
+        if (sameMarker && sameName && Infobases.Count == infobases.Count)
+        {
+            var sameContent = true;
+            for (var i = 0; i < Infobases.Count; i++)
+            {
+                if (!ReferenceEquals(Infobases[i], infobases[i]))
+                {
+                    sameContent = false;
+                    break;
+                }
+            }
+            if (sameContent)
+                return;
+        }
+
         // Обновляем маркер и имя: для специальных узлов DisplayName вычисляется на лету
         // из ключа локализации, для фильтра — из переданного текста.
         _marker = marker;

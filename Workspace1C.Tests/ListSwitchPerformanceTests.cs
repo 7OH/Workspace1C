@@ -1,4 +1,6 @@
+using System.Collections.Specialized;
 using System.Diagnostics;
+using Workspace1C.Collections;
 using Workspace1C.Models;
 using Workspace1C.ViewModels;
 using Xunit;
@@ -117,6 +119,80 @@ public sealed class ListSwitchPerformanceTests
         // гоняется). VM-часть обязана укладываться с большим запасом.
         Assert.True(perSwitch < 200,
             $"Среднее переключение {perSwitch:F1} мс — медленнее цели 200 мс");
+    }
+
+    [Fact]
+    public void RootSwitch_DisjointComposition_FallsBackToSingleReset()
+    {
+        // 1.0.0.41: переход корней «Все»(несколько групп) → «Избранное»(один плоский
+        // узел) — составы не пересекаются, ReplaceItemWise для GroupNodes обязана
+        // уходить в ОДИН Reset (без «шквала» поштучных событий). resetMode=reset
+        // в логе CM_TREESWITCH автора соответствует именно этому пути.
+        var allBases = CreateBases(600);
+        var allRoots = BuildGroupedTree(allBases);
+        var flat = new GroupNodeViewModel(null);
+        flat.ResetFlatContent(allBases.Where(b => b.IsFavorite).ToList(),
+            displayName: "Найдено", marker: null);
+
+        var collection = new ObservableRangeCollection<object>();
+        collection.ReplaceAll(allRoots.Cast<object>().ToList());
+        var resets = 0;
+        var adds = 0;
+        var removes = 0;
+        collection.CollectionChanged += (_, e) =>
+        {
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Reset: resets++; break;
+                case NotifyCollectionChangedAction.Add: adds++; break;
+                case NotifyCollectionChangedAction.Remove: removes++; break;
+            }
+        };
+
+        collection.ReplaceItemWise(new object[] { flat });
+
+        Assert.Equal(1, resets);
+        Assert.Equal(0, adds);
+        Assert.Equal(0, removes);
+    }
+
+    [Fact]
+    public void RootSwitch_SameRootsAgain_EmitsNoEvents()
+    {
+        // Повторный переход на ту же вкладку (тот же состав корней по ReferenceEquals):
+        // ReplaceItemWise не порождает событий — контейнеры строк не пересоздаются,
+        // ранний выход ReplaceGroupNodes срабатывает до событий TreeRebuilt.
+        var flat = new GroupNodeViewModel(null);
+        flat.ResetFlatContent(CreateBases(10).Take(3).ToList(),
+            displayName: "Найдено", marker: null);
+
+        var collection = new ObservableRangeCollection<object> { flat };
+        var events = 0;
+        collection.CollectionChanged += (_, _) => events++;
+
+        collection.ReplaceItemWise(new object[] { flat });
+
+        Assert.Equal(0, events);
+    }
+
+    [Fact]
+    public void FlatNodeSwitch_SameContentTwice_KeepsRowInstances()
+    {
+        // Строки (Items) плоского узла НЕ пересоздаются при повторном переходе на
+        // вкладку с тем же составом: тот же объект узла и те же экземпляры строк —
+        // контейнеры строк в WPF остаются на месте (это и есть «меньше
+        // пересозданий контейнеров» для повторных переходов).
+        var bases = CreateBases(600);
+        var favorites = bases.Where(b => b.IsFavorite).ToList();
+        var flat = new GroupNodeViewModel(null);
+        flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null);
+        var before = flat.Items.ToList();
+
+        flat.ResetFlatContent(favorites, displayName: "Найдено", marker: null);
+
+        Assert.Equal(before.Count, flat.Items.Count);
+        for (var i = 0; i < before.Count; i++)
+            Assert.Same(before[i], flat.Items[i]);
     }
 
     [Fact]

@@ -8,7 +8,6 @@
         xmlns:controls="clr-namespace:Workspace1C.Controls"
         xmlns:loc="clr-namespace:Workspace1C.Localization"
         mc:Ignorable="d"
-        Title="{loc:Loc ConnectionSettings.Title}"
         Icon="{StaticResource AppIcon}"
         Width="760"
         MinHeight="680" MinWidth="680"

@@ -48,6 +48,11 @@ namespace Workspace1C
             BindHotkeyBox(HotkeyCommandPaletteBox, _viewModel.HotkeyCommandPalette);
             // Меню закладок (issue #356): настраиваемый хоткей, по умолчанию Ctrl+B.
             BindHotkeyBox(HotkeyBookmarksMenuBox, _viewModel.HotkeyBookmarksMenu);
+            // Автообновление платформы 1С (функция 9, этап 0.3.9.214): Ctrl+F9.
+            // Поле обязательно заполняется текущим значением, иначе при открытии
+            // настроек оно выглядит пустым и «ОК» молча сбрасывает назначенное
+            // сочетание на значение по умолчанию (issue #38).
+            BindHotkeyBox(HotkeyPlatformUpdateBox, _viewModel.HotkeyPlatformUpdate);
             // Меню служб (issue #11, пункт 6): настраиваемый хоткей, по умолчанию Ctrl+Shift+Alt+S.
             BindHotkeyBox(HotkeyServicesMenuBox, _viewModel.HotkeyServicesMenu);
             BindHotkeyBox(HotkeySwitchUserBox, _viewModel.HotkeySwitchUser);

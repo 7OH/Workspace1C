@@ -99,6 +99,79 @@ public sealed class ServicesStoreTests
         Assert.Empty(storeB.Load().Services);
     }
 
+    // ===================== Временное отключение (issue #37) =====================
+
+    [Fact]
+    public void Save_ThenLoad_RoundTripsTemporarilyDisabledFlags()
+    {
+        using var tmp = TempDir();
+        var store = new ServicesStore(directoryOverride: tmp.Path);
+        var data = new ServiceStoreData
+        {
+            Services = { "srv-a", "srv-b" },
+            TemporarilyDisabledServices = { "srv-b" },
+            TemporarilyDisabledGroups = { "grp" }
+        };
+        data.Groups.Add(new ServiceGroup { Name = "grp", Services = { "srv-c" } });
+
+        store.Save(data);
+
+        var loaded = store.Load();
+        Assert.Equal(new[] { "srv-b" }, loaded.TemporarilyDisabledServices);
+        Assert.Equal(new[] { "grp" }, loaded.TemporarilyDisabledGroups);
+        Assert.Equal(2, loaded.Services.Count);
+        Assert.Single(loaded.Groups);
+    }
+
+    [Fact]
+    public void Normalize_KeepsFlagsForExistingNamesAndDropsDeadOnes()
+    {
+        var normalized = ServiceStoreData.Normalize(new ServiceStoreData
+        {
+            Services = { "a", "b" },
+            Groups = { new ServiceGroup { Name = "g" } },
+            TemporarilyDisabledServices = { "a", "  ", "gone", "b", "a" },
+            TemporarilyDisabledGroups = { "g", "gone-g", "g" }
+        });
+
+        // Дубли и пустые пропущены, «мёртвые» ссылки вычищены; порядок сохранён.
+        Assert.Equal(new[] { "a", "b" }, normalized.TemporarilyDisabledServices);
+        Assert.Equal(new[] { "g" }, normalized.TemporarilyDisabledGroups);
+    }
+
+    [Fact]
+    public void Normalize_LegacyWithoutFlags_ProducesEmptyFlags()
+    {
+        // Старый формат services.json (только службы, без флагов) — обратная
+        // совместимость: «ничего не отключено» (пустые списки флагов).
+        var normalized = ServiceStoreData.Normalize(ServiceStoreData.FromLegacy(new[] { "srv-a" }));
+
+        Assert.Empty(normalized.TemporarilyDisabledServices);
+        Assert.Empty(normalized.TemporarilyDisabledGroups);
+    }
+
+    [Fact]
+    public void Normalize_FlagsDoNotAffectServicesAndGroupsOrder()
+    {
+        var source = new ServiceStoreData
+        {
+            Services = { "a", "b", "c" },
+            Groups = { new ServiceGroup { Name = "g", Services = { "b" } } },
+            Order = { "a", "c", ServiceStoreData.GroupKey("g") },
+            TemporarilyDisabledServices = { "a", "b" },
+            TemporarilyDisabledGroups = { "g" }
+        };
+
+        var normalized = ServiceStoreData.Normalize(source);
+
+        // Флаги — «поверх» списка: он сам не меняется (службы остаются, даже если
+        // временно отключены; из меню их убирает ServiceTrayMenuBuilder).
+        Assert.Equal(new[] { "a", "c" }, normalized.Services);
+        Assert.Equal(new[] { "a", "c", ServiceStoreData.GroupKey("g") }, normalized.Order);
+        Assert.Equal(new[] { "a", "b" }, normalized.TemporarilyDisabledServices);
+        Assert.Equal(new[] { "g" }, normalized.TemporarilyDisabledGroups);
+    }
+
     private static TempDirectory TempDir() => new();
 
     private sealed class TempDirectory : IDisposable

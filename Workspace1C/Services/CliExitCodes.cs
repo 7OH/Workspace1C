@@ -17,4 +17,10 @@ public static class CliExitCodes
 
     /// <summary>Частичный успех (--backup-all: часть баз успешна, часть нет).</summary>
     public const int PartialSuccess = 3;
+
+    /// <summary>Отказ: пользователь нажал «Нет» на подтверждение (--telegram-confirm). Не ошибка выполнения.</summary>
+    public const int Denied = 4;
+
+    /// <summary>Таймаут: ответ на подтверждение не получен за отведённое время (--telegram-confirm).</summary>
+    public const int Timeout = 5;
 }

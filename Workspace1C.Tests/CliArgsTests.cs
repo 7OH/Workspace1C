@@ -166,4 +166,89 @@ public sealed class CliArgsTests
         Assert.True(result.Options.Json);
         Assert.True(result.Options.Designer);
     }
+
+    // ---------- Telegram-мост (выпуск 1.0.0.36): --telegram-send / --telegram-confirm ----------
+
+    [Fact]
+    public void Parse_TelegramSend_ReadsTextTitleAndKind()
+    {
+        var result = CliArgs.Parse(new[] { "--telegram-send", "--text", "Сборка готова", "--title", "СБОРКА", "--kind", "success" });
+
+        Assert.NotNull(result);
+        Assert.Equal(CliCommandKind.TelegramSend, result.Kind);
+        Assert.Equal("Сборка готова", result.Options.Text);
+        Assert.Equal("СБОРКА", result.Options.Title);
+        Assert.Equal("success", result.Options.Kind);
+    }
+
+    [Fact]
+    public void Parse_TelegramSend_EqualsForms_AndJson()
+    {
+        var result = CliArgs.Parse(new[] { "--telegram-send", "--text=Тест", "--json" });
+
+        Assert.NotNull(result);
+        Assert.Equal(CliCommandKind.TelegramSend, result.Kind);
+        Assert.Equal("Тест", result.Options.Text);
+        Assert.True(result.Options.Json);
+    }
+
+    [Fact]
+    public void Parse_TelegramSend_WithoutText_ReturnsError()
+    {
+        var result = CliArgs.Parse(new[] { "--telegram-send" });
+
+        Assert.NotNull(result);
+        Assert.Equal(CliCommandKind.TelegramSend, result.Kind);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Parse_TelegramConfirm_ReadsPromptButtonsAndTimeout()
+    {
+        var result = CliArgs.Parse(new[]
+        {
+            "--telegram-confirm", "--prompt", "Публикуем релиз?", "--button", "Да, публиковать", "--button", "Нет", "--timeout", "120", "--json"
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal(CliCommandKind.TelegramConfirm, result.Kind);
+        Assert.Equal("Публикуем релиз?", result.Options.Prompt);
+        Assert.Equal(2, result.Options.Buttons.Count);
+        Assert.Equal("Да, публиковать", result.Options.Buttons[0]);
+        Assert.Equal("Нет", result.Options.Buttons[1]);
+        Assert.Equal(120, result.Options.TimeoutSeconds);
+        Assert.True(result.Options.Json);
+    }
+
+    [Fact]
+    public void Parse_TelegramConfirm_WithoutPrompt_ReturnsError()
+    {
+        var result = CliArgs.Parse(new[] { "--telegram-confirm", "--button", "ОК" });
+
+        Assert.NotNull(result);
+        Assert.Equal(CliCommandKind.TelegramConfirm, result.Kind);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Parse_TelegramCommands_ProfileAndKindPreserved()
+    {
+        var send = CliArgs.Parse(new[] { "--telegram-send", "--text", "x", "--profile", "p-001", "--kind=error" });
+        Assert.NotNull(send);
+        Assert.Equal("p-001", send.Options.Profile);
+        Assert.Equal("error", send.Options.Kind);
+
+        var confirm = CliArgs.Parse(new[] { "--telegram-confirm", "--prompt", "Вопрос?", "--timeout=30" });
+        Assert.NotNull(confirm);
+        Assert.Equal(30, confirm.Options.TimeoutSeconds);
+    }
+
+    [Fact]
+    public void CommandName_UsesUnderscoreForTelegramCommands()
+    {
+        Assert.Equal("telegram_send", CliCommands.CommandName(CliCommandKind.TelegramSend));
+        Assert.Equal("telegram_confirm", CliCommands.CommandName(CliCommandKind.TelegramConfirm));
+        Assert.Equal("list", CliCommands.CommandName(CliCommandKind.List));
+        Assert.Equal("run", CliCommands.CommandName(CliCommandKind.Run));
+    }
 }

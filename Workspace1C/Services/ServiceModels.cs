@@ -247,6 +247,24 @@ public sealed class ServiceStoreData
     public List<string> Order { get; set; } = new();
 
     /// <summary>
+    /// Службы, временно отключённые в меню управления службами (issue #37):
+    /// пока галочка «Временно отключить» стоит в окне «Управление службами», служба
+    /// не попадает в подменю служб (трей, контекстное меню, «Серверы 1С»). Имена —
+    /// те же строки, что в <see cref="Services"/> и в членах групп.
+    /// Обратная совместимость: старый <c>services.json</c> без полей читается как
+    /// «ничего не отключено» (пустые списки).
+    /// </summary>
+    public List<string> TemporarilyDisabledServices { get; set; } = new();
+
+    /// <summary>
+    /// Группы, временно отключённые в меню управления службами (issue #37): группа
+    /// скрывается целиком вместе с членами. Ключи — имена групп (те же строки, что
+    /// <see cref="ServiceGroup.Name"/>, имена из <see cref="GroupKey(string)"/>).
+    /// Обратная совместимость: старый формат — пустой список («всё включено»).
+    /// </summary>
+    public List<string> TemporarilyDisabledGroups { get; set; } = new();
+
+    /// <summary>
     /// Контейнер из старого формата (итерация 1): массив имён служб — службы
     /// без групп. Используется при миграции <c>services.json</c> и в тестах.
     /// </summary>
@@ -261,6 +279,24 @@ public sealed class ServiceStoreData
     /// <summary>Является ли ключ <see cref="Order"/> ключом группы (префикс <c>group:</c>).</summary>
     public static bool IsGroupKey(string key) =>
         key is not null && key.StartsWith(GroupKeyPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Временно отключена ли служба в меню управления службами (issue #37).
+    /// Сравнение без учёта регистра, как в остальных наборах имен/ключей хранилища.
+    /// </summary>
+    public bool IsServiceTemporarilyDisabled(string serviceName) =>
+        serviceName is not null &&
+        TemporarilyDisabledServices is not null &&
+        TemporarilyDisabledServices.Contains(serviceName, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Временно отключена ли группа в меню управления службами (issue #37) —
+    /// группа скрывается целиком вместе с членами.
+    /// </summary>
+    public bool IsGroupTemporarilyDisabled(string groupName) =>
+        groupName is not null &&
+        TemporarilyDisabledGroups is not null &&
+        TemporarilyDisabledGroups.Contains(groupName, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Приводит содержимое к каноническому виду (issue #11, итерация 2):
@@ -287,6 +323,16 @@ public sealed class ServiceStoreData
         // Порядок нормализуем по ИСХОДНОМУ Order (у result.Order — пустой список по
         // умолчанию, иначе «порядок не задан» не отличить от «порядок пуст»).
         result.Order = NormalizeOrder(result.Services, result.Groups, source.Order);
+        // Флаги временного отключения (issue #37): Trim, без дубликатов, «мёртвые»
+        // ссылки (служба/группа уже не существует) отбрасываются. Служба, имеющая флаг,
+        // может быть и в корневом списке, и членом группы — допускаются обе (галочка
+        // работает и для строк внутри папки). Старый формат services.json без полей
+        // даёт пустые списки — «ничего не отключено».
+        result.TemporarilyDisabledServices = NormalizeDisabled(
+            source.TemporarilyDisabledServices,
+            result.Services.Concat(result.Groups.SelectMany(g => g.Services)).ToList());
+        result.TemporarilyDisabledGroups = NormalizeDisabled(
+            source.TemporarilyDisabledGroups, result.Groups.Select(g => g.Name).ToList());
         return result;
     }
 
@@ -370,6 +416,35 @@ public sealed class ServiceStoreData
             var normalized = (name ?? string.Empty).Trim();
             if (normalized.Length == 0)
                 continue;
+            if (seen.Add(normalized))
+                result.Add(normalized);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Нормализует флаги временного отключения (issue #37): Trim, пропуск пустых,
+    /// удаление дубликатов (OrdinalIgnoreCase) и отбрасывание ссылок на несуществующие
+    /// службы/группы (<paramref name="allowed"/> — актуальные имена после нормализации).
+    /// Порядок сохраняется. Возвращает новый список; null-источник → пустой список.
+    /// </summary>
+    private static List<string> NormalizeDisabled(
+        IReadOnlyList<string>? source,
+        IReadOnlyList<string> allowed)
+    {
+        var allowedSet = new HashSet<string>(allowed, StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        if (source is null)
+            return result;
+
+        foreach (var name in source)
+        {
+            var normalized = (name ?? string.Empty).Trim();
+            if (normalized.Length == 0)
+                continue;
+            if (!allowedSet.Contains(normalized))
+                continue; // «мёртвый» флаг — службы/группы больше нет
             if (seen.Add(normalized))
                 result.Add(normalized);
         }

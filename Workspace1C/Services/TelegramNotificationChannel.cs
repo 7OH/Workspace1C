@@ -95,6 +95,54 @@ public sealed class TelegramNotificationChannel : INotificationChannel
         return (value, null);
     }
 
+    // ------------------------------------------------------------------
+    // Интерактивные подтверждения (выпуск 1.0.0.36+): callback-data кнопок
+    // ------------------------------------------------------------------
+
+    /// <summary>Префикс callback-data кнопок подтверждения (лимит Bot API — 64 байта).</summary>
+    public const string CallbackPrefix = "wc1c";
+
+    /// <summary>
+    /// Callback-data кнопки подтверждения: <c>wc1c:<guid>:yes|no</c>. Формат — часть
+    /// контракта между кнопкой и <see cref="TelegramConfirmationService"/>, поэтому
+    /// <see cref="TryParseCallbackData"/> симметричен.
+    /// </summary>
+    public static string BuildCallbackData(Guid requestId, bool approve)
+        => $"{CallbackPrefix}:{requestId}:{(approve ? "yes" : "no")}";
+
+    /// <summary>Разбор callback-data кнопки подтверждения (<see cref="BuildCallbackData"/>).</summary>
+    public static bool TryParseCallbackData(string? data, out Guid requestId, out bool approve)
+    {
+        requestId = Guid.Empty;
+        approve = false;
+        if (string.IsNullOrWhiteSpace(data))
+            return false;
+        var parts = data.Split(':');
+        if (parts.Length != 3 || !string.Equals(parts[0], CallbackPrefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!Guid.TryParse(parts[1], out requestId))
+            return false;
+        approve = string.Equals(parts[2], "yes", StringComparison.OrdinalIgnoreCase);
+        return true;
+    }
+
+    /// <summary>
+    /// Сравнение идентификаторов чатов из настроек и из апдейтов Bot API: настройка может
+    /// быть <c>@channel</c>, числом или «-100…» из приватной ссылки (см. <see cref="ParseChatTarget"/>),
+    /// тогда как Telegram отдаёт chat.id числом (в т.ч. отрицательным для групп/каналов).
+    /// Числа сравниваются по значению, остальное — без учёта регистра.
+    /// </summary>
+    public static bool SameChatId(string? expected, string? actual)
+    {
+        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(actual))
+            return false;
+        var e = expected.Trim();
+        var a = actual.Trim();
+        if (long.TryParse(e, out var eNum) && long.TryParse(a, out var aNum))
+            return eNum == aNum;
+        return string.Equals(e, a, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <inheritdoc/>
     public async Task<bool> SendAsync(NotificationMessage message, CancellationToken cancellationToken = default)
     {
@@ -119,13 +167,35 @@ public sealed class TelegramNotificationChannel : INotificationChannel
         return await SendCoreAsync(settings, message, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Отправка «рабочего» сообщения (CLI-команда <c>--telegram-send</c>, выпуск 1.0.0.36+)
+    /// в ОБХОД фильтра «какие события отправлять»: разработчик явно запросил уведомление,
+    /// поэтому галочки бэкапов/заданий/обновлений и «только ошибки» к нему не применяются.
+    /// Требует заполненных токена и чата (иначе — ошибка <c>not_configured</c>, а не тихий успех).
+    /// </summary>
+    public async Task<(bool Ok, string Error)> SendDevAsync(NotificationMessage message,
+        CancellationToken cancellationToken = default)
+    {
+        NotificationChannelSettings settings;
+        try { settings = _store.Load(); }
+        catch (Exception ex) { return (false, ex.Message); }
+        if (!IsConfigured(settings))
+            return (false, "not_configured");
+        return await SendCoreAsync(settings, message, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<(bool Ok, string Error)> SendCoreAsync(NotificationChannelSettings settings, NotificationMessage message,
         CancellationToken cancellationToken)
     {
         var token = settings.TelegramBotToken.Trim();
         try
         {
-            using var http = _handler is null ? new HttpClient() : new HttpClient(_handler, disposeHandler: false);
+            // Внешний handler (тесты) приоритетнее; иначе — прокси из переменных окружения
+            // (W1C_TELEGRAM_PROXY/HTTPS_PROXY...) для сетей с блокировкой api.telegram.org.
+            var proxyHandler = _handler ?? TelegramHttpProxy.CreateHandler();
+            using var http = proxyHandler is null
+                ? new HttpClient()
+                : new HttpClient(proxyHandler, disposeHandler: _handler is null);
             http.Timeout = RequestTimeout;
             var (chatId, threadId) = ParseChatTarget(settings.TelegramChatId);
             using var request = BuildRequest(token, chatId, BuildText(message), threadId);

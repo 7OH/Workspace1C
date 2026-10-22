@@ -117,15 +117,10 @@ namespace Workspace1C
             }
 
             DataContext = _viewModel;
-            _viewModel.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(ConnectionSettingsViewModel.Password))
-                    SyncPasswordBoxFromViewModel();
-                else if (e.PropertyName == nameof(ConnectionSettingsViewModel.RepositoryPassword))
-                    SyncRepositoryPasswordBoxFromViewModel();
-                else if (e.PropertyName == nameof(ConnectionSettingsViewModel.ConfiguratorPassword))
-                    SyncConfiguratorPasswordBoxFromViewModel();
-            };
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            UpdateTitleFromName();
+            // Отписка обработчиков при закрытии — не держать ссылки (issue #36).
+            Closed += OnWindowClosed;
 
             Content = BuildRoot();
 
@@ -135,6 +130,43 @@ namespace Workspace1C
                 SyncRepositoryPasswordBoxFromViewModel();
                 SyncConfiguratorPasswordBoxFromViewModel();
             };
+        }
+
+        /// <summary>
+        /// Обработчик изменения свойств VM: пароли и заголовок окна «…: Имя базы» (issue #36).
+        /// </summary>
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ConnectionSettingsViewModel.Password))
+                SyncPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.RepositoryPassword))
+                SyncRepositoryPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.ConfiguratorPassword))
+                SyncConfiguratorPasswordBoxFromViewModel();
+            else if (e.PropertyName == nameof(ConnectionSettingsViewModel.Name))
+                UpdateTitleFromName();
+        }
+
+        /// <summary>
+        /// Заголовок окна «Настройка информационной базы: Имя» — при открытии и при
+        /// правке поля «Наименование» (issue #36). У новой базы имя ещё пустое —
+        /// показываем заголовок без суффикса «: ».
+        /// </summary>
+        private void UpdateTitleFromName()
+        {
+            var name = _viewModel.Name?.Trim();
+            Title = string.IsNullOrEmpty(name)
+                ? LocalizationManager.T("ConnectionSettings.Title")
+                : string.Format(
+                    LocalizationManager.T("ConnectionSettings.TitleFormat"),
+                    _viewModel.Name);
+        }
+
+        /// <summary>Отписка от событий при закрытии окна — не держать ссылки (issue #36).</summary>
+        private void OnWindowClosed(object? sender, EventArgs e)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            Closed -= OnWindowClosed;
         }
 
         /// <summary>Возвращает отредактированную информационную базу.</summary>

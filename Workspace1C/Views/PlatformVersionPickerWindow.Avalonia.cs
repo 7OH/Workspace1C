@@ -295,9 +295,12 @@ namespace Workspace1C
                 icon.Margin = new Thickness(0, 0, 6, 0);
                 icon.VerticalAlignment = VerticalAlignment.Center;
                 panel.Children.Add(icon);
+                // DisplayName — единый форматтер (issue #33): «8.3.27.2214 (x64)» +
+                // локализованный суффикс «(тонкий клиент)» для тонкого клиента.
+                var thin = node.IsThinClient;
                 var text = new TextBlock
                 {
-                    Text = node.Name,
+                    Text = node.DisplayName,
                     FontSize = 12,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextTrimming = TextTrimming.CharacterEllipsis,
@@ -305,21 +308,10 @@ namespace Workspace1C
                         ? FontWeight.Bold
                         : (node.IsLeaf ? FontWeight.Normal : FontWeight.SemiBold)
                 };
-                // Тонкий клиент (issue #33): оранжевая подсветка + суффикс —
+                // Тонкий клиент (issue #33): оранжевая подсветка —
                 // видно, что полные возможности (конфигуратор, сервер) недоступны.
-                if (node.IsThinClient)
-                {
-                    var thinBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
-                    text.Foreground = thinBrush;
-                    var suffix = new TextBlock
-                    {
-                        Text = " " + LocalizationManager.T("PlatformVersionPicker.ThinClientSuffix"),
-                        FontSize = 12,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Foreground = thinBrush
-                    };
-                    panel.Children.Add(suffix);
-                }
+                if (thin)
+                    text.Foreground = new SolidColorBrush(Color.Parse("#F59E0B"));
                 panel.Children.Add(text);
                 return panel;
             }

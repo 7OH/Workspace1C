@@ -77,5 +77,5 @@ public static class CliEntryPoint
         }
     }
 
-    private static string CommandName(CliCommandKind kind) => kind.ToString().ToLowerInvariant();
+    private static string CommandName(CliCommandKind kind) => CliCommands.CommandName(kind);
 }

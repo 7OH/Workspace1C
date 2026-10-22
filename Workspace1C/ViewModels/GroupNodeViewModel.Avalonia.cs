@@ -1,6 +1,7 @@
 #if LINUX
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Threading;
 using Avalonia.Media;
 using Workspace1C.Collections;
 using Workspace1C.Converters;
@@ -26,6 +27,20 @@ public class GroupNodeViewModel : ViewModelBase
     private readonly NotifyCollectionChangedEventHandler _onInfobasesChanged;
     private readonly NotifyCollectionChangedEventHandler _onChildrenChanged;
     private bool _detached;
+
+    // Совокупный счётчик вызовов Detach по всем узлам (диагностика issue #21, 1.0.0.41):
+    // лог CM_TREESWITCH печатает прирост за смену вкладки (detachCount) — контроль, что
+    // старые узлы дерева реально отписываются от коллекций при перестройке, а не
+    // накапливаются обработчиками. Заведён и в Linux-варианте (1.0.0.44): фича полезна
+    // на обеих платформах, а тест GroupNodeViewModelTests компилируется под Linux.
+    private static long s_totalDetachCount;
+
+    /// <summary>Совокупное число вызовов <see cref="Detach"/> по всем созданным узлам.</summary>
+    public static long TotalDetachCount => Volatile.Read(ref s_totalDetachCount);
+
+    /// <summary>Сбрасывает счётчик <see cref="TotalDetachCount"/> (юнит-тесты). Возвращает старое значение.</summary>
+    internal static long ResetDetachCounterForTesting() =>
+        Interlocked.Exchange(ref s_totalDetachCount, 0);
 
     private readonly string _color;
     private readonly string _iconColor;
@@ -114,6 +129,7 @@ public class GroupNodeViewModel : ViewModelBase
         if (_detached)
             return;
         _detached = true;
+        Interlocked.Increment(ref s_totalDetachCount);
         // Поддерево узла не переиспользуется (дерево строгое, без общих поддеревьев) —
         // отписываем и дочерние узлы, чтобы коллекции не удерживали ни одного
         // обработчика узлов, ставших мусором после удаления корня.

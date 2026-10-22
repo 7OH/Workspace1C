@@ -23,6 +23,17 @@ namespace Workspace1C
     public partial class MainWindow : Window
     {
         /// <summary>
+        /// Настроенные хоткеи действий (источник — свойства Hotkey* вьюмодели) для
+        /// надёжного матчинга по имени физической клавиши (issue #32): «Shift+клавиша»
+        /// не полагается на нюансы платформенного KeyGesture. Список заполняется в
+        /// <see cref="RegisterHotkeys"/> через <see cref="AddHotkey"/> — вместе с
+        /// регистрацией KeyBindings, поэтому строка жеста и команда со списками
+        /// биндингов никогда не расходятся; перерегистрация по HotkeysChanged
+        /// обновляет его целиком.
+        /// </summary>
+        private readonly List<(string Gesture, System.Windows.Input.ICommand Command)> _hotkeyCommands = new();
+
+        /// <summary>
         /// Горячие клавиши действий. Сочетания берутся из вьюмодели, оттуда же
         /// их показывают подсказки и контекстное меню, поэтому список и подписи
         /// не расходятся.
@@ -39,6 +50,8 @@ namespace Workspace1C
                 return;
 
             KeyBindings.Clear();
+            // Список для матчинга по физической клавише пересобирается вместе с биндингами.
+            _hotkeyCommands.Clear();
 
             // Alt+1…Alt+9 запускают избранные базы по порядку слотов и ставятся
             // ПЕРЕД пользовательскими: Avalonia перебирает привязки по порядку
@@ -436,6 +449,15 @@ namespace Workspace1C
                 e.Handled = true;
                 return;
             }
+
+            // Хоткеи действий с Shift (issue #32): надёжный матчинг по имени физической
+            // клавиши (Key.ToString()) наряду с KeyBindings, у которых сочетание
+            // Shift+печатная клавиша на части раскладок/систем не срабатывает.
+            // Системные сочетания закладок и ручной разбор «±» обработаны выше —
+            // приоритет сохранён. Если KeyBinding уже сработал (e.Handled), сюда не
+            // доходим: повторного выполнения нет.
+            if (TryHandleUserHotkey(e))
+                return;
 
             // Пользовательские действия по горячей клавише (0.3.9.198): в самом конце
             // цепочки — системные хоткеи (KeyBindings) и закладки имеют приоритет.
@@ -884,9 +906,66 @@ namespace Workspace1C
 
         private void AddHotkey(string? gesture, System.Windows.Input.ICommand? command)
         {
-            if (command is null || !Controls.HotkeyBox.TryParse(gesture, out var parsed) || parsed is null)
+            if (command is null)
+                return;
+            if (!string.IsNullOrWhiteSpace(gesture))
+                _hotkeyCommands.Add((gesture, command));
+            if (!Controls.HotkeyBox.TryParse(gesture, out var parsed) || parsed is null)
                 return;
             KeyBindings.Add(new KeyBinding { Gesture = parsed, Command = command });
+        }
+
+        /// <summary>
+        /// Переводит модификаторы Avalonia в платформонезависимые флаги
+        /// <see cref="Workspace1C.Services.HotkeyModifiers"/> (для чистого матчинга).
+        /// </summary>
+        private static Services.HotkeyModifiers ToHotkeyModifiers(KeyModifiers m)
+        {
+            var result = Services.HotkeyModifiers.None;
+            if ((m & KeyModifiers.Control) != 0) result |= Services.HotkeyModifiers.Control;
+            if ((m & KeyModifiers.Shift) != 0) result |= Services.HotkeyModifiers.Shift;
+            if ((m & KeyModifiers.Alt) != 0) result |= Services.HotkeyModifiers.Alt;
+            if ((m & KeyModifiers.Meta) != 0) result |= Services.HotkeyModifiers.Windows;
+            return result;
+        }
+
+        /// <summary>
+        /// Надёжный матчинг настраиваемых хоткеев действий (issue #32): сравнивает
+        /// сохранённое сочетание с фактическим нажатием по имени физической клавиши
+        /// (e.Key.ToString()) и наборам модификаторов. Работает ТОЛЬКО для сочетаний,
+        /// содержащих Shift (без Shift хоткеи продолжают работать через KeyBindings,
+        /// как и раньше). Печатные клавиши при фокусе в текстовом вводе не
+        /// перехватываются — как в <see cref="HandleCustomActionHotkey(KeyEventArgs)"/>.
+        /// </summary>
+        private bool TryHandleUserHotkey(KeyEventArgs e)
+        {
+            if (_vm is null || _vm.IsCustomActionRunning)
+                return false;
+
+            var keyName = e.Key.ToString();
+            var mods = ToHotkeyModifiers(e.KeyModifiers);
+            if ((mods & Services.HotkeyModifiers.Shift) == 0)
+                return false;
+
+            // Не отбираем печатные клавиши у полей ввода: там Shift+буква/цифра печатает
+            // символ, и правка уже обработана полем. Непечатающие (F-клавиши и т.п.)
+            // работают и при фокусе в тексте, как и через KeyBindings.
+            if (FocusManager?.GetFocusedElement() is TextBox)
+            {
+                if (Services.HotkeyMatcher.IsTextProducingKey(keyName))
+                    return false;
+            }
+
+            foreach (var (gesture, command) in _hotkeyCommands)
+            {
+                if (!Services.HotkeyMatcher.Matches(gesture, keyName, mods))
+                    continue;
+                command.Execute(null);
+                e.Handled = true;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -907,11 +986,11 @@ namespace Workspace1C
             if (FocusManager?.GetFocusedElement() is TextBox)
                 return false;
 
+            var keyName = e.Key.ToString();
+            var mods = ToHotkeyModifiers(e.KeyModifiers);
             foreach (var pair in _vm.HotkeyCustomActions)
             {
-                if (!Controls.HotkeyBox.TryParse(pair.Key, out var gesture) || gesture is null)
-                    continue;
-                if (gesture.Key != e.Key || gesture.KeyModifiers != e.KeyModifiers)
+                if (!Services.HotkeyMatcher.Matches(pair.Key, keyName, mods))
                     continue;
 
                 var context = CustomActionExecutionPlan.DetermineMenuContext(

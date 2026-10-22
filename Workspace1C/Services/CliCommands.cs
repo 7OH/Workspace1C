@@ -17,10 +17,18 @@ public static class CliCommands
     {
         var command = CommandName(parsed.Kind);
 
+        if (!string.IsNullOrWhiteSpace(parsed.Error))
+        {
+            CliOutput.WriteResult(CliResult.Failure("cli", "invalid_args", parsed.Error), parsed.Options.Json);
+            return CliExitCodes.Error;
+        }
+
         return parsed.Kind switch
         {
             CliCommandKind.List => ExecuteList(command, parsed.Options),
             CliCommandKind.Run => ExecuteRun(command, parsed.Target!, parsed.Options),
+            CliCommandKind.TelegramSend => CliTelegramCommands.Send(command, parsed.Options),
+            CliCommandKind.TelegramConfirm => CliTelegramCommands.Confirm(command, parsed.Options),
             _ => Unsupported(command, parsed.Options)
         };
     }
@@ -194,8 +202,13 @@ public static class CliCommands
         _ => "file"
     };
 
-    /// <summary>Имя команды для контракта вывода (нижний регистр).</summary>
-    internal static string CommandName(CliCommandKind kind) => kind.ToString().ToLowerInvariant();
+    /// <summary>Имя команды для контракта вывода (нижний регистр; составные — с подчёркиванием).</summary>
+    internal static string CommandName(CliCommandKind kind) => kind switch
+    {
+        CliCommandKind.TelegramSend => "telegram_send",
+        CliCommandKind.TelegramConfirm => "telegram_confirm",
+        _ => kind.ToString().ToLowerInvariant()
+    };
 
     /// <summary>
     /// Детали истории запуска из CLI с маркером пользовательских команд (0.3.9.98):

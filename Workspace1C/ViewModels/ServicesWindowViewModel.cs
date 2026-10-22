@@ -19,6 +19,8 @@ namespace Workspace1C.ViewModels;
 /// </summary>
 public abstract class ServiceListRow : ViewModelBase
 {
+    private bool _isTemporarilyDisabled;
+
     /// <summary>Отображаемое имя (служба: DisplayName; группа: имя группы).</summary>
     public abstract string DisplayName { get; protected set; }
 
@@ -33,6 +35,19 @@ public abstract class ServiceListRow : ViewModelBase
 
     /// <summary>Тег типа строки: "service" / "group" (вспомогательный для триггеров XAML).</summary>
     public abstract string GroupTag { get; }
+
+    /// <summary>
+    /// Временно отключена строка в меню управления службами (issue #37): галочка
+    /// «Временно отключить» в окне «Управление службами». При включении служба (или
+    /// папка-группа целиком) исчезает из подменю служб (трей, контекстное меню,
+    /// «Серверы 1С»), пока галочка стоит. Изменение сохраняется в services.json
+    /// (см. <see cref="ServicesWindowViewModel"/>).
+    /// </summary>
+    public bool IsTemporarilyDisabled
+    {
+        get => _isTemporarilyDisabled;
+        set => SetProperty(ref _isTemporarilyDisabled, value);
+    }
 }
 
 /// <summary>
@@ -322,6 +337,18 @@ public sealed class ServicesWindowViewModel : ViewModelBase
     /// Сравнение без учёта регистра — имена групп уникальны и сравниваются так же в хранилище.
     /// </summary>
     private readonly HashSet<string> _collapsedServiceGroups = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Службы, временно отключённые в меню управления службами (issue #37): пока
+    /// галочка стоит в окне, служба не попадает в подменю служб (трей, контекстное
+    /// меню, «Серверы 1С»). Набор — рабочий образ флагов хранилища
+    /// <see cref="ServiceStoreData.TemporarilyDisabledServices"/>; сохраняется в
+    /// services.json при каждом изменении галочки. Сравнение без учёта регистра.
+    /// </summary>
+    private readonly HashSet<string> _temporarilyDisabledServices = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Группы, временно отключённые в меню управления службами (issue #37): группа скрывается целиком вместе с членами.</summary>
+    private readonly HashSet<string> _temporarilyDisabledGroups = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Колбэк сохранения набора свёрнутых групп (окно пишет его в <see cref="Models.AppSettings.CollapsedServiceGroups"/>);
@@ -709,6 +736,10 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             Groups = data.Groups.Select(g => new ServiceGroup { Name = g.Name, Services = g.Services.ToList() }).ToList(),
             Order = RebuildOrderForServices(data, merged)
         };
+        // Флаги временного отключения (issue #37) сохраняются при «Настроить»;
+        // «мёртвые» ссылки (служба снята из списка) вычистит Normalize при Save.
+        newData.TemporarilyDisabledServices = data.TemporarilyDisabledServices;
+        newData.TemporarilyDisabledGroups = data.TemporarilyDisabledGroups;
         _store.Save(newData);
         await RebuildRowsAsync(_store.Load());
 
@@ -870,6 +901,26 @@ public sealed class ServicesWindowViewModel : ViewModelBase
                 if (version != _reloadVersion)
                     return;
                 _statusCache = statuses;
+                // Рабочий образ флагов временного отключения (issue #37) — из хранилища
+                // (источник истины); лишние/мёртвые флаги уже вычищены Normalize.
+                _temporarilyDisabledServices.Clear();
+                if (data.TemporarilyDisabledServices is not null)
+                {
+                    foreach (var name in data.TemporarilyDisabledServices)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name))
+                            _temporarilyDisabledServices.Add(name);
+                    }
+                }
+                _temporarilyDisabledGroups.Clear();
+                if (data.TemporarilyDisabledGroups is not null)
+                {
+                    foreach (var name in data.TemporarilyDisabledGroups)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name))
+                            _temporarilyDisabledGroups.Add(name);
+                    }
+                }
                 var selectedKey = SelectedRowKey();
                 Rows.Clear();
                 foreach (var key in order)
@@ -887,12 +938,24 @@ public sealed class ServicesWindowViewModel : ViewModelBase
                             // значения, чтобы не сохранять без изменений.
                             groupRow.IsExpanded = !_collapsedServiceGroups.Contains(groupRow.Name);
                             groupRow.PropertyChanged += OnGroupExpandedChanged;
+                            // Галочка «Временно отключить» для папки и для её служб (issue #37);
+                            // подписка на изменение галочки — после установки начального значения.
+                            groupRow.IsTemporarilyDisabled = _temporarilyDisabledGroups.Contains(groupRow.Name);
+                            groupRow.PropertyChanged += OnRowTemporarilyDisabledChanged;
+                            foreach (var child in groupRow.Children)
+                            {
+                                child.IsTemporarilyDisabled = _temporarilyDisabledServices.Contains(child.ServiceName);
+                                child.PropertyChanged += OnRowTemporarilyDisabledChanged;
+                            }
                             Rows.Add(groupRow);
                         }
                     }
                     else if (statuses.TryGetValue(key, out var info))
                     {
-                        Rows.Add(new ServiceInfoRow(info));
+                        var serviceRow = new ServiceInfoRow(info);
+                        serviceRow.IsTemporarilyDisabled = _temporarilyDisabledServices.Contains(serviceRow.ServiceName);
+                        serviceRow.PropertyChanged += OnRowTemporarilyDisabledChanged;
+                        Rows.Add(serviceRow);
                     }
                 }
                 // Первый запуск (состояние ещё не сохранялось): все группы свёрнуты по
@@ -1157,6 +1220,17 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             // Ключ свёрнутой группы в настройках следует за переименованием (issue #11,
             // пункт 4): старый ключ больше не актуален, новое состояние восстановится ниже.
             _collapsedServiceGroups.Remove(row.Name);
+            // Флаг временного отключения группы (issue #37) следует за переименованием:
+            // Normalize иначе счёл бы его «мёртвым» и сбросил бы галочку.
+            if (data.TemporarilyDisabledGroups is not null &&
+                data.TemporarilyDisabledGroups.RemoveAll(n =>
+                    string.Equals(n, row.Name, StringComparison.OrdinalIgnoreCase)) > 0)
+            {
+                data.TemporarilyDisabledGroups.Add(newGroup.Name);
+            }
+            _temporarilyDisabledGroups.Remove(row.Name);
+            if (data.IsGroupTemporarilyDisabled(newGroup.Name))
+                _temporarilyDisabledGroups.Add(newGroup.Name);
         }
         // Члены обновлённой группы уходят из корневого списка (инвариант «служба
         // ровно в одном месте», issue #11, 1.0.0.14).
@@ -1206,6 +1280,9 @@ public sealed class ServicesWindowViewModel : ViewModelBase
         data.Groups.RemoveAll(g => string.Equals(g.Name, row.Name, StringComparison.OrdinalIgnoreCase));
         var key = ServiceStoreData.GroupKey(row.Name);
         data.Order = data.Order.Where(k => !string.Equals(k, key, StringComparison.OrdinalIgnoreCase)).ToList();
+        // Флаг временного отключения удалённой группы больше не актуален (issue #37).
+        data.TemporarilyDisabledGroups?.RemoveAll(n => string.Equals(n, row.Name, StringComparison.OrdinalIgnoreCase));
+        _temporarilyDisabledGroups.Remove(row.Name);
         _store.Save(data);
         // Удалённая группа больше не хранится в настройках (issue #11, пункт 4).
         _collapsedServiceGroups.Remove(row.Name);
@@ -1334,6 +1411,36 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             SaveCollapsedGroups();
     }
 
+    /// <summary>
+    /// Галочка «Временно отключить» строки списка (issue #37): обновляет рабочий набор
+    /// флагов и сразу сохраняет services.json (<see cref="BuildStoreData"/>) — меню
+    /// управления службами перестраиваются по хранилищу, поэтому фильтрация вступает
+    /// в силу без перезапуска окна.
+    /// </summary>
+    private void OnRowTemporarilyDisabledChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ServiceListRow.IsTemporarilyDisabled))
+            return;
+        switch (sender)
+        {
+            case ServiceInfoRow service:
+                if (service.IsTemporarilyDisabled)
+                    _temporarilyDisabledServices.Add(service.ServiceName);
+                else
+                    _temporarilyDisabledServices.Remove(service.ServiceName);
+                break;
+            case ServiceGroupRow group:
+                if (group.IsTemporarilyDisabled)
+                    _temporarilyDisabledGroups.Add(group.Name);
+                else
+                    _temporarilyDisabledGroups.Remove(group.Name);
+                break;
+            default:
+                return;
+        }
+        _store.Save(BuildStoreData());
+    }
+
     /// <summary>Сохраняет набор свёрнутых групп служб через колбэк (окно пишет в AppSettings).</summary>
     private void SaveCollapsedGroups()
     {
@@ -1414,6 +1521,10 @@ public sealed class ServicesWindowViewModel : ViewModelBase
             }
         }
         data.Order = order;
+        // Флаги временного отключения (issue #37) сохраняются со списком: Normalize при
+        // Save вычистит «мёртвые» ссылки (службу удалили, группу переименовали).
+        data.TemporarilyDisabledServices = _temporarilyDisabledServices.ToList();
+        data.TemporarilyDisabledGroups = _temporarilyDisabledGroups.ToList();
         return data;
     }
 

@@ -492,6 +492,19 @@ namespace Workspace1C
             };
             status.Bind(TextBlock.TextProperty, new Binding(nameof(ServiceListRow.StatusText)));
 
+            // Галочка «Временно отключить» (issue #37): служба (или папка-группа) не
+            // попадает в подменю управления службами, пока галочка стоит. Изменение
+            // сразу сохраняется в services.json (обработчик VM OnRowTemporarilyDisabledChanged).
+            var temporarilyDisabledCheck = new CheckBox
+            {
+                Margin = new Thickness(14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTip.SetTip(temporarilyDisabledCheck, LocalizationManager.T("Services.TemporarilyDisable"));
+            temporarilyDisabledCheck.Bind(
+                CheckBox.IsCheckedProperty,
+                new Binding(nameof(ServiceListRow.IsTemporarilyDisabled), BindingMode.TwoWay));
+
             // Нижний отступ строки-папки (замечание 7OH 19.10): без него высота строки
             // группы чуть меньше высоты обычной строки службы.
             var grid = new Grid
@@ -502,6 +515,7 @@ namespace Workspace1C
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(new GridLength(1, GridUnitType.Star)),
+                    new ColumnDefinition(GridLength.Auto),
                     new ColumnDefinition(GridLength.Auto)
                 }
             };
@@ -509,10 +523,12 @@ namespace Workspace1C
             Grid.SetColumn(groupIcon, 1);
             Grid.SetColumn(name, 2);
             Grid.SetColumn(status, 3);
+            Grid.SetColumn(temporarilyDisabledCheck, 4);
             grid.Children.Add(dot);
             grid.Children.Add(groupIcon);
             grid.Children.Add(name);
             grid.Children.Add(status);
+            grid.Children.Add(temporarilyDisabledCheck);
 
             // Правый клик по строке выбирает её (команды действуют на SelectedRow).
             grid.PointerPressed += (_, e) =>

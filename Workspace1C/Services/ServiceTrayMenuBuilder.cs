@@ -183,8 +183,11 @@ public sealed class ServiceTrayMenuBuilder
         };
         menu.Add(Separator());
 
-        // 2) Строки списка в порядке data.Order: службы и группы.
-        var rows = new List<ServiceMenuItem>();
+        // 2) Строки списка в порядке data.Order: службы и группы. Временно отключённые
+        // (issue #37) не дают пунктов: отключённая служба пропускается, отключённая
+        // группа скрывается целиком вместе с членами; «Настроить…» остаётся всегда,
+        // чтобы галочку можно было снять.
+        var visibleKeys = new List<string>();
         foreach (var key in order)
         {
             if (ServiceStoreData.IsGroupKey(key))
@@ -192,8 +195,25 @@ public sealed class ServiceTrayMenuBuilder
                 var groupName = key.Substring(ServiceStoreData.GroupKeyPrefix.Length);
                 var group = data.Groups.FirstOrDefault(g =>
                     string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
+                if (group is not null && !data.IsGroupTemporarilyDisabled(group.Name))
+                    visibleKeys.Add(key);
+            }
+            else if (!data.IsServiceTemporarilyDisabled(key))
+            {
+                visibleKeys.Add(key);
+            }
+        }
+
+        var rows = new List<ServiceMenuItem>();
+        foreach (var key in visibleKeys)
+        {
+            if (ServiceStoreData.IsGroupKey(key))
+            {
+                var groupName = key.Substring(ServiceStoreData.GroupKeyPrefix.Length);
+                var group = data.Groups.FirstOrDefault(g =>
+                    string.Equals(g.Name, groupName, StringComparison.OrdinalIgnoreCase));
                 if (group is not null)
-                    rows.Add(BuildGroupItem(group, statuses, platform));
+                    rows.Add(BuildGroupItem(group, statuses, platform, data));
             }
             else if (statuses.TryGetValue(key, out var info))
             {
@@ -202,12 +222,13 @@ public sealed class ServiceTrayMenuBuilder
         }
         menu.AddRange(rows);
 
-        // 3) Разделитель и подменю «Все сервисы» (как в окне «Управление службами»).
+        // 3) Разделитель и подменю «Все сервисы» (как в окне «Управление службами») —
+        // строится только из НЕ отключённых служб общего списка (issue #37).
         // При пустом списке дополнительный разделитель не добавляем: разделитель после
         // «Настроить…» уже есть (иначе — два разделителя подряд).
         if (rows.Count > 0)
             menu.Add(Separator());
-        menu.Add(BuildAllServicesItem(order, statuses, platform));
+        menu.Add(BuildAllServicesItem(visibleKeys, statuses, platform));
 
         return menu;
     }
@@ -287,9 +308,16 @@ public sealed class ServiceTrayMenuBuilder
     private static ServiceMenuItem BuildGroupItem(
         ServiceGroup group,
         IReadOnlyDictionary<string, ServiceInfo> statuses,
-        ServicePlatform platform)
+        ServicePlatform platform,
+        ServiceStoreData data)
     {
-        var members = group.Services
+        // Временно отключённые члены группы (issue #37) не попадают ни в команды
+        // группы, ни в подменю членов (но сама группа остаётся, если отключена
+        // только отдельная служба).
+        var visibleMembers = group.Services
+            .Where(n => !data.IsServiceTemporarilyDisabled(n))
+            .ToList();
+        var members = visibleMembers
             .Select(n => InfoOf(statuses, n))
             .ToList();
         var groupStatus = ServiceGroupStatusResolver.Resolve(members.Select(m => m.Status).ToList());
@@ -311,12 +339,12 @@ public sealed class ServiceTrayMenuBuilder
             ServiceMenuItemKind.GroupCommand,
             ServiceMenuItemTarget.Group,
             group.Name,
-            group.Services,
+            visibleMembers,
             action => ServiceActionAvailability.CanExecuteAny(members, action, platform));
 
         // Затем разделитель и все элементы группы ниже — как в общем списке.
         item.Children.Add(Separator());
-        foreach (var memberName in group.Services)
+        foreach (var memberName in visibleMembers)
             item.Children.Add(BuildServiceItem(memberName, InfoOf(statuses, memberName), platform));
 
         return item;
@@ -423,7 +451,10 @@ public sealed class ServiceTrayMenuBuilder
         ServiceStoreData data,
         Func<string, ServiceInfo> statusOf)
     {
+        // Временно отключённые службы (issue #37) в пункты меню не попадают —
+        // их статусы не нужны (не опрашиваем, чтобы не дёргать недоступные unit'ы).
         var names = data.Services
+            .Where(n => !data.IsServiceTemporarilyDisabled(n))
             .Concat(data.Groups.SelectMany(g => g.Services))
             .Distinct(StringComparer.OrdinalIgnoreCase);
 

@@ -57,14 +57,20 @@ namespace Workspace1C
             icon.Margin = new Thickness(0, 2, 8, 0);
             icon.VerticalAlignment = VerticalAlignment.Top;
 
+            // DisplayName — единый форматтер (issue #33): для тонких клиентов имя
+            // содержит локализованный суффикс «(тонкий клиент)» и подсвечивается
+            // оранжевым, как в диалоге выбора версии.
             var name = new TextBlock
             {
-                Text = node.Name,
+                Text = node.DisplayName,
                 FontSize = 12,
                 FontWeight = FontWeight.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
-            ThemeBrushes.Bind(name, TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            if (node.IsThinClient)
+                name.Foreground = new SolidColorBrush(Color.Parse("#F59E0B"));
+            else
+                ThemeBrushes.Bind(name, TextBlock.ForegroundProperty, "TextPrimaryBrush");
 
             // Строка пути есть у всех узлов, а не только у сборок: в разметке
             // шаблон один на все виды узлов, и у групп пустой TextBlock занимает

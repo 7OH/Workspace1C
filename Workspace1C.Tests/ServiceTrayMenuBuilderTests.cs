@@ -149,6 +149,123 @@ public sealed class ServiceTrayMenuBuilderTests
         Assert.True(commands[4].IsEnabled); // Restart при Stopped
     }
 
+    // ===================== Временное отключение (issue #37) =====================
+
+    [Fact]
+    public void DisabledService_NotInTopListAndNotInAllServices()
+    {
+        var data = SampleData();
+        data.TemporarilyDisabledServices.Add("web.service");
+
+        var items = Builder().Build(data, StatusOf, Windows);
+
+        // Корневая служба отключена — её нет в верхнем списке (осталась только группа).
+        Assert.DoesNotContain(items, i => i.Kind == ServiceMenuItemKind.ServiceSubmenu);
+        Assert.Single(items, i => i.Kind == ServiceMenuItemKind.GroupSubmenu);
+        // «Настроить…» остаётся на месте.
+        Assert.Equal(ServiceMenuItemKind.Settings, items[0].Kind);
+        Assert.True(items[0].IsEnabled);
+        // «Все сервисы» строится только из не отключённых корневых служб — их нет.
+        var all = items[^1];
+        Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, all.Kind);
+        Assert.False(all.IsEnabled);
+        Assert.DoesNotContain(all.Children, c => c.TargetName == "web.service");
+    }
+
+    [Fact]
+    public void DisabledGroup_HiddenEntirelyWithMembers()
+    {
+        var data = SampleData();
+        data.TemporarilyDisabledGroups.Add("База данных");
+
+        var items = Builder().Build(data, StatusOf, Windows);
+
+        // Отключённая группа скрыта целиком — и её члены нигде не показываются,
+        // в том числе в «Все сервисы».
+        Assert.DoesNotContain(items, i => i.Kind == ServiceMenuItemKind.GroupSubmenu);
+        Assert.Single(items, i => i.Kind == ServiceMenuItemKind.ServiceSubmenu);
+        Assert.Equal("web.service", items.Single(i => i.Kind == ServiceMenuItemKind.ServiceSubmenu).TargetName);
+        Assert.All(Flatten(items), i => Assert.NotEqual("pgsql.service", i.TargetName));
+        Assert.All(Flatten(items), i => Assert.NotEqual("redis.service", i.TargetName));
+        var all = items[^1];
+        Assert.DoesNotContain(all.Children, c => c.TargetName == "pgsql.service");
+    }
+
+    [Fact]
+    public void DisabledGroupMember_HiddenFromGroupButGroupRemains()
+    {
+        var data = SampleData();
+        data.TemporarilyDisabledServices.Add("pgsql.service");
+
+        var items = Builder().Build(data, StatusOf, Windows);
+        var group = First(items, ServiceMenuItemKind.GroupSubmenu);
+        Assert.Equal("База данных", group.TargetName);
+
+        // Подменю членов: только redis.service (pgsql.service отключена отдельно).
+        var submenuMembers = group.Children
+            .Where(c => c.Kind == ServiceMenuItemKind.ServiceSubmenu)
+            .ToList();
+        var member = Assert.Single(submenuMembers);
+        Assert.Equal("redis.service", member.TargetName);
+        // Команды группы («Запустить все» и т.п.) целятся только в не отключённых членов.
+        var groupCommands = Commands(group.Children, ServiceMenuItemKind.GroupCommand);
+        Assert.NotEmpty(groupCommands);
+        Assert.All(groupCommands, c => Assert.Equal(new[] { "redis.service" }, c.ServiceNames));
+    }
+
+    [Fact]
+    public void AllServices_ContainsOnlyEnabledRootServices()
+    {
+        var data = new ServiceStoreData
+        {
+            Services = { "web.service", "extra.service" },
+            Order = { "web.service", "extra.service" }
+        };
+        data.TemporarilyDisabledServices.Add("extra.service");
+
+        var items = Builder().Build(data, StatusOf, Windows);
+        var all = items[^1];
+        Assert.Equal(ServiceMenuItemKind.AllServicesSubmenu, all.Kind);
+
+        var commands = Commands(all.Children, ServiceMenuItemKind.AllServicesCommand);
+        Assert.NotEmpty(commands);
+        // «Все сервисы» охватывают только не отключённые службы общего списка.
+        Assert.All(commands, c => Assert.Equal(new[] { "web.service" }, c.ServiceNames));
+        Assert.All(commands, c => Assert.DoesNotContain("extra.service", c.ServiceNames));
+    }
+
+    [Fact]
+    public void AllDisabled_OnlySettingsAndAllServicesRemain()
+    {
+        var data = new ServiceStoreData
+        {
+            Services = { "web.service" },
+            Groups = { new ServiceGroup { Name = "g", Services = { "pgsql.service" } } },
+            Order = { ServiceStoreData.GroupKey("g"), "web.service" },
+            TemporarilyDisabledServices = { "web.service", "pgsql.service" },
+            TemporarilyDisabledGroups = { "g" }
+        };
+
+        var items = Builder().Build(data, StatusOf, Windows);
+
+        // «Настроить…» остаётся доступным всегда — иначе нельзя вернуть галочки.
+        Assert.Equal(ServiceMenuItemKind.Settings, items[0].Kind);
+        Assert.True(items[0].IsEnabled);
+        Assert.Equal(3, items.Count); // Настроить…, разделитель, «Все сервисы»
+        Assert.Single(items, i => i.IsSeparator);
+    }
+
+    /// <summary>Плоский обход всех пунктов меню (включая детей подменю).</summary>
+    private static IEnumerable<ServiceMenuItem> Flatten(IEnumerable<ServiceMenuItem> items)
+    {
+        foreach (var item in items)
+        {
+            yield return item;
+            foreach (var child in Flatten(item.Children))
+                yield return child;
+        }
+    }
+
     [Fact]
     public void Build_WithServiceInfo_RespectsCanPauseAndContinue()
     {
