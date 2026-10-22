@@ -1835,6 +1835,7 @@ public partial class MainViewModel : ViewModelBase
             return;
 
         ApplyClusterImportResult(window.SelectedBases);
+        ApplyClusterMigrationResult(window.MigrationResult);
     }
 
     /// <summary>
@@ -1887,6 +1888,42 @@ public partial class MainViewModel : ViewModelBase
         StatusBarInfo = string.Format(LocalizationManager.T("ClusterImport.SuccessFormat"), added.Count);
         _logger.Info($"Импорт из кластера 1С: добавлено {added.Count} баз, " +
                      $"пропущено дубликатов {selected.Count - added.Count}");
+    }
+
+    /// <summary>
+    /// Применяет результат миграции баз между кластерами (issue #41): при подтверждении
+    /// пользователем «Хотите заменить строку подключения?» заменяет сервер/порт в базах
+    /// списка приложения, имена которых совпадают с перенесёнными (по Ref, без учёта
+    /// регистра; только клиент-серверные базы). Сохраняет список и показывает сводку
+    /// в статус-строке. Замена выполняется на РЕАЛЬНОМ списке (в окно импорта уходит снимок),
+    /// после закрытия окна импорта.
+    /// </summary>
+    private void ApplyClusterMigrationResult(ClusterMigrationResult? result)
+    {
+        if (result is null || !result.ReplaceConnectionStrings || result.MigratedBaseNames.Count == 0)
+            return;
+
+        var replaced = ClusterMigrationService.ReplaceServerAndPort(
+            _allInfobases, result.MigratedBaseNames, result.NewServer, result.NewPort);
+        if (replaced == 0)
+            return;
+
+        var saved = SaveSilently();
+        saved &= SaveGroupsSilently();
+        RebuildTree();
+
+        if (!saved)
+        {
+            _dialog.ShowError(
+                string.Format(LocalizationManager.T("Main.ErrLoadFailed"),
+                    LocalizationManager.T("Main.SaveFailedHint")),
+                LocalizationManager.T("Main.LoadErrorTitle"));
+            return;
+        }
+
+        StatusBarInfo = string.Format(LocalizationManager.T("ClusterMigration.ReplacedCountFormat"), replaced);
+        _logger.Info($"Миграция баз между кластерами: заменено строк подключения у {replaced} баз " +
+                     $"(новый сервер: {result.NewServer}:{result.NewPort}, issue #41)");
     }
 
     // ======================= Статистика использования баз (0.3.9.95) =======================

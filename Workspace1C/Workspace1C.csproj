@@ -59,10 +59,10 @@
          поэтому AssemblyVersion/FileVersion/Version ограничены 4 частями, а точная
          пользовательская версия «0.3.1.1» задаётся через InformationalVersion
          и выводится в заголовок окна. -->
-    <Version>1.0.0.50</Version>
-    <AssemblyVersion>1.0.0.50</AssemblyVersion>
-    <FileVersion>1.0.0.50</FileVersion>
-    <InformationalVersion>1.0.0.50</InformationalVersion>
+    <Version>1.0.0.51</Version>
+    <AssemblyVersion>1.0.0.51</AssemblyVersion>
+    <FileVersion>1.0.0.51</FileVersion>
+    <InformationalVersion>1.0.0.51</InformationalVersion>
     <!-- RID/SelfContained только при publish, чтобы обычный dotnet run/build не ломался -->
     <PublishReadyToRun>false</PublishReadyToRun>
     <DebugType>embedded</DebugType>
@@ -299,6 +299,9 @@
          глобом *Window.Avalonia.cs ниже; разметка ClusterImportWindow.axaml собирается
          Avalonia-компилятором автоматически (как BaseSelectionWindow.axaml). -->
     <Compile Remove="Views\ClusterImportWindow.xaml.cs" />
+    <!-- Окно «Миграция баз» (1.0.0.51, issue #41): WPF code-behind исключается, Avalonia-версия
+         (ClusterMigrationWindow.Avalonia.cs) подключается глобом *Window.Avalonia.cs ниже. -->
+    <Compile Remove="Views\ClusterMigrationWindow.xaml.cs" />
     <!-- Окно «Детали регламентного задания» (0.3.9.178, цикл 0.3.9.176–179): WPF code-behind
          исключается, Avalonia-версия (JobDetailsWindow.Avalonia.cs) подключается глобом
          *Window.Avalonia.cs ниже. -->
@@ -535,6 +538,10 @@
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ClusterImportViewModel.cs" />
     <Compile Include="ViewModels\ClusterImportRow.cs" />
+    <!-- Вью-модель диалога «Миграция баз» (1.0.0.51, issue #41): чистый .NET без
+         WPF-зависимостей, используется и Windows, и Linux; подключается явно
+         (имя не совпадает с глобом *.Avalonia.cs). -->
+    <Compile Include="ViewModels\ClusterMigrationViewModel.cs" />
     <!-- Вью-модель окна «Заменить в строках подключения…» (0.3.9.189, функция 6):
          чистый .NET без WPF-зависимостей, используется и Windows, и Linux. -->
     <Compile Include="ViewModels\ConnectionReplaceViewModel.cs" />

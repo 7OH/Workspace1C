@@ -435,7 +435,9 @@ public static class UtilitiesMenuCatalog
                 "FileExport", "IconFileExport", "#22C55E", UtilitiesMenuCommandKind.ExportBasesV8iFile),
             new("ImportV8iFile", "Settings.Bases.ImportV8iFile", GroupOperations,
                 "DatabaseImport", "IconImport", "#22C55E", UtilitiesMenuCommandKind.ImportBasesV8iFile),
-            new("ClusterImport", "ClusterImport.Title", GroupOperations,
+            // «Импорт \ миграция из кластера 1С…» (1.0.0.51, issue #41): отдельный ключ от
+            // заголовка окна — меню переименовано, а заголовок окна «Импорт из кластера 1С» остался.
+            new("ClusterImport", "ClusterImport.MenuItem", GroupOperations,
                 "DatabaseImport", "IconImport", "#06B6D4", UtilitiesMenuCommandKind.ImportClusterInfobases),
             new("ProcessInspector", "ProcessInspector.Title", GroupOperations,
                 "ApplicationCog", "IconApplicationCog", "#0EA5E9", UtilitiesMenuCommandKind.ProcessInspector),

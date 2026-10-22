@@ -2854,6 +2854,7 @@ public partial class MainViewModel : ViewModelBase
             return;
 
         ApplyClusterImportResult(window.SelectedBases);
+        ApplyClusterMigrationResult(window.MigrationResult);
     }
 
     /// <summary>
@@ -2898,6 +2899,35 @@ public partial class MainViewModel : ViewModelBase
             LocalizationManager.T("ClusterImport.Title"));
         _logger.Info($"Импорт из кластера 1С: добавлено {added.Count} баз, " +
                      $"пропущено дубликатов {selected.Count - added.Count}");
+    }
+
+    /// <summary>
+    /// Применяет результат миграции баз между кластерами (issue #41): при подтверждении
+    /// пользователем «Хотите заменить строку подключения?» заменяет сервер/порт в базах
+    /// списка приложения, имена которых совпадают с перенесёнными (по Ref, без учёта
+    /// регистра; только клиент-серверные базы). Сохраняет список и показывает сводку.
+    /// Замена выполняется на РЕАЛЬНОМ списке (в окно импорта уходит снимок — там мутировать
+    /// нечего), после закрытия окна импорта.
+    /// </summary>
+    private void ApplyClusterMigrationResult(ClusterMigrationResult? result)
+    {
+        if (result is null || !result.ReplaceConnectionStrings || result.MigratedBaseNames.Count == 0)
+            return;
+
+        var replaced = ClusterMigrationService.ReplaceServerAndPort(
+            Infobases, result.MigratedBaseNames, result.NewServer, result.NewPort);
+        if (replaced == 0)
+            return;
+
+        InfobasesView.Refresh();
+        Save();
+        RebuildGroupTree();
+
+        _dialogs.ShowInfo(
+            string.Format(LocalizationManager.T("ClusterMigration.ReplacedCountFormat"), replaced),
+            LocalizationManager.T("ClusterMigration.Title"));
+        _logger.Info($"Миграция баз между кластерами: заменено строк подключения у {replaced} баз " +
+                     $"(новый сервер: {result.NewServer}:{result.NewPort}, issue #41)");
     }
 
     // ======================= Статистика использования баз (0.3.9.95) =======================

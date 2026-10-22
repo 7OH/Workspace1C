@@ -18,6 +18,9 @@ namespace Workspace1C.ViewModels;
 /// <see cref="SelectedBases"/>). Файловых баз в кластере не бывает (комментарий 7OH от
 /// 2026-10-18 20:24). Чистый .NET без платформенных зависимостей — обе платформы
 /// (WPF и Avalonia); окна только привязываются.
+/// С версии 1.0.0.51 (issue #41) VM раскрывает источник для миграции баз между
+/// кластерами: <see cref="BuildSourceParams"/> (подключение к источнику) и
+/// <see cref="SelectedRowsForMigration"/> (отмеченные строки с исходными записями rac).
 /// </summary>
 public sealed class ClusterImportViewModel : ViewModelBase
 {
@@ -609,6 +612,29 @@ public sealed class ClusterImportViewModel : ViewModelBase
         ImportCompleted = true;
     }
 
+    // ===================== Миграция баз между кластерами (issue #41) =====================
+
+    /// <summary>
+    /// Параметры подключения к серверу-источнику для миграции (issue #41): адрес/порт/логин/
+    /// пароль текущей формы импорта (из выбранной записи справочника либо дефолтов).
+    /// Публичная обёртка над приватным <see cref="BuildParams"/> — окно передаёт её диалогу
+    /// миграции (<see cref="Views.ClusterMigrationWindow"/>) для удаления баз из старого
+    /// кластера.
+    /// </summary>
+    public RacConnectionParams BuildSourceParams() => BuildParams();
+
+    /// <summary>
+    /// Строки чеклиста для миграции (issue #41): отмеченные, не дубликаты и без причины
+    /// пропуска — тот же фильтр, что у «Импортировать» (<see cref="Import"/>), только с
+    /// исходными записями rac (<see cref="ClusterImportRow.Source"/>, нужными миграции для
+    /// создания базы в новом кластере и удаления из старого). Пустой результат — кнопка
+    /// «Мигрировать» в окне показывает «ничего не выбрано» без открытия диалога.
+    /// </summary>
+    public IReadOnlyList<ClusterImportRow> SelectedRowsForMigration() =>
+        Rows
+            .Where(r => r.IsChecked && !r.IsDuplicate && string.IsNullOrEmpty(r.SkipReason) && r.Source is not null)
+            .ToList();
+
     /// <summary>«Выделить все»: отметить все импортируемые строки (дубликаты не трогаем).</summary>
     public void SelectAll()
     {
@@ -736,7 +762,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
             isChecked: skipReason is null,
             isDuplicate: isDuplicate,
             skipReason: skipReason,
-            tag: infobase);
+            tag: infobase,
+            source: source);
     }
 
     /// <summary>
