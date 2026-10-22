@@ -901,9 +901,17 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>Команда «Экспорт списка баз (JSON)…»: полное состояние списка → JSON (0.3.9.122).</summary>
     public ICommand ExportBasesJsonCommand { get; }
-
+ 
     /// <summary>Команда «Импорт списка баз (JSON)…»: добавляющий импорт из JSON (0.3.9.122).</summary>
     public ICommand ImportBasesJsonCommand { get; }
+ 
+    /// <summary>Команда «Экспорт в файл *.v8i…» (issue #29): выгрузка списка баз и групп
+    /// в произвольный файл ibases.v8i, выбранный пользователем (диалог сохранения).</summary>
+    public ICommand ExportToIbasesFileCommand { get; }
+ 
+    /// <summary>Команда «Импорт из файла *.v8i…» (issue #29): загрузка списка баз из
+    /// произвольного файла ibases.v8i, выбранного пользователем (диалог открытия).</summary>
+    public ICommand ImportFromIbasesFileCommand { get; }
 
     /// <summary>Команда очистки локального кеша 1С выбранной базы.</summary>
     public ICommand ClearCacheCommand { get; }

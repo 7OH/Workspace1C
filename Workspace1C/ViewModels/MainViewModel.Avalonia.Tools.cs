@@ -49,10 +49,43 @@ public partial class MainViewModel : ViewModelBase
 
     /// <summary>Диалог выбора файла для окна настроек.</summary>
     public string? PickFile(string title, string filter) => _dialog.OpenFileDialog(title, filter);
-
+ 
     /// <summary>Диалог сохранения файла для окна настроек.</summary>
     public string? PickSaveFile(string title, string defaultFileName) =>
         _dialog.SaveFileDialog(title, defaultFileName);
+ 
+    /// <summary>
+    /// «Экспорт в файл *.v8i…» (issue #29): показывает диалог сохранения и выгружает список
+    /// баз и групп приложения в произвольный файл ibases.v8i. Единая точка входа для
+    /// настроек (вкладка «Базы» → «Список баз») и меню «Утилиты» — оба места используют
+    /// один и тот же диалог, сервис и сообщения о результате.
+    /// </summary>
+    public void ExportToIbasesFileInteractive()
+    {
+        var path = _dialog.SaveFileDialog(
+            LocalizationManager.T("Settings.Bases.ExportV8iFileDialogTitle"),
+            "ibases.v8i",
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        ExportToIbasesFile(path);
+    }
+ 
+    /// <summary>
+    /// «Импорт из файла *.v8i…» (issue #29): показывает диалог открытия и загружает список
+    /// баз из произвольного файла ibases.v8i. Единая точка входа для настроек (вкладка
+    /// «Базы» → «Список баз») и меню «Утилиты» — оба места используют один и тот же
+    /// диалог, сервис и сообщения о результате.
+    /// </summary>
+    public void ImportFromIbasesFileInteractive()
+    {
+        var path = _dialog.OpenFileDialog(
+            LocalizationManager.T("Settings.Bases.ImportV8iFileDialogTitle"),
+            $"{LocalizationManager.T("Settings.Ibases.FileFilter")}|*.v8i|{LocalizationManager.T("Common.AllFiles")}|*.*");
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        ImportFromIbasesFile(path);
+    }
 
     /// <summary>Диалог выбора каталога для окна настроек.</summary>
     public string? PickFolder(string title, string? initialDirectory = null)
