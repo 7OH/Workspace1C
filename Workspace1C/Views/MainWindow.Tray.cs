@@ -45,6 +45,10 @@ namespace Workspace1C
 
         private static readonly TimeSpan ServicesStatusRefreshInterval = TimeSpan.FromSeconds(5);
 
+        /// <summary>Размер иконок пунктов меню трея (issue #40, 1.0.0.45): 20×20 — заметно
+        /// крупнее прежних 16×16, кружочки статусов служб/групп читаются лучше.</summary>
+        private const int TrayMenuIconSize = 20;
+
         private void InitializeTrayIcon()
         {
             try
@@ -229,7 +233,7 @@ namespace Workspace1C
                 Font = new Drawing.Font("Segoe UI", 9.5f, Drawing.FontStyle.Regular),
                 ShowImageMargin = true,
                 ShowCheckMargin = false,
-                ImageScalingSize = new Drawing.Size(16, 16),
+                ImageScalingSize = new Drawing.Size(TrayMenuIconSize, TrayMenuIconSize),
                 Padding = new Forms.Padding(2, 4, 2, 4),
                 Renderer = new ModernTrayMenuRenderer()
             };
@@ -396,7 +400,7 @@ namespace Workspace1C
             if (TrayIconCache.TryGetValue(kind, out var cached))
                 return cached;
 
-            var img = DrawMaterialTrayIcon(kind, 16);
+            var img = DrawMaterialTrayIcon(kind, TrayMenuIconSize);
             TrayIconCache[kind] = img;
             return img;
         }
@@ -1094,7 +1098,7 @@ namespace Workspace1C
         {
             if (CommandGlyphCache.TryGetValue(action, out var cached))
                 return cached;
-            var img = DrawCommandGlyph(action, 16);
+            var img = DrawCommandGlyph(action, TrayMenuIconSize);
             CommandGlyphCache[action] = img;
             return img;
         }
@@ -1168,7 +1172,8 @@ namespace Workspace1C
             return bmp;
         }
 
-        /// <summary>Рисует кружок 16×16 цвета #RRGGBB (статус службы/группы, цвет команды).</summary>
+        /// <summary>Рисует кружок TrayMenuIconSize×TrayMenuIconSize цвета #RRGGBB
+        /// (статус службы/группы, цвет команды).</summary>
         private static Drawing.Image? DrawStatusDot(string? colorHex)
         {
             if (string.IsNullOrWhiteSpace(colorHex))
@@ -1180,23 +1185,26 @@ namespace Workspace1C
             try { color = Drawing.ColorTranslator.FromHtml(colorHex); }
             catch { color = Drawing.Color.FromArgb(107, 114, 128); }
 
-            var bmp = new Drawing.Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var bmp = new Drawing.Bitmap(TrayMenuIconSize, TrayMenuIconSize, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using var g = Drawing.Graphics.FromImage(bmp);
             g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.Clear(Drawing.Color.Transparent);
             using var brush = new Drawing.SolidBrush(color);
-            g.FillEllipse(brush, 3f, 3f, 10f, 10f);
+            // Кружок с отступом 0.1875 и диаметром 0.625 от размера (для 20: 3.75 и 12.5).
+            var o = TrayMenuIconSize * 0.1875f;
+            var d = TrayMenuIconSize * 0.625f;
+            g.FillEllipse(brush, o, o, d, d);
             StatusDotCache[colorHex] = bmp;
             return bmp;
         }
 
         /// <summary>
-        /// Иконка группы служб 16×16 — «микс» (замечание 7OH 19.10): папка (та же
-        /// геометрия, что у <see cref="TrayIconKind.Group"/>) + маленький кружок статуса
-        /// группы справа-снизу (цвет <paramref name="statusColorHex"/> — зелёный/жёлтый/
-        /// серый, как кружок статуса группы на панели окна «Управление службами»).
-        /// Рисуется через GDI+ по геометрии папки — без зависимости от шрифтов и WPF
-        /// visual tree. null — без статуса (остаётся обычная папка).
+        /// Иконка группы служб TrayMenuIconSize×TrayMenuIconSize — «микс» (замечание
+        /// 7OH 19.10): папка (та же геометрия, что у <see cref="TrayIconKind.Group"/>) +
+        /// маленький кружок статуса группы справа-снизу (цвет <paramref name="statusColorHex"/>
+        /// — зелёный/жёлтый/серый, как кружок статуса группы на панели окна «Управление
+        /// службами»). Рисуется через GDI+ по геометрии папки — без зависимости от шрифтов
+        /// и WPF visual tree. null — без статуса (остаётся обычная папка).
         /// </summary>
         private static Drawing.Image? DrawGroupStatusIcon(string? statusColorHex)
         {
@@ -1205,7 +1213,7 @@ namespace Workspace1C
             if (GroupStatusIconCache.TryGetValue(statusColorHex, out var cached))
                 return cached;
 
-            var bmp = new Drawing.Bitmap(16, 16, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var bmp = new Drawing.Bitmap(TrayMenuIconSize, TrayMenuIconSize, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using var g = Drawing.Graphics.FromImage(bmp);
             g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.PixelOffsetMode = Drawing.Drawing2D.PixelOffsetMode.HighQuality;
@@ -1214,13 +1222,13 @@ namespace Workspace1C
             // Папка — та же геометрия, что у TrayIconKind.Group (фиолетовая).
             var folderColor = Drawing.Color.FromArgb(139, 92, 246);
             using var folderBrush = new Drawing.SolidBrush(folderColor);
-            using var folderPen = new Drawing.Pen(folderColor, Math.Max(1.4f, 16f / 11f))
+            using var folderPen = new Drawing.Pen(folderColor, Math.Max(1.4f, TrayMenuIconSize / 11f))
             {
                 StartCap = Drawing.Drawing2D.LineCap.Round,
                 EndCap = Drawing.Drawing2D.LineCap.Round,
                 LineJoin = Drawing.Drawing2D.LineJoin.Round
             };
-            float s = 16;
+            float s = TrayMenuIconSize;
             g.FillRectangle(folderBrush, s * 0.10f, s * 0.32f, s * 0.80f, s * 0.50f);
             g.DrawLine(folderPen, s * 0.10f, s * 0.36f, s * 0.42f, s * 0.36f);
             g.FillRectangle(folderBrush, s * 0.10f, s * 0.28f, s * 0.30f, s * 0.10f);
@@ -1230,9 +1238,11 @@ namespace Workspace1C
             try { color = Drawing.ColorTranslator.FromHtml(statusColorHex); }
             catch { color = Drawing.Color.FromArgb(107, 114, 128); }
             using var dotBrush = new Drawing.SolidBrush(color);
-            using var ring = new Drawing.Pen(Drawing.Color.White, 1.2f);
-            g.FillEllipse(dotBrush, 9.5f, 9.5f, 5.5f, 5.5f);
-            g.DrawEllipse(ring, 9.5f, 9.5f, 5.5f, 5.5f);
+            using var ring = new Drawing.Pen(Drawing.Color.White, 1.2f * s / 16f);
+            var dot = s * 0.34375f;   // 5.5/16 — диаметр кружка
+            var dotX = s * 0.59375f;  // 9.5/16 — левый верхний угол кружка
+            g.FillEllipse(dotBrush, dotX, dotX, dot, dot);
+            g.DrawEllipse(ring, dotX, dotX, dot, dot);
 
             GroupStatusIconCache[statusColorHex] = bmp;
             return bmp;
@@ -1243,7 +1253,7 @@ namespace Workspace1C
         {
             dropDown.Renderer = new ModernTrayMenuRenderer();
             dropDown.Font = new Drawing.Font("Segoe UI", 9.5f, Drawing.FontStyle.Regular);
-            dropDown.ImageScalingSize = new Drawing.Size(16, 16);
+            dropDown.ImageScalingSize = new Drawing.Size(TrayMenuIconSize, TrayMenuIconSize);
             dropDown.Padding = new Forms.Padding(2, 2, 2, 2);
             dropDown.Margin = new Forms.Padding(0);
             if (dropDown is Forms.ToolStripDropDownMenu menu)

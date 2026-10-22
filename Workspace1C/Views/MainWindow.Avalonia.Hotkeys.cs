@@ -698,7 +698,7 @@ namespace Workspace1C
             Text = text,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-            FontSize = 13,
+            FontSize = 16,
             Foreground = new SolidColorBrush(Color.Parse(colorHex))
         };
 
@@ -707,9 +707,9 @@ namespace Workspace1C
         {
             var circle = new Border
             {
-                Width = 9,
-                Height = 9,
-                CornerRadius = new CornerRadius(4.5),
+                Width = 11,
+                Height = 11,
+                CornerRadius = new CornerRadius(5.5),
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
             if (!string.IsNullOrWhiteSpace(colorHex))
@@ -726,11 +726,11 @@ namespace Workspace1C
         /// </summary>
         private static Control MenuGroupIcon(string statusColorHex)
         {
-            var grid = new Grid { Width = 16, Height = 16 };
+            var grid = new Grid { Width = 20, Height = 20 };
             grid.Children.Add(new TextBlock
             {
                 Text = "📦",
-                FontSize = 13,
+                FontSize = 16,
                 Foreground = new SolidColorBrush(Color.Parse("#7C3AED")),
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
@@ -739,9 +739,9 @@ namespace Workspace1C
             {
                 grid.Children.Add(new Border
                 {
-                    Width = 6,
-                    Height = 6,
-                    CornerRadius = new CornerRadius(3),
+                    Width = 7,
+                    Height = 7,
+                    CornerRadius = new CornerRadius(3.5),
                     Background = new SolidColorBrush(Color.Parse(statusColorHex)),
                     HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
