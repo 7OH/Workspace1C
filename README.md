@@ -606,7 +606,7 @@
   `menuclose_trace.json` (0.3.9.306) продолжает дописываться, если уже существует (обе
   платформы).
 
-  [![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2825056/)
+[![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2825056/)
 
 > 📌 **Публикация на Infostart:** [страница программы](https://infostart.ru/1c/articles/2825056/)
 
