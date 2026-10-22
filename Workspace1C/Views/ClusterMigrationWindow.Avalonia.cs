@@ -132,7 +132,7 @@ namespace Workspace1C
 
             // ---- Кнопки «Перенести» (зелёная, как «Импортировать») и «Отмена». ----
             _migrateButton = BuildPrimaryButton(LocalizationManager.T("ClusterMigration.MigrateButton"), "➜",
-                () => _vm.MigrateCommand.Execute(null));
+                OnMigrateClick);
             this.FindControl<ContentControl>("MigrateHost")!.Content = _migrateButton;
 
             var cancelButton = BuildSecondaryButton(LocalizationManager.T("Common.Cancel"),
@@ -198,6 +198,29 @@ namespace Workspace1C
             if (_clusterCombo.SelectedItem is RacCluster current && current.Id == id)
                 return;
             _clusterCombo.SelectedItem = _vm.Clusters.FirstOrDefault(c => c.Id == id);
+        }
+
+        /// <summary>
+        /// «Перенести» (issue #41, 1.0.0.52). При наличии в кластере назначения баз
+        /// с теми же именами сначала показываем предупреждение и запрашиваем
+        /// подтверждение — повторный перенос после сбоя легален, но пользователь
+        /// должен знать о конфликте заранее. Иначе — запускаем перенос сразу.
+        /// </summary>
+        private void OnMigrateClick()
+        {
+            if (_vm.HasConflicts)
+            {
+                var confirmed = AppServices.GetRequiredService<IDialogService>().Confirm(
+                    string.Format(
+                        LocalizationManager.T("ClusterMigration.ConfirmConflictsFormat"),
+                        _vm.ConflictingBaseNames.Count,
+                        string.Join(", ", _vm.ConflictingBaseNames)),
+                    LocalizationManager.T("ClusterMigration.ConfirmConflictsTitle"));
+                if (!confirmed)
+                    return;
+            }
+
+            _vm.MigrateCommand.Execute(null);
         }
 
         /// <summary>

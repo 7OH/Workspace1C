@@ -1280,12 +1280,13 @@ namespace Workspace1C
                 Margin = new Thickness(0, 0, 0, 8)
             };
             clientOptions.Children.Add(
-                SessionOption(LocalizationManager.T("Main.SessionClientAuto"), "SessionClient", "IsSessionClientAuto"));
+                SessionOption(LocalizationManager.T("Main.SessionClientAutoFull"), "SessionClient", "IsSessionClientAuto"));
             clientOptions.Children.Add(
                 SessionOption(LocalizationManager.T("Main.SessionClientOrdinary"), "SessionClient", "IsSessionClientOrdinary"));
+            // Тултипа «Полный клиент…» нет (issue #45, 1.0.0.52) — детали режима клиента
+            // вынесены прямо в подписи радиокнопок и в подсказку «?» (Main.CurrentSessionHelp).
             clientOptions.Children.Add(
-                SessionOption(LocalizationManager.T("Main.SessionClientThickManaged"), "SessionClient", "IsSessionClientThick",
-                    LocalizationManager.T("Main.SessionThickManagedTooltip")));
+                SessionOption(LocalizationManager.T("Main.SessionClientThickManaged"), "SessionClient", "IsSessionClientThick"));
             clientOptions.Children.Add(
                 SessionOption(LocalizationManager.T("Main.SessionClientThin"), "SessionClient", "IsSessionClientThin"));
 

@@ -68,8 +68,26 @@ namespace Workspace1C
         private void OnDbPasswordChanged(object sender, RoutedEventArgs e) =>
             _vm.DbPassword = DbPasswordBox.Password;
 
-        private void OnMigrate_Click(object sender, RoutedEventArgs e) =>
+        private void OnMigrate_Click(object sender, RoutedEventArgs e)
+        {
+            // Наличие баз с теми же именами в приёмнике (issue #41, 1.0.0.52):
+            // предупреждаем и спрашиваем подтверждение — повторный перенос после
+            // сбоя легален, но пользователь должен знать о конфликте заранее.
+            if (_vm.HasConflicts)
+            {
+                var answer = MessageBox.Show(
+                    string.Format(
+                        LocalizationManager.T("ClusterMigration.ConfirmConflictsFormat"),
+                        _vm.ConflictingBaseNames.Count,
+                        string.Join(", ", _vm.ConflictingBaseNames)),
+                    LocalizationManager.T("ClusterMigration.ConfirmConflictsTitle"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (answer != MessageBoxResult.Yes)
+                    return;
+            }
+
             _vm.MigrateCommand.Execute(null);
+        }
 
         private void OnCancel_Click(object sender, RoutedEventArgs e)
         {

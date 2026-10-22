@@ -1201,7 +1201,6 @@
                               ScrollViewer.VerticalScrollBarVisibility="Hidden"
                               ScrollViewer.CanContentScroll="True"
                               VirtualizingPanel.IsVirtualizing="True"
-                              VirtualizingPanel.VirtualizationMode="Recycling"
                               VirtualizingPanel.ScrollUnit="Pixel"
                               SelectedItemChanged="OnMainTree_SelectedItemChanged"
                               RequestBringIntoView="OnMainTree_RequestBringIntoView"
@@ -2154,9 +2153,14 @@
                                      каскад событий SelectedItemChanged (база дублируется в «Закреплённых» и в своей
                                      группе), что приводит к бесконечной рекурсии и StackOverflowException. -->
                                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
-                                <!-- Виртуализация вложенных уровней: иначе при развороте групп создаются все строки сразу -->
+                                <!-- Виртуализация вложенных уровней: иначе при развороте групп создаются все строки сразу.
+                                     VirtualizationMode=Standard (1.0.0.52, issue #21): Recycling-пул ItemContainerGenerator
+                                     накапливал контейнеры строк прошлых вкладок (рост heapAfterGcMb ~4 МБ/смену),
+                                     а динамическое переключение режима после Measure панели запрещено WPF
+                                     (InvalidOperationException в 1.0.0.50). Стандартная виртуализация создаёт
+                                     и удаляет только видимые контейнеры — утечки нет, переключение вкладок стабильно. -->
                                 <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
-                                <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+                                <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Standard"/>
                                 <Setter Property="ItemsPanel">
                                     <Setter.Value>
                                         <ItemsPanelTemplate>
@@ -3033,7 +3037,7 @@
                                            Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4"
                                            Visibility="{Binding ShowRightPanelDetails, Converter={StaticResource BoolToVis}}"/>
                                 <StackPanel Margin="0,0,0,8">
-                                    <RadioButton Content="{loc:Loc Main.SessionClientAuto}" GroupName="SessionClient"
+                                    <RadioButton Content="{loc:Loc Main.SessionClientAutoFull}" GroupName="SessionClient"
                                                  IsChecked="{Binding IsSessionClientAuto, Mode=TwoWay}"
                                                  Margin="0,2" Cursor="Hand" FontSize="12"
                                                  Foreground="{DynamicResource TextPrimaryBrush}"/>
@@ -3044,7 +3048,6 @@
                                     <RadioButton Content="{loc:Loc Main.SessionClientThickManaged}" GroupName="SessionClient"
                                                  IsChecked="{Binding IsSessionClientThick, Mode=TwoWay}"
                                                  Margin="0,2" Cursor="Hand" FontSize="12"
-                                                 ToolTip="{loc:Loc Main.SessionThickManagedTooltip}"
                                                  Foreground="{DynamicResource TextPrimaryBrush}"/>
                                     <RadioButton Content="{loc:Loc Main.SessionClientThin}" GroupName="SessionClient"
                                                  IsChecked="{Binding IsSessionClientThin, Mode=TwoWay}"

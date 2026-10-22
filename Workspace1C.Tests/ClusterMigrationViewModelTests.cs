@@ -77,6 +77,42 @@ public sealed class ClusterMigrationViewModelTests
     }
 
     [Fact]
+    public async Task ClusterSelection_WithTargetBases_ExposesConflicts()
+    {
+        // Имитация приёмника, где «База1» уже существует (issue #41, 1.0.0.52).
+        var client = new FakeRacClient(
+            singleCluster: true, targetBaseNames: new[] { "База1", "ДругаяБаза" });
+        var vm = new ClusterMigrationViewModel(
+            client, BuildParams(), ClusterId, BuildRows("База1", "База2"),
+            new[] { BuildServer("tgt", "srv-new") }, null);
+
+        vm.SelectedServer = vm.AvailableServers[0];
+        await AwaitClusters(vm);                  // автовыбор единственного кластера
+        await Task.Delay(150);                    // завершение фоновой проверки конфликтов
+
+        Assert.True(vm.HasConflicts);
+        Assert.Equal(new[] { "База1" }, vm.ConflictingBaseNames);
+        Assert.Equal(1, vm.ConflictingBaseNames.Count);
+    }
+
+    [Fact]
+    public async Task ClusterSelection_WithoutConflicts_HasEmptyConflicts()
+    {
+        var client = new FakeRacClient(
+            singleCluster: true, targetBaseNames: new[] { "СовсемДругаяБаза" });
+        var vm = new ClusterMigrationViewModel(
+            client, BuildParams(), ClusterId, BuildRows("База1", "База2"),
+            new[] { BuildServer("tgt", "srv-new") }, null);
+
+        vm.SelectedServer = vm.AvailableServers[0];
+        await AwaitClusters(vm);
+        await Task.Delay(150);
+
+        Assert.False(vm.HasConflicts);
+        Assert.Empty(vm.ConflictingBaseNames);
+    }
+
+    [Fact]
     public async Task Migrate_CreatesInTarget_AndDropsFromSourceEachBase()
     {
         var client = new FakeRacClient();
@@ -327,12 +363,15 @@ public sealed class ClusterMigrationViewModelTests
         private readonly bool _singleCluster;
         private readonly bool _failCreate;
         private readonly bool _failDrop;
+        private readonly string[] _targetBaseNames;
 
-        public FakeRacClient(bool singleCluster = true, bool failCreate = false, bool failDrop = false)
+        public FakeRacClient(bool singleCluster = true, bool failCreate = false, bool failDrop = false,
+            string[]? targetBaseNames = null)
         {
             _singleCluster = singleCluster;
             _failCreate = failCreate;
             _failDrop = failDrop;
+            _targetBaseNames = targetBaseNames ?? Array.Empty<string>();
         }
 
         public RacConnectionParams? LastParams { get; private set; }
@@ -367,7 +406,8 @@ public sealed class ClusterMigrationViewModelTests
 
         public Task<IReadOnlyList<RacInfobaseSummary>> GetInfobasesAsync(
             RacConnectionParams parameters, Guid clusterId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<RacInfobaseSummary>>(Array.Empty<RacInfobaseSummary>());
+            Task.FromResult<IReadOnlyList<RacInfobaseSummary>>(
+                _targetBaseNames.Select(name => new RacInfobaseSummary { Name = name }).ToList());
 
         public Task<bool> CreateInfobaseAsync(
             RacConnectionParams parameters, Guid clusterId, RacInfobaseCreateRequest request,

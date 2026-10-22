@@ -291,6 +291,7 @@ namespace Workspace1C
                     SyncSelectedCluster();
                     break;
                 case nameof(ClusterImportViewModel.ReadyToImportCount):
+                case nameof(ClusterImportViewModel.CheckedCount):
                 case nameof(ClusterImportViewModel.DuplicateCount):
                     UpdateSummary();
                     UpdateCommandStates();
@@ -312,8 +313,10 @@ namespace Workspace1C
             _selectAllButton.IsEnabled = !busy;
             _selectNoneButton.IsEnabled = !busy;
             _importButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
-            // «Мигрировать» (issue #41): доступна при отмеченных базах, как «Импортировать».
-            _migrateButton.IsEnabled = !busy && _vm.ReadyToImportCount > 0;
+            // «Мигрировать» (issue #41, 1.0.0.52): доступна при ЛЮБОЙ отмеченной базе
+            // (без фильтра дубликатов/пропусков — для переноса это не помеха);
+            // проверка «база уже есть в приёмнике» выполняется в диалоге миграции.
+            _migrateButton.IsEnabled = !busy && _vm.CheckedCount > 0;
             _progressBar.IsVisible = busy;
         }
 

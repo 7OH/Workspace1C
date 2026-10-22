@@ -159,9 +159,11 @@ namespace Workspace1C.Services
         }
 
         /// <summary>
-        /// Системное уведомление «Доступна новая версия X.Y.Z» (функция №4). Вызывается из
-        /// фоновой проверки при молчаливом автообновлении; ошибки уведомления не влияют на
-        /// обновление.
+        /// Системное уведомление «Доступна новая версия X.Y.Z» с описанием изменений
+        /// (функция №4; issue #44): к тексту добавляется «Что нового:» из описания
+        /// выпуска (release.Body) и ссылка на страницу релиза — как список изменений
+        /// в главном окне. Вызывается из фоновой проверки при молчаливом автообновлении;
+        /// ошибки уведомления не влияют на обновление.
         /// </summary>
         private void NotifyUpdateAvailable(ReleaseInfo release)
         {
@@ -169,7 +171,7 @@ namespace Workspace1C.Services
             {
                 _notifications.Show(
                     LocalizationManager.T("App.Title"),
-                    string.Format(LocalizationManager.T("Notify.UpdateAvailable"), release.TagName),
+                    BuildUpdateAvailableMessage(release),
                     NotificationKind.Info,
                     NotificationEvent.Update);
             }
@@ -177,6 +179,40 @@ namespace Workspace1C.Services
             {
                 // Уведомление не должно ронять фоновую проверку.
             }
+        }
+
+        /// <summary>
+        /// Текст уведомления о доступной новой версии (issue #44): заголовок «Доступна
+        /// новая версия X», затем «Что нового:» с описанием выпуска (до
+        /// <see cref="MaxUpdateNotesLength"/> символов) и ссылкой на страницу релиза.
+        /// Пустое/недоступное описание не ломает уведомление — остаётся заголовок.
+        /// </summary>
+        private static string BuildUpdateAvailableMessage(ReleaseInfo release)
+        {
+            var header = string.Format(LocalizationManager.T("Notify.UpdateAvailable"), release.TagName);
+            var notes = TruncateReleaseNotes(release.Body);
+            var message = string.IsNullOrWhiteSpace(notes)
+                ? header
+                : header + Environment.NewLine + Environment.NewLine +
+                  LocalizationManager.T("Notify.ReleaseNotes") + Environment.NewLine + notes;
+
+            if (!string.IsNullOrWhiteSpace(release.HtmlUrl))
+                message += Environment.NewLine + release.HtmlUrl;
+
+            return message;
+        }
+
+        /// <summary>Максимальная длина описания изменений в уведомлении (символов).</summary>
+        private const int MaxUpdateNotesLength = 2000;
+
+        private static string TruncateReleaseNotes(string? body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return string.Empty;
+            var text = body.Trim();
+            return text.Length <= MaxUpdateNotesLength
+                ? text
+                : text[..MaxUpdateNotesLength].TrimEnd() + "…";
         }
 
         /// <summary>

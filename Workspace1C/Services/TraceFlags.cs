@@ -55,12 +55,15 @@ public static class TraceFlags
     /// «Все/Избранное/Недавние» — для контроля утечки памяти и роста задержки.</summary>
     public const string TreeSwitchFlag = "CM_TREESWITCH";
 
-    /// <summary>Флаг лога освобождения Recycling-панелей дерева после смены вкладки
-    /// (CM_TREESWITCH_FLUSH, issue #21). Сам механизм рекурсивного освобождения
-    /// контейнеров (фикс 1.0.0.41) выполняется ВСЕГДА после чистого переключения
-    /// вкладки; флаг лишь добавляет в журнал строку о числе освобождённых панелей
-    /// (flushPanels уже выводится в CM_TREESWITCH). Прежний эксперимент B 1.0.0.36,
-    /// ограничивавшийся корневой панелью MainTree, заменён полным обходом дерева.</summary>
+    /// <summary>Флаг лога освобождения панелей дерева после смены вкладки
+    /// (CM_TREESWITCH_FLUSH, issue #21). С 1.0.0.52 панели дерева работают в
+    /// VirtualizationMode.Standard (см. MainWindow.xaml) и не используют Recycling-пул,
+    /// поэтому отдельный сброс не выполняется (flushPanels/flushMs в CM_TREESWITCH
+    /// всегда 0, а главный показатель фикса — стабильный heapAfterGcMb). Флаг
+    /// сохранён для обратной совместимости логов. Прежние фиксы 1.0.0.41–1.0.0.50
+    /// (рекурсивный сброс Recycling-пулов) заменены из-за InvalidOperationException
+    /// при смене VirtualizationMode после Measure панели (1.0.0.50) и голодания
+    /// отложенных прогонов (1.0.0.41–1.0.0.46).</summary>
     public const string TreeSwitchPoolFlushFlag = "CM_TREESWITCH_FLUSH";
 
     /// <summary>Флаг диагностики «перехода к строке» (CM_REVEAL, issue #31): цель и

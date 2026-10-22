@@ -40,6 +40,7 @@ public sealed class ClusterImportViewModel : ViewModelBase
     private string _statusText = string.Empty;
     private string _errorMessage = string.Empty;
     private int _readyToImportCount;
+    private int _checkedCount;
     private int _duplicateCount;
     private IReadOnlyList<Infobase> _selectedBases = Array.Empty<Infobase>();
     private bool _importCompleted;
@@ -208,6 +209,19 @@ public sealed class ClusterImportViewModel : ViewModelBase
     {
         get => _readyToImportCount;
         private set => SetProperty(ref _readyToImportCount, value);
+    }
+
+    /// <summary>
+    /// Число ВСЕХ отмеченных строк чеклиста (без фильтра дубликатов/пропусков, issue #41).
+    /// Используется для доступности кнопки «Мигрировать»: для миграции наличие базы
+    /// в списке приложения или причины пропуска при импорте не помеха — база переносится
+    /// (или копируется) в другой кластер как есть. Проверки «уже есть в приёмнике»
+    /// выполняются в диалоге миграции после выбора кластера назначения (1.0.0.52).
+    /// </summary>
+    public int CheckedCount
+    {
+        get => _checkedCount;
+        private set => SetProperty(ref _checkedCount, value);
     }
 
     /// <summary>Число дубликатов и пропущенных баз («уже есть в списке»).</summary>
@@ -624,15 +638,18 @@ public sealed class ClusterImportViewModel : ViewModelBase
     public RacConnectionParams BuildSourceParams() => BuildParams();
 
     /// <summary>
-    /// Строки чеклиста для миграции (issue #41): отмеченные, не дубликаты и без причины
-    /// пропуска — тот же фильтр, что у «Импортировать» (<see cref="Import"/>), только с
-    /// исходными записями rac (<see cref="ClusterImportRow.Source"/>, нужными миграции для
-    /// создания базы в новом кластере и удаления из старого). Пустой результат — кнопка
-    /// «Мигрировать» в окне показывает «ничего не выбрано» без открытия диалога.
+    /// Строки чеклиста для миграции (issue #41): отмеченные строки с исходными записями
+    /// rac (<see cref="ClusterImportRow.Source"/>, нужными миграции для создания базы в
+    /// новом кластере и удаления из старого). В отличие от импорта для миграции НЕ
+    /// применяются фильтры дубликатов и причин пропуска (1.0.0.52): база может быть
+    /// перенесена/скопирована в другой кластер, даже если она уже есть в списке
+    /// приложения или пропущена при импорте. Проверка «база уже есть в кластере
+    /// назначения» выполняется в диалоге миграции после выбора цели.
+    /// Пустой результат — кнопка «Мигрировать» показывает «ничего не выбрано».
     /// </summary>
     public IReadOnlyList<ClusterImportRow> SelectedRowsForMigration() =>
         Rows
-            .Where(r => r.IsChecked && !r.IsDuplicate && string.IsNullOrEmpty(r.SkipReason) && r.Source is not null)
+            .Where(r => r.IsChecked && r.Source is not null)
             .ToList();
 
     /// <summary>«Выделить все»: отметить все импортируемые строки (дубликаты не трогаем).</summary>
@@ -806,6 +823,8 @@ public sealed class ClusterImportViewModel : ViewModelBase
     private void UpdateSummary()
     {
         ReadyToImportCount = Rows.Count(r => r.IsChecked && !r.IsDuplicate && string.IsNullOrEmpty(r.SkipReason));
+        // Для «Мигрировать» нужен общий счётчик отмеченных (без фильтра дублей, issue #41).
+        CheckedCount = Rows.Count(r => r.IsChecked);
         DuplicateCount = Rows.Count(r => r.IsDuplicate || !string.IsNullOrEmpty(r.SkipReason));
     }
 

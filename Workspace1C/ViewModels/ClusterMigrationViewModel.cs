@@ -37,6 +37,10 @@ public sealed class ClusterMigrationViewModel : ViewModelBase
     private ManagementServer? _selectedServer;
     private IReadOnlyList<RacCluster> _clusters = Array.Empty<RacCluster>();
     private Guid? _selectedClusterId;
+    private IReadOnlyList<string> _conflictingBaseNames = Array.Empty<string>();
+    // Версия запроса проверки конфликтов: смена сервера/кластера помечает вполоборота
+    // устаревший запрос (его результат игнорируется), новый — перечитывает приёмник.
+    private long _conflictCheckVersion;
     private string _dbUser = string.Empty;
     private string _dbPassword = string.Empty;
     private bool _keepInSource;
@@ -115,6 +119,8 @@ public sealed class ClusterMigrationViewModel : ViewModelBase
                 return;
             _selectedServer = value;
             OnPropertyChanged(nameof(SelectedServer));
+            // Смена сервера погашает незавершённую проверку конфликтов прежнего кластера.
+            _conflictCheckVersion++;
             if (value is not null)
                 StartConnect();
         }
@@ -135,12 +141,87 @@ public sealed class ClusterMigrationViewModel : ViewModelBase
 
     /// <summary>
     /// Выбранный кластер назначения. Единственный кластер сервера выбирается
-    /// автоматически после загрузки (как в окне импорта, issue #25).
+    /// автоматически после загрузки (как в окне импорта, issue #25). При выборе
+    /// кластера выполняется фоновая проверка конфликтов: какие из переносимых баз
+    /// уже существуют в приёмнике (см. <see cref="ConflictingBaseNames"/>).
     /// </summary>
     public Guid? SelectedClusterId
     {
         get => _selectedClusterId;
-        set => SetProperty(ref _selectedClusterId, value);
+        set
+        {
+            if (SetProperty(ref _selectedClusterId, value))
+            {
+                _conflictCheckVersion++;
+                _ = RefreshConflictsAsync(_conflictCheckVersion);
+            }
+        }
+    }
+
+    // ===================== Конфликты в кластере-приёмнике (issue #41, 1.0.0.52) =====================
+
+    /// <summary>
+    /// Имена переносимых баз, которые УЖЕ существуют в выбранном кластере назначения
+    /// (проверка «infobase summary list» приёмника). Пустой список — конфликтов нет.
+    /// Проверка не блокирует перенос: окно при нажатии «Перенести» предупреждает
+    /// пользователя и спрашивает подтверждение (повторный перенос после сбоя —
+    /// типичный легальный сценарий).
+    /// </summary>
+    public IReadOnlyList<string> ConflictingBaseNames => _conflictingBaseNames;
+
+    /// <summary>Есть ли конфликты имён между переносимыми базами и приёмником.</summary>
+    public bool HasConflicts => _conflictingBaseNames.Count > 0;
+
+    /// <summary>Текст предупреждения о конфликтах (для статусной строки окна).</summary>
+    public string ConflictsText => HasConflicts
+        ? string.Format(
+            LocalizationManager.T("ClusterMigration.ConflictsWarningFormat"),
+            string.Join(", ", _conflictingBaseNames))
+        : string.Empty;
+
+    /// <summary>
+    /// Перечитывает список баз кластера назначения и вычисляет пересечение имён
+    /// с переносимыми базами. Результат применяется, только если версия запроса
+    /// актуальна (сервер/кластер не сменились). Ошибка проверки НЕ блокирует
+    /// перенос — конфликты просто не показываются.
+    /// </summary>
+    private async Task RefreshConflictsAsync(long version)
+    {
+        if (SelectedServer is not { } server || SelectedClusterId is not Guid clusterId)
+        {
+            SetConflicts(Array.Empty<string>(), version);
+            return;
+        }
+
+        try
+        {
+            var bases = await _rac.GetInfobasesAsync(BuildTargetParams(server), clusterId).ConfigureAwait(false);
+            if (version != _conflictCheckVersion)
+                return; // сервер/кластер уже сменились — результат устарел
+            var targetNames = new HashSet<string>(
+                bases.Select(b => b.Name), StringComparer.OrdinalIgnoreCase);
+            var conflicts = _rows
+                .Where(r => targetNames.Contains(r.Name))
+                .Select(r => r.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            SetConflicts(conflicts, version);
+        }
+        catch
+        {
+            if (version == _conflictCheckVersion)
+                SetConflicts(Array.Empty<string>(), version);
+        }
+    }
+
+    private void SetConflicts(IReadOnlyList<string> names, long version)
+    {
+        if (version != _conflictCheckVersion)
+            return;
+        _conflictingBaseNames = names ?? Array.Empty<string>();
+        OnPropertyChanged(nameof(ConflictingBaseNames));
+        OnPropertyChanged(nameof(HasConflicts));
+        OnPropertyChanged(nameof(ConflictsText));
     }
 
     // ===================== Учётные данные СУБД =====================
